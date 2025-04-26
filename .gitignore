@@ -1,0 +1,77 @@
+# ───────────────────────────
+#  Общие вещи
+# ───────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+
+# ───────────────────────────
+#  Python / pip / venv
+# ───────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Локальное виртуальное окружение
+.venv/
+venv/
+env/
+.poetry/
+
+# setuptools / wheel
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# pipenv
+Pipfile.lock
+
+# ───────────────────────────
+#  Тесты и покрытие
+# ───────────────────────────
+.coverage
+htmlcov/
+.cache/
+.mypy_cache/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+
+# ───────────────────────────
+#  Логи и runtime-файлы
+# ───────────────────────────
+logs/
+*.log
+*.pid
+*.sqlite3
+instance/
+
+# ───────────────────────────
+#  Конфиги и приватные данные
+# ───────────────────────────
+config.json
+config_cache.json
+fallback_data.json
+devices.yaml
+
+# ───────────────────────────
+#  Docker / CI промежуточные
+# ───────────────────────────
+*.orig
+*.rej
+*.tmp
+*.bak~
+*.old
+
+# ───────────────────────────
+#  Сгенерированные, которые можно восстановить
+# ───────────────────────────
+docs/_build/
+web_fallback_url.txt
+app/cache/dess_token.json
