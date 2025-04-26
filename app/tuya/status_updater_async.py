@@ -1,0 +1,69 @@
+# app/status_updater_async.py
+import asyncio
+import logging
+import time
+from datetime import datetime
+
+from app.device_initializer import DeviceInitializer     # даёт RelayDeviceManager
+from app.tuya.tuya_authorisation import TuyaAuthorisation
+
+logger = logging.getLogger("TuyaStatusUpdater")
+
+class TuyaStatusUpdaterAsync:
+    """
+    Периодически (interval с) запрашивает статусы у облака Tuya
+    и обновляет объекты RelayChannelDevice.
+    Работает как корутина, которую удобно запускать через
+    asyncio.create_task().
+    """
+    def __init__(self, interval: int = 30):
+        self.interval   = interval
+        self._stop      = asyncio.Event()
+
+        self.dev_mgr    = DeviceInitializer().device_controller
+        self.auth       = TuyaAuthorisation()             # уже подключён / авторизован
+
+    # -------------------------------------------------------------
+    async def run(self):
+        logger.info("Async-status-updater started")
+        while not self._stop.is_set():
+            started = time.time()
+            try:
+                await self._update_once()
+            except Exception as exc:
+                logger.error(f"status update failed: {exc}", exc_info=True)
+
+            sleep_for = self.interval - (time.time() - started)
+            if sleep_for > 0:
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=sleep_for)
+                except asyncio.TimeoutError:
+                    pass
+        logger.info("Async-status-updater stopped")
+
+    # -------------------------------------------------------------
+    async def _update_once(self) -> None:
+        devices = self.dev_mgr.get_devices()
+        tuya_ids = list({d.tuya_device_id for d in devices})
+
+        # вызываем облако в ThreadPool-е, чтобы не блокировать event-loop
+        result = await asyncio.to_thread(
+            self.auth.device_manager.get_device_list_status, tuya_ids
+        )
+
+        for dev_res in result.get("result", []):
+            tuya_id = dev_res["id"]
+            raw = dev_res.get("status", [])
+
+            # все логические каналы, «сидящие» на этом tuya-устройстве
+            for dev in (d for d in devices if d.tuya_device_id == tuya_id):
+                parsed = dev.extract_status(raw)
+                dev.update_status(parsed)
+                now_ts = int(datetime.now().timestamp())
+                dev.tick(now_ts)
+
+        logger.debug("[Updater] statuses synced")
+
+    def stop(self) -> None:
+        """Сообщить циклу run(), что пора завершаться."""
+        self._stop.set()
