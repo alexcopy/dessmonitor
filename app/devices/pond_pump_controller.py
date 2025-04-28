@@ -1,74 +1,87 @@
-import asyncio, logging, time
-from datetime import datetime
-from typing   import Optional
+# app/devices/pond_pump_controller.py
+import asyncio
+import logging
+import time
+from typing import Optional
 
+from shared_state.shared_state import shared_state
 from app.devices.relay_channel_device import RelayChannelDevice
 
 
 class PondPumpController:
-    """Считает целевую скорость насоса (поле `P`) без суточных коррекций."""
+    """
+    Определяет целевую скорость насоса (код Tuya `P`).
 
-    def __init__(self):
-        # кеш погоды – чтобы не бомбить API
-        self._weather     = {}          # town -> dict(...)
-        self._weather_ts  = {}          # town -> unix-ts
-        self._weather_ttl = 30 * 60     # 30 мин
+    ① Сначала берём температуру из shared_state['ambient_temp']
+       (кладётся апдейтером статусов с термодатчика).
+    ② Если её нет – используем python_weather как резерв.
+    ③ По таблице temp→speed подбираем минимальную допустимую
+       скорость и дальше уже «шагаем» вверх/вниз в зависимости
+       от напряжения аккумулятора.
+    """
 
-    # ───────────────────────────── погодный минимум ────────────────── #
+    _WEATHER_TTL = 30 * 60          # 30 мин  для fallback-погоды
+
+    def __init__(self) -> None:
+        self._cache: dict[str, tuple[dict, int]] = {}   # town -> (data, ts)
+
+    # ─────────────────────── Weather fallback (резерв) ──────────────────────
     async def _fetch_weather(self, town: str) -> dict:
         import python_weather
         async with python_weather.Client(format=python_weather.METRIC) as client:
             w = await client.get(town)
-        return {
-            "temperature": int(w.current.temperature),
-            "is_valid":   True
-        }
+        return {"temperature": int(w.current.temperature), "is_valid": True}
 
-    async def _get_weather(self, town: str) -> dict:
+    async def _external_temp(self, town: str) -> Optional[float]:
+        if not town:
+            return None
+
         now = int(time.time())
-        if town in self._weather and now - self._weather_ts[town] < self._weather_ttl:
-            return self._weather[town]
+        if town in self._cache and now - self._cache[town][1] < self._WEATHER_TTL:
+            return self._cache[town][0]["temperature"]
 
         try:
             data = await self._fetch_weather(town)
+            self._cache[town] = (data, now)
+            return float(data["temperature"])
         except Exception as e:
-            logging.warning(f"[Pump] weather for '{town}' failed: {e}")
-            data = {"temperature": 10, "is_valid": False}
+            logging.warning(f"[Pump] fallback weather for '{town}' failed: {e}")
+            return None
 
-        self._weather[town]    = data
-        self._weather_ts[town] = now
-        return data
-
+    # ─────────────────────── минимальная скорость ─────────────────────────
     async def calc_min_speed(self, dev: RelayChannelDevice) -> int:
-        """Минимально допустимая скорость из таблицы temp→speed."""
-        table = dev.extra.get("weather", {})          # { "10": 20, … }
-        town  = dev.extra.get("weather_town", "")
-        w     = await self._get_weather(town)
+        table: dict[str, int] = dev.extra.get("weather", {})          # temp→speed
+        default_min            = dev.extra.get("min_speed", 20)
 
-        if not w.get("is_valid"):
-            return dev.extra.get("min_speed", 20)
+        # ① пробуем свою температуру
+        temp: Optional[float] = shared_state.get("ambient_temp")
 
-        t_curr   = w["temperature"]
-        prev_spd = dev.extra.get("min_speed", 20)
-        for t_lim in sorted(map(int, table.keys())):
-            if t_curr < t_lim:
-                return prev_spd
-            prev_spd = int(table[str(t_lim)])
-        return prev_spd
+        # ② резерв – внешний прогноз
+        if temp is None:
+            temp = await self._external_temp(dev.extra.get("weather_town", ""))
 
-    # ───────────────────────────── speed helpers ───────────────────── #
+        if temp is None:                       # вообще нет данных
+            return default_min
+
+        # переводим ключи таблицы в int
+        int_table = {int(k): int(v) for k, v in table.items()}
+        prev_speed = default_min
+        for limit in sorted(int_table):
+            if temp < limit:
+                return prev_speed
+            prev_speed = int_table[limit]
+        return prev_speed
+
+    # ─────────────────────── helpers для изменения P ───────────────────────
     @staticmethod
-    def _round_to_step(value: int, step: int) -> int:
-        """Гарантируем кратность шагу."""
-        return max(step, round(value / step) * step)
-
-    def _inc(self, cur: int, step: int, max_s: int) -> int:
+    def _inc(cur: int, step: int, max_s: int) -> int:
         return min(cur + step, max_s)
 
-    def _dec(self, cur: int, step: int, min_s: int) -> int:
+    @staticmethod
+    def _dec(cur: int, step: int, min_s: int) -> int:
         return max(cur - step, min_s)
 
-    # ───────────────────────────── публичный API ───────────────────── #
+    # ─────────────────────── основной публичный метод ──────────────────────
     async def deside_speed(
         self,
         dev: RelayChannelDevice,
@@ -76,28 +89,24 @@ class PondPumpController:
         inverter_on: bool
     ) -> Optional[int]:
         """
-        Возвращает **целевое** значение `P` либо None (оставить как есть).
+        Возвращает целевое значение `P` или None (ничего не менять).
         """
-        cur       = int(dev.status.get("P", 0))
-        step      = dev.extra.get("speed_step", 5)
-        min_v     = dev.min_volt
-        max_v     = dev.max_volt
-        min_speed = await self.calc_min_speed(dev)
-        max_speed = dev.extra.get("max_speed", 100)
+        cur        = int(dev.status.get("P", 0))
+        step       = dev.extra.get("speed_step", 5)
+        min_v, max_v = dev.min_volt, dev.max_volt
+        min_speed  = await self.calc_min_speed(dev)
+        max_speed  = dev.extra.get("max_speed", 100)
 
-        # Если инвертор выключен → минималка
+        # Инвертор питается от сети – ставим минималку
         if not inverter_on:
             return min_speed if cur != min_speed else None
 
-        # Напряжение в зеленой зоне → ничего не меняем
         if min_v <= inverter_voltage <= max_v:
-            return None
+            return None                         # «зелёная» зона
 
-        # Высокое напряжение → ускоряем
         if inverter_voltage > max_v and cur < max_speed:
             return self._inc(cur, step, max_speed)
 
-        # Низкое напряжение → замедляем, но не ниже погодного минимума
         if inverter_voltage < min_v and cur > min_speed:
             return self._dec(cur, step, min_speed)
 

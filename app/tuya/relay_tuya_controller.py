@@ -1,9 +1,11 @@
 import time
 import logging
 from datetime import datetime, time as dt_time
+from os import device_encoding
 from typing import List, Optional, Any
 
 from app.devices.relay_channel_device import RelayChannelDevice
+from shared_state.shared_state import shared_state
 
 
 class RelayTuyaController:
@@ -13,9 +15,11 @@ class RelayTuyaController:
     # ---------- низкоуровневое переключение ----------
     def _send_switch_cmd(self, device: RelayChannelDevice, value) -> bool:
         # команда идёт на РОДИТЕЛЬСКОЕ устройство, а код – это channel/api_key
+        control_key = (getattr(device, "control_key", None) or
+                getattr(device, "api_key", None))
         cmd = {
             "devId": device.tuya_device_id,
-            "commands": [{"code": device.api_key, "value": value}]
+            "commands": [{"code": control_key, "value": value}]
         }
         try:
             resp = self.authorisation.device_manager.send_commands(cmd["devId"], cmd["commands"])
@@ -89,6 +93,15 @@ class RelayTuyaController:
                 device = self.select_device_by_id(devices, dev_id)
                 if device and "status" in result:
                     device.update_status(device.extract_status(result["status"]))
+                else:
+                    continue
+                device_name = device.get_name()
+                if device_name in ("watertemp", "pondtemp") and device.device_type.lower() in ("thermo", "thermometer", "termo_sensor"):
+                    raw_t = device.status.get("temp_current")
+                    if raw_t is not None:
+                        # temp_current приходит в десятых долях градуса
+                        shared_state["ambient_temp"] = raw_t / 10
+
         except Exception as e:
             logging.error(f"[RelayTuyaController] Ошибка получения статуса устройств: {str(e)}")
 

@@ -30,7 +30,7 @@ class SingletonMeta(type):
 class TuyaAuthorisation(metaclass=SingletonMeta):
     def __init__(self):
         # ▸ 1. переводим SDK-логгер на WARNING (или ERROR)
-        TUYA_LOGGER.setLevel(logging.WARNING)
+        TUYA_LOGGER.setLevel(logging.ERROR)
         # ▸ 2. убираем его «консольный» handler
         for h in TUYA_LOGGER.handlers[:]:
             TUYA_LOGGER.removeHandler(h)
