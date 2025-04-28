@@ -2,6 +2,7 @@
 import asyncio, logging
 from app.api import DessAPI, DeviceData
 from app.monitoring.inverter_logger import InverterLogger
+from app.utils.time_utils import smart_sleep
 from shared_state.shared_state import shared_state
 
 
@@ -13,36 +14,18 @@ class InverterMonitor:
         self._stop     = asyncio.Event()
 
     async def run(self) -> None:
-        """
-        Периодически (каждые `self.interval` сек) опрашивает Dess-инвертор
-        и складывает результат в InverterLogger.
-        Завершается, когда в `_stop` установят событие.
-        """
         loop = asyncio.get_running_loop()
 
         while not self._stop.is_set():
-            started = loop.time()  # момент начала итерации
-
-            # ───────── попытка опросить и залогировать ─────────
             try:
                 dd = await asyncio.to_thread(self.api.fetch_device_data)
-                self.logger.log(dd)  # logs/inverter.log
-                self._process_business_metrics(dd)  # ваши доп-метрики
+                self.logger.log(dd)
+                self._process_business_metrics(dd)
             except Exception as exc:
-                logging.getLogger("IMPORTANT").warning(
-                    f"[INV_MON] fetch failed: {exc}"
-                )
+                logging.getLogger("IMPORTANT").warning(f"[INV_MON] fetch failed: {exc}")
 
-            # ───────── досыпаем до полного интервала ───────────
-            elapsed = loop.time() - started
-            remaining = self.interval - elapsed
-            if remaining > 0:
-                try:
-                    # ждём либо наступления remaining, либо _stop.set()
-                    await asyncio.wait_for(self._stop.wait(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    # время вышло – начинаем новую итерацию
-                    pass
+            # снова — один вызов smart_sleep
+            await smart_sleep(self._stop, self.interval)
 
     def stop(self):
         self._stop.set()

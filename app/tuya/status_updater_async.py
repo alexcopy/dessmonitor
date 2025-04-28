@@ -3,11 +3,14 @@ import asyncio
 import logging
 import time
 from datetime import datetime
+
+from app.utils.time_utils import smart_sleep
 from shared_state.shared_state import shared_state
 from app.device_initializer import DeviceInitializer
 from app.tuya.tuya_authorisation import TuyaAuthorisation
 
 logger = logging.getLogger("TuyaStatusUpdater")
+
 
 class TuyaStatusUpdaterAsync:
     """
@@ -16,29 +19,24 @@ class TuyaStatusUpdaterAsync:
     Работает как корутина, которую удобно запускать через
     asyncio.create_task().
     """
-    def __init__(self, interval: int = 30):
-        self.interval   = interval
-        self._stop      = asyncio.Event()
 
-        self.dev_mgr    = DeviceInitializer().device_controller
-        self.auth       = TuyaAuthorisation()             # уже подключён / авторизован
+    def __init__(self, interval: int = 30):
+        self.interval = interval
+        self._stop = asyncio.Event()
+
+        self.dev_mgr = DeviceInitializer().device_controller
+        self.auth = TuyaAuthorisation()  # уже подключён / авторизован
 
     # -------------------------------------------------------------
     async def run(self):
         logger.info("Async-status-updater started")
         while not self._stop.is_set():
-            started = time.time()
             try:
                 await self._update_once()
             except Exception as exc:
                 logger.error(f"status update failed: {exc}", exc_info=True)
-
-            sleep_for = self.interval - (time.time() - started)
-            if sleep_for > 0:
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=sleep_for)
-                except asyncio.TimeoutError:
-                    pass
+            # одна-единственная «умная» пауза
+            await smart_sleep(self._stop, self.interval)
         logger.info("Async-status-updater stopped")
 
     # -------------------------------------------------------------
