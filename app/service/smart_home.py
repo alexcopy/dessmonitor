@@ -1,11 +1,12 @@
+import logging
+import threading
+import time
+
 from app.device_initializer import DeviceInitializer
 from app.devices.pond_pump_controller import PondPumpController
 from app.devices.relay_device_manager import RelayDeviceManager
 from app.tuya.relay_tuya_controller import RelayTuyaController
-# from app.tuya.tuya_authorisation import TuyaAuthorisation
-import time
-import threading
-import logging
+
 
 class SmartHomeService:
     def __init__(self):

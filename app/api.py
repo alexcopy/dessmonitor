@@ -8,6 +8,9 @@ import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
+
+from shared_state.shared_state import shared_state
+
 _TOKEN_FILE = Path("app/cache/dess_token.json")
 
 @dataclass
@@ -36,7 +39,7 @@ class DeviceData:
     output_priority: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return asdict(self)  # type: ignore[arg-type]
 
     def summary(self) -> str:
         icon_map = {
@@ -205,7 +208,6 @@ class DessAPI:
 
     def fetch_device_data(self) -> DeviceData:
         try:
-            # старая логика опроса основного API
             if self.should_refresh_token():
                 try:
                     self.refresh_token()
@@ -221,13 +223,20 @@ class DessAPI:
                 "sn": self.sn,
             }
             result = self._do_api_request(params, need_auth=True)
-            return self._parse_device_data(result)
+            dd= self._parse_device_data(result)
 
         except Exception as main_exc:
             self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб‑кролл…")
-            return self.fetch_device_data_fallback()
+            dd= self.fetch_device_data_fallback()
 
-
+        shared_state.update(
+                battery_voltage=dd.battery_voltage,
+                working_mode=dd.working_state,
+                pv_power=dd.pv_total_power,
+                load_percent=dd.ac_output_load,
+            )
+        shared_state["inverter_raw"] = dd.to_dict()
+        return dd
 
     def fetch_device_data_fallback(self) -> DeviceData:
         """

@@ -5,6 +5,7 @@ from typing import Any, Sequence
 
 from colorama import Fore, Style, init
 from app.devices.relay_channel_device import RelayChannelDevice
+from shared_state.shared_state import shared_state
 
 init(autoreset=True)
 
@@ -49,25 +50,42 @@ class DeviceStatusLogger:
         return f"{s}s"
 
     # ─────────────────── snapshot (вертикальная таблица) ──────────────────
+    # -----------------------------------------------------------------
     def log_snapshot(self, devices: Sequence[RelayChannelDevice]) -> None:
         if not devices:
             return
 
         now  = int(datetime.now().timestamp())
-        rows = []
+        rows: list[str] = []
 
+        # ───────────────────── «шапка» с данными инвертора ──────────────────
+        inv_v   = shared_state.get("battery_voltage")   # None, если ещё нет
+        inv_mode= shared_state.get("working_mode")
+        pv_pow  = shared_state.get("pv_power")
+        load_pr = shared_state.get("load_percent")
+
+        head_parts: list[str] = []
+        if inv_v      is not None: head_parts.append(f"Batt {inv_v:.1f} V")
+        if inv_mode:             head_parts.append(inv_mode)
+        if pv_pow     is not None: head_parts.append(f"PV {pv_pow:.0f} W")
+        if load_pr    is not None: head_parts.append(f"Load {load_pr:.0f}%")
+
+        if head_parts:
+            rows.append(" / ".join(head_parts))
+
+        # ───────────────────── перечень устройств ──────────────────────────
         for d in sorted(devices, key=lambda x: x.priority):
-            dtype = d.device_type.lower()
+            dtype  = d.device_type.lower()
             energy = f"{d.today_kwh:.2f} kWh"
 
-            # ----- дискретные -----
+            # ---- дискретные (реле / насос) --------------------------------
             if dtype not in self.ANALOG_TYPES:
-                state  = "ON" if d.is_device_on() else "OFF"
-                up     = self._fmt_duration(now - d.last_switched) if d.is_device_on() else "—"
+                state = "ON" if d.is_device_on() else "OFF"
+                up    = self._fmt_duration(now - d.last_switched) if d.is_device_on() else "—"
                 rows.append(f"{d.name:<15} | {state:<3} | run={up:<8} | day-energy={energy}")
                 continue
 
-            # ----- аналоговые -----
+            # ---- аналоговые датчики ---------------------------------------
             temp_raw = d.status.get("temp_current")
             hum      = d.status.get("humidity_value")
             batt     = d.status.get("battery_percentage")
@@ -79,6 +97,7 @@ class DeviceStatusLogger:
 
             rows.append(f"{d.name:<15} | {'; '.join(parts):<25} | day-energy={energy}")
 
+        # печатаем одним блоком — удобнее читать
         self._logger.info("\n" + "\n".join(rows))
 
     # ───────────────────────── детали + алармы ──────────────────────────

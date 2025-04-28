@@ -1,124 +1,104 @@
-import asyncio
-import logging
-import time
+import asyncio, logging, time
 from datetime import datetime
+from typing   import Optional
 
 from app.devices.relay_channel_device import RelayChannelDevice
 
-DAY_TIME_COMPENSATE = 1.5
-
 
 class PondPumpController:
+    """Считает целевую скорость насоса (поле `P`) без суточных коррекций."""
+
     def __init__(self):
-        self.weather = None
-        self._min_speed = {'min_speed': 10, 'timestamp': int(time.time())}
+        # кеш погоды – чтобы не бомбить API
+        self._weather     = {}          # town -> dict(...)
+        self._weather_ts  = {}          # town -> unix-ts
+        self._weather_ttl = 30 * 60     # 30 мин
 
-    def update_weather(self, weather_town: str):
+    # ───────────────────────────── погодный минимум ────────────────── #
+    async def _fetch_weather(self, town: str) -> dict:
+        import python_weather
+        async with python_weather.Client(format=python_weather.METRIC) as client:
+            w = await client.get(town)
+        return {
+            "temperature": int(w.current.temperature),
+            "is_valid":   True
+        }
+
+    async def _get_weather(self, town: str) -> dict:
+        now = int(time.time())
+        if town in self._weather and now - self._weather_ts[town] < self._weather_ttl:
+            return self._weather[town]
+
         try:
-            self.weather = self._get_weather_data(weather_town)
+            data = await self._fetch_weather(town)
         except Exception as e:
-            logging.error(f"[PondPumpController] Ошибка обновления погоды: {str(e)}")
+            logging.warning(f"[Pump] weather for '{town}' failed: {e}")
+            data = {"temperature": 10, "is_valid": False}
 
-    def setup_minimum_pump_speed(self, device: RelayChannelDevice) -> int:
-        min_speed = 20
-        try:
-            weather_table = device.get_extra("weather")
-            town = device.get_extra("weather_town")
-            self.update_weather(town)
+        self._weather[town]    = data
+        self._weather_ts[town] = now
+        return data
 
-            if not self.weather.get("is_valid"):
-                return device.get_extra("min_speed")
+    async def calc_min_speed(self, dev: RelayChannelDevice) -> int:
+        """Минимально допустимая скорость из таблицы temp→speed."""
+        table = dev.extra.get("weather", {})          # { "10": 20, … }
+        town  = dev.extra.get("weather_town", "")
+        w     = await self._get_weather(town)
 
-            temp = self.weather["temperature"]
-            prev_speed = min_speed
-            for t in sorted(weather_table.keys()):
-                if temp < int(t):
-                    return prev_speed
-                prev_speed = int(weather_table[t])
-            return prev_speed
-        except Exception as e:
-            logging.error(f"Ошибка расчета минимальной скорости насоса: {e}")
-            return min_speed
+        if not w.get("is_valid"):
+            return dev.extra.get("min_speed", 20)
 
-    def _get_weather_data(self, town):
-        try:
-            import python_weather
-            async def _fetch():
-                async with python_weather.Client(format=python_weather.METRIC) as client:
-                    return await client.get(town)
-            weather = asyncio.run(_fetch())
-            return {
-                'temperature': int(weather.current.temperature),
-                'wind_speed': int(weather.current.wind_speed),
-                'visibility': int(weather.current.visibility),
-                'uv_index': int(weather.current.uv_index),
-                'humidity': int(weather.current.humidity),
-                'precipitation': float(weather.current.precipitation),
-                'type': str(weather.current.type),
-                'wind_direction': str(weather.current.wind_direction),
-                'feels_like': int(weather.current.feels_like),
-                'description': str(weather.current.description),
-                'pressure': float(weather.current.pressure),
-                'timestamp': int(time.time()),
-                'town': town,
-                'is_valid': True
-            }
-        except Exception as e:
-            logging.error("Ошибка получения погодных данных")
-            logging.error(e)
-            return {'temperature': 10, 'is_valid': False}
+        t_curr   = w["temperature"]
+        prev_spd = dev.extra.get("min_speed", 20)
+        for t_lim in sorted(map(int, table.keys())):
+            if t_curr < t_lim:
+                return prev_spd
+            prev_spd = int(table[str(t_lim)])
+        return prev_spd
 
-    def check_pump_speed(self, device: RelayChannelDevice) -> int:
-        flow_speed = int(device.get_status("P"))
-        step = int(device.get_extra("speed_step"))
-        if flow_speed % step != 0:
-            rounded = round(flow_speed / step) * step
-            return max(rounded, step)
-        return flow_speed
+    # ───────────────────────────── speed helpers ───────────────────── #
+    @staticmethod
+    def _round_to_step(value: int, step: int) -> int:
+        """Гарантируем кратность шагу."""
+        return max(step, round(value / step) * step)
 
-    def _increase_speed(self, device: RelayChannelDevice) -> int:
-        current = int(device.get_status("P"))
-        max_speed = int(device.get_extra("max_speed"))
-        step = int(device.get_extra("speed_step"))
-        next_speed = current + step
-        return min(next_speed, max_speed)
+    def _inc(self, cur: int, step: int, max_s: int) -> int:
+        return min(cur + step, max_s)
 
-    def _decrease_speed(self, device: RelayChannelDevice) -> int:
-        current = int(device.get_status("P"))
-        min_speed = int(device.get_extra("min_speed"))
-        step = int(device.get_extra("speed_step"))
-        next_speed = current - step
-        return max(next_speed, min_speed)
+    def _dec(self, cur: int, step: int, min_s: int) -> int:
+        return max(cur - step, min_s)
 
-    def adjust_speed(self, device: RelayChannelDevice, inv_status: int, inv_voltage: float) -> int:
-        current = int(device.get_status("P"))
-        step = int(device.get_extra("speed_step"))
-        min_v = device.get_min_volt()
-        max_v = device.get_max_volt()
+    # ───────────────────────────── публичный API ───────────────────── #
+    async def deside_speed(
+        self,
+        dev: RelayChannelDevice,
+        inverter_voltage: float,
+        inverter_on: bool
+    ) -> Optional[int]:
+        """
+        Возвращает **целевое** значение `P` либо None (оставить как есть).
+        """
+        cur       = int(dev.status.get("P", 0))
+        step      = dev.extra.get("speed_step", 5)
+        min_v     = dev.min_volt
+        max_v     = dev.max_volt
+        min_speed = await self.calc_min_speed(dev)
+        max_speed = dev.extra.get("max_speed", 100)
 
-        max_v, min_v = self._adjust_daylight(max_v, min_v)
+        # Если инвертор выключен → минималка
+        if not inverter_on:
+            return min_speed if cur != min_speed else None
 
-        if inv_status == 0:
-            return device.get_extra("min_speed")
+        # Напряжение в зеленой зоне → ничего не меняем
+        if min_v <= inverter_voltage <= max_v:
+            return None
 
-        if not step:
-            raise ValueError("Некорректный шаг скорости")
+        # Высокое напряжение → ускоряем
+        if inverter_voltage > max_v and cur < max_speed:
+            return self._inc(cur, step, max_speed)
 
-        if min_v < inv_voltage < max_v:
-            return current
+        # Низкое напряжение → замедляем, но не ниже погодного минимума
+        if inverter_voltage < min_v and cur > min_speed:
+            return self._dec(cur, step, min_speed)
 
-        if inv_voltage > max_v and current < int(device.get_extra("max_speed")):
-            return self._increase_speed(device)
-
-        if inv_voltage < min_v and current > int(device.get_extra("min_speed")):
-            return self._decrease_speed(device)
-
-        return current
-
-    def _adjust_daylight(self, max_v, min_v):
-        hour = int(datetime.now().strftime("%H"))
-        if hour >= 18:
-            return max_v + DAY_TIME_COMPENSATE, min_v + DAY_TIME_COMPENSATE
-        elif 6 < hour < 16:
-            return max_v - DAY_TIME_COMPENSATE, min_v - DAY_TIME_COMPENSATE
-        return max_v, min_v
+        return None
