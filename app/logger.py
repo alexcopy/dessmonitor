@@ -57,3 +57,24 @@ def setup_logging(log_path: str = "logs/application.log"
     important_logger.propagate = True
 
     return full_logger, important_logger
+
+def add_file_logger(name: str, path: str or Path,
+                    level: int = logging.INFO,
+                    fmt: str = "%(asctime)s %(message)s",
+                    datefmt: str = "%Y-%m-%d %H:%M:%S") -> logging.Logger:
+    """
+    Создаёт (или возвращает уже созданный) файловый логгер `name`,
+    пишет в `path`. Используется всеми «служебными» логгерами проекта.
+    """
+    path = Path(path)
+    path.parent.mkdir(exist_ok=True)
+
+    lg = logging.getLogger(name)
+    if lg.handlers:                           # уже настроен – вернём как есть
+        return lg
+
+    lg.setLevel(level)
+    fh = logging.FileHandler(path, encoding="utf-8")
+    fh.setFormatter(logging.Formatter(fmt, datefmt))
+    lg.addHandler(fh)
+    return lg
