@@ -3,8 +3,8 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-
-from app.device_initializer import DeviceInitializer     # даёт RelayDeviceManager
+from shared_state.shared_state import shared_state
+from app.device_initializer import DeviceInitializer
 from app.tuya.tuya_authorisation import TuyaAuthorisation
 
 logger = logging.getLogger("TuyaStatusUpdater")
@@ -53,14 +53,26 @@ class TuyaStatusUpdaterAsync:
 
         for dev_res in result.get("result", []):
             tuya_id = dev_res["id"]
-            raw = dev_res.get("status", [])
+            status = dev_res.get("status", [])
 
             # все логические каналы, «сидящие» на этом tuya-устройстве
             for dev in (d for d in devices if d.tuya_device_id == tuya_id):
-                parsed = dev.extract_status(raw)
+                parsed = dev.extract_status(status)
                 dev.update_status(parsed)
                 now_ts = int(datetime.now().timestamp())
                 dev.tick(now_ts)
+                if dev.device_type.lower() != "pump":
+                    continue
+                mode_val = next(
+                    (item["value"] for item in status
+                     if item["code"] == dev.tuya_code_mode()),  # обычно "mode"
+                    None
+                )
+                if mode_val is not None:
+                    try:
+                        shared_state["pump_mode"] = int(mode_val)
+                    except (ValueError, TypeError):
+                        logger.debug("[Updater] Problem with sync")
 
         logger.debug("[Updater] statuses synced")
 

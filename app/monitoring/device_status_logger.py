@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from colorama import Fore, Style, init
+
+from app.devices.pump_power_map import PRESET_DESCR
 from app.devices.relay_channel_device import RelayChannelDevice
 from shared_state.shared_state import shared_state
 
@@ -116,7 +118,11 @@ class DeviceStatusLogger:
         p_val = d.status.get("P", "N/A")
         watts = d.status.get("power_show", "N/A")
         mode  = self._mode_name(d.status.get("mode"))
-
+        preset = shared_state.get("pump_mode", 6)
+        descr = PRESET_DESCR.get(preset, "")
+        self._details_logger.info(
+            f"[PUMP] {d.name}: Power={power}, P={p_val}, Mode={preset} ({descr})"
+        )
         state = (power, p_val, watts, mode)
         if self._last_pump_state.get(d.id) != state:
             msg = f"[PUMP] {d.name}: Power={power}, P={p_val}, W={watts}, Mode={mode}"

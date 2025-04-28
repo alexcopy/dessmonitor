@@ -172,6 +172,13 @@ class RelayChannelDevice:
         self.update_status({self.control_key: False})
         self.mark_switched()
 
+    def tuya_code_mode(self) -> str:
+        # вернёт либо то, что пришло в extra, либо 'mode'
+        return self.extra.get("mode_code", "mode")
+
+    def tuya_code_speed(self) -> str:
+        # вернёт либо то, что пришло в extra, либо 'P'
+        return self.extra.get("p_code", "P")
     # ------------------------------------------------------------ helpers
     def _reset_daily_counters_if_needed(self, ts: int):
         now_d = datetime.fromtimestamp(ts).date()
