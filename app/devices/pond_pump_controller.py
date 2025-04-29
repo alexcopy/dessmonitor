@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import time
+from bisect import bisect_left
 from typing import Optional
 
 from shared_state.shared_state import shared_state
@@ -48,29 +49,35 @@ class PondPumpController:
             logging.warning(f"[Pump] fallback weather for '{town}' failed: {e}")
             return None
 
-    # ─────────────────────── минимальная скорость ─────────────────────────
+    # ───────────────────── минимальная скорость ──────────────────────
     async def calc_min_speed(self, dev: RelayChannelDevice) -> int:
-        table: dict[str, int] = dev.extra.get("weather", {})          # temp→speed
-        default_min            = dev.extra.get("min_speed", 20)
+        """Возвращает минимально допустимый P-speed по температуре."""
+        tbl: dict[str, int] = dev.extra.get("weather", {})  # {'-4':0, '12':20…}
+        default_min = dev.extra.get("min_speed", 20)
 
-        # ① пробуем свою температуру
+        # ① сначала пробуем собственный датчик
         temp: Optional[float] = shared_state.get("ambient_temp")
 
-        # ② резерв – внешний прогноз
+        # ② если его нет — внешний прогноз
         if temp is None:
             temp = await self._external_temp(dev.extra.get("weather_town", ""))
 
-        if temp is None:                       # вообще нет данных
+        if temp is None:  # совсем нет данных
             return default_min
 
-        # переводим ключи таблицы в int
-        int_table = {int(k): int(v) for k, v in table.items()}
-        prev_speed = default_min
-        for limit in sorted(int_table):
-            if temp < limit:
-                return prev_speed
-            prev_speed = int_table[limit]
-        return prev_speed
+        # ---------- готовим таблицу ----------
+        keys = sorted(float(k) for k in tbl)  # [-40.0, -4.0, …]
+        speeds = {float(k): int(v) for k, v in tbl.items()}
+
+        # ниже минимума / выше максимума
+        if temp <= keys[0]:
+            return speeds[keys[0]]
+        if temp >= keys[-1]:
+            return speeds[keys[-1]]
+
+        # ищем позицию и берём предыдущий узел
+        idx = bisect_left(keys, temp)
+        return speeds[keys[idx - 1]]
 
     # ─────────────────────── helpers для изменения P ───────────────────────
     @staticmethod
