@@ -1,5 +1,6 @@
 # app/monitoring/inverter_logger.py
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from app.api import DeviceData
@@ -11,30 +12,36 @@ class InverterLogger:
     (отдельно от FULL/IMPORTANT – не засоряем общий лог).
     """
     LOG_PATH = Path("logs/inverter.log")
+    MAX_BYTES = 5 * 1024 * 1024
+    BACKUP_COUNT = 3
 
     def __init__(self) -> None:
-        # ── убеждаемся, что каталог logs/ существует ───────────────────
+        # Убедимся, что каталог logs/ существует
         self.LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
         self._logger = logging.getLogger("Inverter")
+        self._logger.setLevel(logging.INFO)
+        # Не даём сообщению подниматься выше и дублироваться
+        self._logger.propagate = False
 
-        # чтобы при повторных инициализациях не вешать второй файловый handler
-        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(self.LOG_PATH)
-                   for h in self._logger.handlers):
-
-            self._logger.setLevel(logging.INFO)
-
-            fh = logging.FileHandler(self.LOG_PATH, encoding="utf-8")
+        # Если у нас уже есть наш handler — не добавляем заново
+        for h in self._logger.handlers:
+            if isinstance(h, RotatingFileHandler) and h.baseFilename == str(self.LOG_PATH):
+                break
+        else:
+            fh = RotatingFileHandler(
+                filename=self.LOG_PATH,
+                maxBytes=self.MAX_BYTES,
+                backupCount=self.BACKUP_COUNT,
+                encoding="utf-8"
+            )
             fh.setFormatter(
                 logging.Formatter(
                     fmt="%(asctime)s %(levelname)s: %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S"        # <── исправлено
+                    datefmt="%Y-%m-%d %H:%M:%S"
                 )
             )
             self._logger.addHandler(fh)
-
-        # не отдаём сообщения выше, чтобы не дублить
-        self._logger.propagate = False
 
     # ─────────────────────────────────────────────────────────────
     def log(self, dd: DeviceData) -> None:
