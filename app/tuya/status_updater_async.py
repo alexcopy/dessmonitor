@@ -1,14 +1,13 @@
 # app/status_updater_async.py
 import asyncio
 import logging
-import time
 from datetime import datetime
 
-from app.utils.time_utils import smart_sleep
-from shared_state.shared_state import shared_state
 from app.device_initializer import DeviceInitializer
 from app.tuya.tuya_authorisation import TuyaAuthorisation
-
+from app.utils.time_utils import smart_sleep
+from shared_state.shared_state import shared_state
+TUYA_RPC_TIMEOUT = 20
 logger = logging.getLogger("TuyaStatusUpdater")
 
 
@@ -44,10 +43,22 @@ class TuyaStatusUpdaterAsync:
         devices = self.dev_mgr.get_devices()
         tuya_ids = list({d.tuya_device_id for d in devices})
 
-        # вызываем облако в ThreadPool-е, чтобы не блокировать event-loop
-        result = await asyncio.to_thread(
-            self.auth.device_manager.get_device_list_status, tuya_ids
-        )
+        try:
+            # ⏱️ не даём RPC «висеть» дольше TUYA_RPC_TIMEOUT
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.auth.device_manager.get_device_list_status,
+                    tuya_ids
+                ),
+                timeout=TUYA_RPC_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[Updater] Tuya RPC > {TUYA_RPC_TIMEOUT}s – пропустили цикл")
+            return
+
+        except Exception as exc:
+            logger.error(f"[Updater] Tuya RPC exception: {exc}", exc_info=True)
+            return
 
         for dev_res in result.get("result", []):
             tuya_id = dev_res["id"]
