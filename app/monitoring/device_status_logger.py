@@ -91,11 +91,12 @@ class DeviceStatusLogger:
             temp_raw = d.status.get("temp_current")
             hum      = d.status.get("humidity_value")
             batt     = d.status.get("battery_percentage")
-
+            amb = shared_state.get("ambient_temp")
             parts = []
             if temp_raw is not None: parts.append(f"T={temp_raw/10:.1f}°C")
             if hum      is not None: parts.append(f"H={hum}%")
             if batt     is not None: parts.append(f"B={batt}%")
+            if amb     is not None: parts.append(f"ambient={amb}°C")
 
             rows.append(f"{d.name:<15} | {'; '.join(parts):<25} | day-energy={energy}")
 
@@ -119,13 +120,14 @@ class DeviceStatusLogger:
         watts = d.status.get("power_show", "N/A")
         mode  = self._mode_name(d.status.get("mode"))
         preset = shared_state.get("pump_mode", 6)
+        amb = shared_state.get("ambient_temp")
         descr = PRESET_DESCR.get(preset, "")
         self._details_logger.info(
             f"[PUMP] {d.name}: Power={power}, P={p_val}, Mode={preset} ({descr})"
         )
         state = (power, p_val, watts, mode)
         if self._last_pump_state.get(d.id) != state:
-            msg = f"[PUMP] {d.name}: Power={power}, P={p_val}, W={watts}, Mode={mode}"
+            msg = f"[PUMP] {d.name}: Power={power}, P={p_val}, W={watts}, Mode={mode}, AMB={amb}"
             self._details_logger.info(msg)
             if self._important.handlers:
                 self._important.info(msg)
@@ -137,10 +139,12 @@ class DeviceStatusLogger:
         temp  = raw_t/10 if raw_t is not None else None
         hum   = d.status.get("humidity_value")
         batt  = d.status.get("battery_percentage")
+        shared_state["ambient_temp"]=temp
+        if d.get_name() in  ["watertemp", "pondtemp"]:
+            amb= shared_state.get("ambient_temp")
 
-        msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%"
+        msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%, AMB={amb}"
         self._details_logger.info(msg)
-
         state = (temp, hum, batt)
         if self._last_thermo_state.get(d.id) != state:
             if self._important.handlers:

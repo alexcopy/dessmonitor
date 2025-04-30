@@ -84,26 +84,36 @@ class RelayTuyaController:
             self.switch_off_device(device)
             time.sleep(1)
 
-    def update_devices_status(self, devices: List[RelayChannelDevice]):
+    def update_devices_status(self, devices: list[RelayChannelDevice]) -> None:
         try:
-            device_ids = [d.id for d in devices]
-            statuses = self.authorisation.device_manager.get_device_list_status(device_ids)
-            for result in statuses.get("result", []):
-                dev_id = result.get("id")
-                device = self.select_device_by_id(devices, dev_id)
-                if device and "status" in result:
-                    device.update_status(device.extract_status(result["status"]))
-                else:
-                    continue
-                device_name = device.get_name()
-                if device_name in ("watertemp", "pondtemp") and device.device_type.lower() in ("thermo", "thermometer", "termo_sensor"):
-                    raw_t = device.status.get("temp_current")
-                    if raw_t is not None:
-                        # temp_current приходит в десятых долях градуса
-                        shared_state["ambient_temp"] = raw_t / 10
+            tuya_ids = [d.id for d in devices]
+            response = self.authorisation.device_manager.get_device_list_status(tuya_ids)
 
-        except Exception as e:
-            logging.error(f"[RelayTuyaController] Ошибка получения статуса устройств: {str(e)}")
+            for dev_json in response.get("result", []):
+                dev_id = dev_json.get("id")
+                device = self.select_device_by_id(devices, dev_id)
+                if not (device and "status" in dev_json):
+                    continue
+
+                # распарсим и сохраним статус
+                parsed = device.extract_status(dev_json["status"])
+                device.update_status(parsed)
+
+                # --- датчик температуры пруда --------------------------------
+                if device.name.lower() in ("watertemp", "pondtemp"):
+                    raw_t = parsed.get("temp_current")
+                    if raw_t is not None:
+                        from shared_state.shared_state import shared_state
+                        shared_state["ambient_temp"] = raw_t / 10
+                        logging.getLogger("FULL").debug(
+                            "[TempSensor] ambient_temp set to %.1f °C", raw_t / 10
+                        )
+
+        except Exception as exc:
+            logging.error(
+                "[RelayTuyaController] Ошибка получения статуса устройств: %s", exc,
+                exc_info=True
+            )
 
     @staticmethod
     def is_before_1830() -> bool:
