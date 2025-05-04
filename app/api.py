@@ -61,11 +61,12 @@ class DeviceData:
             return f"{v:>{width}.{prec}f}{unit}" if v is not None else " " * (width+len(unit))
 
         # строки лога ────────────────────────────────────────────
-        lines = [
+        lines = ["\n",
             f"┌─ {self.timestamp} ───────────────────────────────────",
             f"│ Режим        : {mode_icon}",
             f"│ Battery      : {fmt(self.battery_voltage,' V')} | {fmt(self.battery_capacity,' %',width=3,prec=0)}",
             f"│ Charge curr. : {fmt(self.battery_charging_current,' A')}",
+            f"│ DisChrg curr.: {fmt(self.battery_discharging_current,' A')}",
             f"│ PV1          : {fmt(self.pv1_voltage,' V')} | {fmt(self.pv1_power,' W',prec=0)}",
             f"│ PV2          : {fmt(self.pv2_voltage,' V')} | {fmt(self.pv2_power,' W',prec=0)}",
             f"│ AC‑in        : {fmt(self.ac_input_voltage,' V')}",
