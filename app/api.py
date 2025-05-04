@@ -42,40 +42,55 @@ class DeviceData:
         return asdict(self)  # type: ignore[arg-type]
 
     def summary(self) -> str:
-        """Читаемое резюме для inverter.log ― компактно, но информативно."""
+        """Красивое многострочное резюме для inverter.log."""
         mode_icons = {
-            "Line Mode":        "⚡ Сеть",
-            "Battery Mode":     "🔋 Батарея",
-            "PV Mode":          "☀️  Солнечные",
-            "Power Saving Mode":"💤 Энергосбер.",
-            "Standby Mode":     "⏸️  Ожидание",
-            "Bypass Mode":      "↪️  Bypass",
-            "Fault Mode":       "❌ Ошибка",
-            "Invert Mode":      "🔃 Инвертор",
+            "Line Mode": "⚡ Сеть",
+            "Battery Mode": "🔋 Батарея",
+            "PV Mode": "☀️  Солнечные",
+            "Power Saving Mode": "💤 Энергосбер.",
+            "Standby Mode": "⏸️  Ожидание",
+            "Bypass Mode": "↪️  Bypass",
+            "Fault Mode": "❌ Ошибка",
+            "Invert Mode": "🔋 Инвертор",
         }
-        mode_txt  = self.working_state or "—"
+        mode_txt = self.working_state or "—"
         mode_icon = mode_icons.get(mode_txt, f"ℹ️ {mode_txt}")
 
-        # helpers ────────────────────────────────────────────────
-        def fmt(v, unit="", width=5, prec=1):
-            return f"{v:>{width}.{prec}f}{unit}" if v is not None else " " * (width+len(unit))
+        # ── helper ──────────────────────────────────────────────
+        def fmt(val, unit="", width=5, prec=1):
+            return f"{val:>{width}.{prec}f}{unit}" if val is not None else ""
 
-        # строки лога ────────────────────────────────────────────
-        lines = ["\n",
+        # ── строки лога ─────────────────────────────────────────
+        raw_lines = [
+            "",  # пустая строка‑отступ между записями
             f"┌─ {self.timestamp} ───────────────────────────────────",
-            f"│ Режим        : {mode_icon}",
-            f"│ Battery      : {fmt(self.battery_voltage,' V')} | {fmt(self.battery_capacity,' %',width=3,prec=0)}",
-            f"│ Charge curr. : {fmt(self.battery_charging_current,' A')}",
-            f"│ DisChrg curr.: {fmt(self.battery_discharging_current,' A')}",
-            f"│ PV1          : {fmt(self.pv1_voltage,' V')} | {fmt(self.pv1_power,' W',prec=0)}",
-            f"│ PV2          : {fmt(self.pv2_voltage,' V')} | {fmt(self.pv2_power,' W',prec=0)}",
-            f"│ AC‑in        : {fmt(self.ac_input_voltage,' V')}",
-            f"│ Output load  : {fmt(self.output_power,' W',prec=0)} | {fmt(self.ac_output_load,' %',width=3,prec=0)}",
-             "└───────────────────────────────────────────────────────",
+            f"│ Режим           : {mode_icon}",
+            f"│ Battery         : {fmt(self.battery_voltage, ' V')}  "
+            f"| {fmt(self.battery_capacity, ' %', width=3, prec=0)}",
+            f"│   Charge curr.  : {fmt(self.battery_charging_current, ' A')}",
+            f"│   Disch. curr.  : {fmt(self.battery_discharging_current, ' A')}",
+            f"│ PV‑1            : {fmt(self.pv1_voltage, ' V')}  "
+            f"| {fmt(self.pv1_power, ' W', prec=0)}",
+            f"│ PV‑2            : {fmt(self.pv2_voltage, ' V')}  "
+            f"| {fmt(self.pv2_power, ' W', prec=0)}",
+            f"│ AC‑in           : {fmt(self.ac_input_voltage, ' V')}",
+            f"│ Output power    : {fmt(self.output_power, ' W', prec=0)}  "
+            f"| Load {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
+            "└───────────────────────────────────────────────────────",
         ]
-        # убираем пустые строки (где всё None)
-        neat = [ln for ln in lines if not ln.rstrip().endswith("│")]  # условие может быть гибче
-        return "\n".join(neat)
+
+        # — удаляем строки, где после «: » ничего не осталось —
+        lines = []
+        for ln in raw_lines:
+            if ln.strip() == "":  # явно пустая
+                lines.append(ln)
+                continue
+            if ln.endswith(":") or ln.rstrip().endswith(":"):  # поле None → пропуск
+                continue
+            lines.append(ln)
+
+        return "\n".join(lines)
+
 
 class TokenExpiredError(Exception):
     pass
