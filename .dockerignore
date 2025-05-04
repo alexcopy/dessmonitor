@@ -1,0 +1,13 @@
+# не копируем в образ
+logs/
+app/cache/
+config.json
+devices.yaml
+
+# IDE, venv и пр.
+__pycache__/
+*.py[cod]
+*.swp
+.vscode/
+.env
+

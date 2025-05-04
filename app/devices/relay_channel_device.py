@@ -6,6 +6,8 @@ from typing import Any, Dict
 
 from app.devices.pump_power_map import PUMP_W_MAP
 
+# Типы «аналоговых» устройств, для которых аптайм не считаем
+ANALOG_TYPES = {"thermo", "thermometer", "termo_sensor", "temp_sensor"}
 
 @dataclass
 class RelayChannelDevice:
@@ -109,6 +111,46 @@ class RelayChannelDevice:
             'success': True
         })
         return parsed
+
+    @staticmethod
+    def _format_duration(sec: int) -> str:
+        """
+        Форматирует секунды в человекочитаемый вид:
+        h h m m s s
+        """
+        m, s = divmod(sec, 60)
+        h, m = divmod(m, 60)
+        if h:
+            return f"{h}h {m}m"
+        if m:
+            return f"{m}m"
+        return f"{s}s"
+    def get_uptime_sec(self) -> int:
+        """
+        Возвращает число секунд, которое устройство было включено
+        с момента последнего переключения ON.
+        """
+        if not self.is_device_on():
+            return 0
+        return int(datetime.now().timestamp()) - self.last_switched
+
+
+    def uptime_str(self) -> str:
+        """
+        Строковое представление аптайма (или "OFF").
+        """
+        if not self.is_device_on():
+            return "OFF"
+        return self._format_duration(self.get_uptime_sec())
+
+    def log_uptime(self, logger: logging.Logger) -> None:
+        """
+        Записывает в переданный logger аптайм этого устройства,
+        пропуская аналоговые.
+        """
+        if self.device_type.lower() in self.ANALOG_TYPES:
+            return
+        logger.info(f"{self.name}: uptime={self.uptime_str()}")
 
     # ───────── RelayChannelDevice ──────────────────────────────
     def power_consumption(self) -> float:

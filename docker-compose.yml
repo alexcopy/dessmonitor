@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  dessmonitor:
+    image: dessmonitor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dessmonitor
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+      - ./app/cache:/app/app/cache
+      - ./config.json:/app/config.json:ro
+      - ./devices.yaml:/app/devices.yaml:ro
+    ports:
+      - "8000:8000"

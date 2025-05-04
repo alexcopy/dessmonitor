@@ -85,6 +85,7 @@ async def main() -> None:
             # 5.3 кто реально ON
             on_names = [d.name for d in dev_mgr.all_devices_on()]
             important_log.info(f"[MAIN] ON devices: {', '.join(on_names) or 'none'}")
+            status_logger.log_device_details(dev_mgr.get_devices())
 
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=60)

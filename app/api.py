@@ -42,26 +42,39 @@ class DeviceData:
         return asdict(self)  # type: ignore[arg-type]
 
     def summary(self) -> str:
-        icon_map = {
-            "Line Mode": "⚡ Сеть",
-            "Battery Mode": "🔋 Батарея",
-            "PV Mode": "☀️ Солнечные",
-            "Power Saving Mode": "💤 Энергосбережение",
-            "Standby Mode": "⏸️ Ожидание",
-            "Bypass Mode": "↪️ Bypass",
-            "Fault Mode": "❌ Ошибка",
-            "Invert Mode": "🔃 Инвертор",
+        """Читаемое резюме для inverter.log ― компактно, но информативно."""
+        mode_icons = {
+            "Line Mode":        "⚡ Сеть",
+            "Battery Mode":     "🔋 Батарея",
+            "PV Mode":          "☀️  Солнечные",
+            "Power Saving Mode":"💤 Энергосбер.",
+            "Standby Mode":     "⏸️  Ожидание",
+            "Bypass Mode":      "↪️  Bypass",
+            "Fault Mode":       "❌ Ошибка",
+            "Invert Mode":      "🔃 Инвертор",
         }
-        icon = icon_map.get(self.working_state, f"ℹ️ {self.working_state or '❓'}")
-        return (
-            f"[Device: {self.timestamp}] | {icon} | "
-            f"Battery: {self.battery_voltage} V / {self.battery_capacity}% | "
-            f"PV1: {self.pv1_voltage} V / {self.pv1_power} W | "
-            f"PV2: {self.pv2_voltage} V / {self.pv2_power} W | "
-            f"Output: {self.output_voltage} V / {self.output_power} W | "
-            f"AC In: {self.ac_input_voltage} V / {self.ac_input_frequency} Hz | "
-            f"Load: {self.ac_output_load}%"
-        )
+        mode_txt  = self.working_state or "—"
+        mode_icon = mode_icons.get(mode_txt, f"ℹ️ {mode_txt}")
+
+        # helpers ────────────────────────────────────────────────
+        def fmt(v, unit="", width=5, prec=1):
+            return f"{v:>{width}.{prec}f}{unit}" if v is not None else " " * (width+len(unit))
+
+        # строки лога ────────────────────────────────────────────
+        lines = [
+            f"┌─ {self.timestamp} ───────────────────────────────────",
+            f"│ Режим        : {mode_icon}",
+            f"│ Battery      : {fmt(self.battery_voltage,' V')} | {fmt(self.battery_capacity,' %',width=3,prec=0)}",
+            f"│ Charge curr. : {fmt(self.battery_charging_current,' A')}",
+            f"│ PV1          : {fmt(self.pv1_voltage,' V')} | {fmt(self.pv1_power,' W',prec=0)}",
+            f"│ PV2          : {fmt(self.pv2_voltage,' V')} | {fmt(self.pv2_power,' W',prec=0)}",
+            f"│ AC‑in        : {fmt(self.ac_input_voltage,' V')}",
+            f"│ Output load  : {fmt(self.output_power,' W',prec=0)} | {fmt(self.ac_output_load,' %',width=3,prec=0)}",
+             "└───────────────────────────────────────────────────────",
+        ]
+        # убираем пустые строки (где всё None)
+        neat = [ln for ln in lines if not ln.rstrip().endswith("│")]  # условие может быть гибче
+        return "\n".join(neat)
 
 class TokenExpiredError(Exception):
     pass
