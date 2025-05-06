@@ -1,0 +1,14 @@
+# dessmonitor‑svc.yaml (чтобы «пробросить» порт 8000, как в compose)
+apiVersion: v1
+kind: Service
+metadata:
+  name: dessmonitor
+spec:
+  selector:
+    app: dessmonitor
+  ports:
+  - port: 8000            # внутри кластера
+    targetPort: 8000      # в контейнере
+    protocol: TCP
+    name: http
+  type: ClusterIP         # или NodePort / LoadBalancer при необходимости

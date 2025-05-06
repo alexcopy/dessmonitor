@@ -1,0 +1,123 @@
+# ───────────────────────────────────────────── 1. namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: home-automation
+---
+# ───────────────────────────────────────────── 2. secret: config.json
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dessmonitor-config
+  namespace: home-automation
+type: Opaque
+data:
+  config.json: "…base64‑конфиг…"
+---
+# ───────────────────────────────────────────── 3. secret: devices.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dessmonitor-devices
+  namespace: home-automation
+type: Opaque
+data:
+  devices.yaml: "…base64‑device…"
+---
+# ───────────────────────────────────────────── 4. pvc: cache
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dessmonitor-cache
+  namespace: home-automation
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ───────────────────────────────────────────── 5. pvc: logs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dessmonitor-logs
+  namespace: home-automation
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+# ───────────────────────────────────────────── 6. deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dessmonitor
+  namespace: home-automation
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dessmonitor }
+  template:
+    metadata:
+      labels: { app: dessmonitor }
+    spec:
+      containers:
+        - name: dessmonitor
+          image: redcopy/dessmonitor:latest          # <── здесь
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command: ["python", "run.py"]
+          env:
+            - name: TZ           # часовой пояс внутри контейнера
+              value: "Europe/London"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.json
+              subPath: config.json
+              readOnly: true
+            - name: devices
+              mountPath: /app/devices.yaml
+              subPath: devices.yaml
+              readOnly: true
+            - name: cache
+              mountPath: /app/app/cache
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: config
+          secret:
+            secretName: dessmonitor-config
+        - name: devices
+          secret:
+            secretName: dessmonitor-devices
+        - name: cache
+          persistentVolumeClaim:
+            claimName: dessmonitor-cache
+        - name: logs
+          persistentVolumeClaim:
+            claimName: dessmonitor-logs
+---
+# ───────────────────────────────────────────── 7. cronjob  принудительный рестарт
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dessmonitor-restart
+  namespace: home-automation
+spec:
+  schedule: "0 */6 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: default
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:1.30           # лёгкий образ с kubectl
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  kubectl -n home-automation patch deployment dessmonitor \
+                    -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"restartTimestamp\":\"$(date +%s)\"}}}}}"

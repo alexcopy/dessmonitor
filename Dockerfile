@@ -1,24 +1,22 @@
-# Используем Python 3.12
 FROM python:3.12-slim
 
-# Не буферизуем вывод в логи
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=off
 
 WORKDIR /app
 
-# Сначала ставим зависимости
+#gcc нужна если есть wheels‑less пакеты нет – строки apt-get gcc можно смело убрать
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем весь код, кроме того, что в .dockerignore
+# копируем код (фильтр .dockerignore)
 COPY . .
 
-# Гарантируем, что директории для логов и кеша существуют
 RUN mkdir -p /app/logs /app/app/cache
 
-# Объявляем директории для монтирования
 VOLUME ["/app/logs", "/app/app/cache"]
 
-# Точка входа
 CMD ["python", "run.py"]
-

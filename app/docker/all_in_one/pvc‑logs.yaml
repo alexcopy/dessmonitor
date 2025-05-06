@@ -1,0 +1,20 @@
+# pvc‑logs.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dess-logs-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dess-cache-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 512Mi

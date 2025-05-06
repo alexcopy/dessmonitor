@@ -1,0 +1,22 @@
+# k8s/dessmonitor-volume.yaml  ───────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: dessmonitor-hostpath
+spec:
+  capacity:
+    storage: 1Gi                       # “для вида”, hostPath не ограничивает
+  accessModes: ["ReadWriteMany"]       # RW «мимо» к8s FS
+  hostPath:
+    path: /srv/dessmonitor
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dessmonitor-pvc
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: dessmonitor-hostpath

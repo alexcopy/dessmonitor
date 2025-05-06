@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dessmonitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: dessmonitor}
+  template:
+    metadata:
+      labels: {app: dessmonitor}
+    spec:
+      containers:
+      - name: dessmonitor
+        image: ghcr.io/you/dessmonitor:latest   # или «dessmonitor:latest», если push в локальный registry
+        volumeMounts:
+        - name: logs   ; mountPath: /app/logs
+        - name: cache  ; mountPath: /app/app/cache
+        - name: cfg    ; mountPath: /app/devices.yaml ; subPath: devices.yaml ; readOnly: true
+        - name: secret ; mountPath: /run/secrets/config.json ; subPath: config.json ; readOnly: true
+      volumes:
+      - name: logs   ; persistentVolumeClaim: {claimName: dess-logs-pvc}
+      - name: cache  ; persistentVolumeClaim: {claimName: dess-cache-pvc}
+      - name: cfg    ; configMap: {name: dess-config}
+      - name: secret ; secret: {secretName: dess-secret}

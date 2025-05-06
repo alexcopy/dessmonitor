@@ -1,4 +1,4 @@
-
+import os
 # dessmonitor/api.py
 import time
 import hashlib
@@ -11,7 +11,9 @@ from typing import Optional
 
 from shared_state.shared_state import shared_state
 
-_TOKEN_FILE = Path("app/cache/dess_token.json")
+_TOKEN_FILE = Path(
+    os.getenv("MONITOR_TOKEN_PATH", "app/cache/dess_token.json")
+)
 
 @dataclass
 class DeviceData:

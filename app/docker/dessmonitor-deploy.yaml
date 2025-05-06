@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dessmonitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dessmonitor }
+  template:
+    metadata:
+      labels: { app: dessmonitor }
+    spec:
+      containers:
+      - name: dessmonitor
+        image: redcopy/dessmonitor:latest        # 👈 тот же образ, что и в compose
+        # ---------- volumeMounts = «куда в контейнере» ----------
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: cache
+          mountPath: /app/app/cache
+        - name: cfg
+          mountPath: /app/config.json
+          subPath: config.json
+          readOnly: true
+        - name: cfg
+          mountPath: /app/devices.yaml
+          subPath: devices.yaml
+          readOnly: true
+        ports:
+        - containerPort: 8000      # как в compose
+
+      # ---------- volumes = «откуда на ноде (или из PVC)» ----------
+      volumes:
+      - name: logs
+        hostPath:
+          path: /srv/dessmonitor/logs
+          type: DirectoryOrCreate
+      - name: cache
+        hostPath:
+          path: /srv/dessmonitor/cache
+          type: DirectoryOrCreate
+
+      # Оба конфигурационных файла из одной директории hostPath
+      - name: cfg
+        hostPath:
+          path: /srv/dessmonitor/configs         # содержит 2 файла
+          type: Directory
