@@ -6,9 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  # общие переменные, доступные во всём workflow
-  IMAGE_NAME: redcopy/dessmonitor
-  DOCKER_BUILDKIT: 1
+  IMAGE_NAME: redcopy/dessmonitor   # базовый репозиторий образа
+  DOCKER_BUILDKIT: 1               # ускоряем docker‑build
 
 jobs:
 # ────────────────────────────── 1️⃣  Build + Push ──────────────────────────────
@@ -25,13 +24,13 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
 
-      - name: 🔑 Login to Docker Hub
+      - name: 🔑 Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: 🏗️  Build & Push
+      - name: 🏗️  Build & Push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -41,48 +40,51 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-# ────────────────────────────── 2️⃣  Deploy (k3s) ──────────────────────────────
+# ────────────────────────────── 2️⃣  Deploy (k3s) ─────────────────────────────
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
 
-    # переменные, которые не требуют шаблонов при разборе YAML
     env:
-      NAMESPACE: dess
-      RELEASE: dessmonitor
+      NAMESPACE: dess        # k8s‑namespace
+      RELEASE:   dessmonitor # имя Deployment'а
 
     steps:
-      # ─── если секрета нет, выходим из job ───
-      - name: 🔐 Skip deploy if KUBE_CONFIG is missing
-        if: ${{ secrets.KUBE_CONFIG == '' }}
+      # ─── проверяем, передан ли секрет ───
+      - id: check-kubeconfig
+        name: 🔐 Check KUBE_CONFIG secret
         run: |
-          echo "Secret KUBE_CONFIG not set – skipping deploy."
-          exit 0
+          if [[ -z "${{ secrets.KUBE_CONFIG }}" ]]; then
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            echo "Secret KUBE_CONFIG is missing — deploy will be skipped."
+          else
+            echo "enabled=true" >>"$GITHUB_OUTPUT"
+          fi
 
-      # все последующие шаги выполняются только при наличии секрета
+      # ─── ниже всё выполняется ТОЛЬКО если enabled==true ───
       - name: 🏷️  Compose image tag
-        if: ${{ secrets.KUBE_CONFIG != '' }}
-        run: echo "IMAGE=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+        if: steps.check-kubeconfig.outputs.enabled == 'true'
+        run: echo "IMAGE=${IMAGE_NAME}:${GITHUB_SHA}" >>"$GITHUB_ENV"
 
       - name: 🛎️  Checkout (manifests)
-        if: ${{ secrets.KUBE_CONFIG != '' }}
+        if: steps.check-kubeconfig.outputs.enabled == 'true'
         uses: actions/checkout@v4
 
       - name: 📦  Set up kubectl
-        if: ${{ secrets.KUBE_CONFIG != '' }}
+        if: steps.check-kubeconfig.outputs.enabled == 'true'
         uses: azure/setup-kubectl@v3
         with:
-          version: v1.29.2        # любая совместимая
+          version: v1.29.2       # любая совместимая
 
-      - name: 🛠  Prepare kube‑config
-        if: ${{ secrets.KUBE_CONFIG != '' }}
+      - name: 🛠️  Prepare kube‑config
+        if: steps.check-kubeconfig.outputs.enabled == 'true'
         run: |
           mkdir -p "$HOME/.kube"
-          echo "${{ secrets.KUBE_CONFIG }}" > "$HOME/.kube/config"
+          echo "${{ secrets.KUBE_CONFIG }}" >"$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
       - name: 🚀  kubectl apply
-        if: ${{ secrets.KUBE_CONFIG != '' }}
+        if: steps.check-kubeconfig.outputs.enabled == 'true'
         run: |
           sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/dessmonitor-deployment.yaml | \
             kubectl -n "$NAMESPACE" apply -f -
