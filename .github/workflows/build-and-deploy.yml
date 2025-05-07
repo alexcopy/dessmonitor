@@ -63,6 +63,6 @@ jobs:
       - name: 🚀 Deploy to k3s
         run: |
           IMAGE_TAG=${{ env.IMAGE_NAME }}:${{ github.sha }}
-          sed "s|redcopy/dessmonitor:latest|${IMAGE_TAG}|g" k8s/dessmonitor-deploy.yaml | kubectl apply -f -
+          sed "s|redcopy/dessmonitor:latest|${IMAGE_TAG}|g" docker/dessmonitor-deploy.yaml | kubectl apply -f -
           kubectl apply -f k8s/dessmonitor-svc.yaml
           kubectl rollout status deploy/dessmonitor
