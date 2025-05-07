@@ -1,4 +1,4 @@
-name: CI / CD  –  DessMonitor
+name: CI / CD – DessMonitor
 
 on:
   push:
@@ -10,9 +10,7 @@ env:
   DOCKER_BUILDKIT: 1
 
 jobs:
-# ────────────────────────────────────────────────────────────────
-# 1️⃣
-# ────────────────────────────────────────────────────────────────
+# ────────────────────────────── 1️⃣  Build + Push ──────────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
 
@@ -20,13 +18,12 @@ jobs:
       - name: 🛎️  Checkout
         uses: actions/checkout@v4
 
-      # ↓ кэш для pip  (ускоряет build)
+      # кешируем pip‑пакеты
       - name: ♻️  Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-
 
       - name: 🔑 Login to Docker Hub
         uses: docker/login-action@v3
@@ -34,7 +31,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # ↓ борка и push
       - name: 🏗️  Build & Push
         uses: docker/build-push-action@v5
         with:
@@ -45,36 +41,38 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-# ────────────────────────────────────────────────────────────────
-# 2️⃣  Deploy  (выполняется ТОЛЬКО если KUBE_CONFIG задан)
-# ────────────────────────────────────────────────────────────────
+# ────────────────────────────── 2️⃣  Deploy (k3s) ─────────────────────────────
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: ${{ secrets.KUBE_CONFIG != '' }}     # ← ключевой фильтр!
+
+    # step/job выполняется, ТОЛЬКО если секрет задан
+    if: ${{ secrets.KUBE_CONFIG }}
 
     env:
-      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-      NAMESPACE: dess                         # можно изменить
-      RELEASE: dessmonitor
+      NAMESPACE: dess                # ← при желании поменяйте
+      RELEASE:   dessmonitor
+      IMAGE:     ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
     steps:
-      - name: 🛎️  Checkout (манифесты)
+      - name: 🛎️  Checkout (manifests)
         uses: actions/checkout@v4
 
-      - name: 🛠 Prepare kube‑config
+      - name: 📦  Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: v1.29.2            # любая подходящая
+
+      - name: 🛠  Prepare kube‑config
         run: |
           mkdir -p "$HOME/.kube"
-          echo "${KUBE_CONFIG}" > "$HOME/.kube/config"
+          echo "${{ secrets.KUBE_CONFIG }}" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
-      - name: 📦  Set kubectl context
-        uses: azure/setup-kubectl@v3          # kubectl ^1.29
-        with:
-          version: v1.29.2
-
-      # ─── применяем манифест ───
+      # ─── деплой ───
       - name: 🚀  kubectl apply
         run: |
-          kubectl -n "$NAMESPACE" apply -f k8s/dessmonitor-deployment.yaml
-          kubectl -n "$NAMESPACE" rollout status deploy/$RELEASE
+          # если в манифесте есть placeholder для образа – заменяем «на лету»
+          sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/dessmonitor-deployment.yaml | \
+            kubectl -n "$NAMESPACE" apply -f -
+          kubectl -n "$NAMESPACE" rollout status deploy/${RELEASE}
