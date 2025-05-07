@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 env:
+  # общие переменные, доступные во всём workflow
   IMAGE_NAME: redcopy/dessmonitor
   DOCKER_BUILDKIT: 1
 
@@ -18,7 +19,6 @@ jobs:
       - name: 🛎️  Checkout
         uses: actions/checkout@v4
 
-      # кешируем pip‑пакеты
       - name: ♻️  Cache pip
         uses: actions/cache@v4
         with:
@@ -41,38 +41,49 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-# ────────────────────────────── 2️⃣  Deploy (k3s) ─────────────────────────────
+# ────────────────────────────── 2️⃣  Deploy (k3s) ──────────────────────────────
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
 
-    # step/job выполняется, ТОЛЬКО если секрет задан
-    if: ${{ secrets.KUBE_CONFIG }}
-
+    # переменные, которые не требуют шаблонов при разборе YAML
     env:
-      NAMESPACE: dess                # ← при желании поменяйте
-      RELEASE:   dessmonitor
-      IMAGE:     ${{ env.IMAGE_NAME }}:${{ github.sha }}
+      NAMESPACE: dess
+      RELEASE: dessmonitor
 
     steps:
+      # ─── если секрета нет, выходим из job ───
+      - name: 🔐 Skip deploy if KUBE_CONFIG is missing
+        if: ${{ secrets.KUBE_CONFIG == '' }}
+        run: |
+          echo "Secret KUBE_CONFIG not set – skipping deploy."
+          exit 0
+
+      # все последующие шаги выполняются только при наличии секрета
+      - name: 🏷️  Compose image tag
+        if: ${{ secrets.KUBE_CONFIG != '' }}
+        run: echo "IMAGE=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
       - name: 🛎️  Checkout (manifests)
+        if: ${{ secrets.KUBE_CONFIG != '' }}
         uses: actions/checkout@v4
 
       - name: 📦  Set up kubectl
+        if: ${{ secrets.KUBE_CONFIG != '' }}
         uses: azure/setup-kubectl@v3
         with:
-          version: v1.29.2            # любая подходящая
+          version: v1.29.2        # любая совместимая
 
       - name: 🛠  Prepare kube‑config
+        if: ${{ secrets.KUBE_CONFIG != '' }}
         run: |
           mkdir -p "$HOME/.kube"
           echo "${{ secrets.KUBE_CONFIG }}" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
-      # ─── деплой ───
       - name: 🚀  kubectl apply
+        if: ${{ secrets.KUBE_CONFIG != '' }}
         run: |
-          # если в манифесте есть placeholder для образа – заменяем «на лету»
           sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/dessmonitor-deployment.yaml | \
             kubectl -n "$NAMESPACE" apply -f -
           kubectl -n "$NAMESPACE" rollout status deploy/${RELEASE}
