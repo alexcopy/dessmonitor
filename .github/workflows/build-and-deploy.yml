@@ -1,4 +1,4 @@
-name: CI / CD – DessMonitor
+name: Build & Deploy dessmonitor
 
 on:
   push:
@@ -6,86 +6,61 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: redcopy/dessmonitor   # базовый репозиторий образа
-  DOCKER_BUILDKIT: 1               # ускоряем docker‑build
+  IMAGE_NAME: redcopy/dessmonitor
 
 jobs:
-# ────────────────────────────── 1️⃣  Build + Push ──────────────────────────────
-  build-and-push:
+  build-push:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 🛎️  Checkout
-        uses: actions/checkout@v4
+    - name: ⬇️  Checkout
+      uses: actions/checkout@v4
 
-      - name: ♻️  Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+    - name: 🔧 Set up QEMU (multi‑arch, если нужно)
+      uses: docker/setup-qemu-action@v3
 
-      - name: 🔑 Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: 🔧 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: 🏗️  Build & Push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+    - name: 🔑 Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-# ────────────────────────────── 2️⃣  Deploy (k3s) ─────────────────────────────
+    - name: 📦 Build & Push image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.IMAGE_NAME }}:latest
+          ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
   deploy:
-    needs: build-and-push
+    needs: build-push
     runs-on: ubuntu-latest
-
-    env:
-      NAMESPACE: dess        # k8s‑namespace
-      RELEASE:   dessmonitor # имя Deployment'а
-
     steps:
-      # ─── проверяем, передан ли секрет ───
-      - id: check-kubeconfig
-        name: 🔐 Check KUBE_CONFIG secret
-        run: |
-          if [[ -z "${{ secrets.KUBE_CONFIG }}" ]]; then
-            echo "enabled=false" >>"$GITHUB_OUTPUT"
-            echo "Secret KUBE_CONFIG is missing — deploy will be skipped."
-          else
-            echo "enabled=true" >>"$GITHUB_OUTPUT"
-          fi
+    - name: ⬇️  Checkout (для манифестов)
+      uses: actions/checkout@v4
 
-      # ─── ниже всё выполняется ТОЛЬКО если enabled==true ───
-      - name: 🏷️  Compose image tag
-        if: steps.check-kubeconfig.outputs.enabled == 'true'
-        run: echo "IMAGE=${IMAGE_NAME}:${GITHUB_SHA}" >>"$GITHUB_ENV"
+    - name: 🔑 Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: v1.29.0          # ≈ версия k3s/k8s
 
-      - name: 🛎️  Checkout (manifests)
-        if: steps.check-kubeconfig.outputs.enabled == 'true'
-        uses: actions/checkout@v4
+    - name: 🗄️  Write kubeconfig
+      # KUBE_CONFIG – base64‑encoded или plain kube‑config,
+      # хранится в Secrets на GitHub.
+      run: |
+        echo "${KUBE_CONFIG}" > $HOME/.kube/config
+      env:
+        KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
 
-      - name: 📦  Set up kubectl
-        if: steps.check-kubeconfig.outputs.enabled == 'true'
-        uses: azure/setup-kubectl@v3
-        with:
-          version: v1.29.2       # любая совместимая
-
-      - name: 🛠️  Prepare kube‑config
-        if: steps.check-kubeconfig.outputs.enabled == 'true'
-        run: |
-          mkdir -p "$HOME/.kube"
-          echo "${{ secrets.KUBE_CONFIG }}" >"$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
-
-      - name: 🚀  kubectl apply
-        if: steps.check-kubeconfig.outputs.enabled == 'true'
-        run: |
-          sed "s|IMAGE_PLACEHOLDER|${IMAGE}|g" k8s/dessmonitor-deployment.yaml | \
-            kubectl -n "$NAMESPACE" apply -f -
-          kubectl -n "$NAMESPACE" rollout status deploy/${RELEASE}
+    - name: 🚀 Deploy to k3s
+      run: |
+        # подставляем свежий sha‑тег вместо «latest», чтобы k8s точно потянул новый слой
+        IMAGE_TAG=${{ env.IMAGE_NAME }}:${{ github.sha }}
+        # patch image в манифесте на лету и применяем
+        sed "s|redcopy/dessmonitor:latest|${IMAGE_TAG}|g" k8s/dessmonitor-deploy.yaml | kubectl apply -f -
+        kubectl apply -f k8s/dessmonitor-svc.yaml
+        kubectl rollout status deploy/dessmonitor
