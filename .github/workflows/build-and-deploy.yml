@@ -61,9 +61,8 @@ jobs:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
 
       - name: 🚀 Deploy to k3s
-          run: |
-            IMAGE_TAG=${{ env.IMAGE_NAME }}:${{ github.sha }}
-            # 🔧 Обновлённый путь — указываем правильную папку
-            sed "s|redcopy/dessmonitor:latest|${IMAGE_TAG}|g" app/docker/dessmonitor-deploy.yaml | kubectl apply -f -
-            kubectl apply -f app/docker/dessmonitor‑svc.yaml
-            kubectl rollout status deploy/dessmonitor
+        run: |
+          IMAGE_TAG=${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sed "s|redcopy/dessmonitor:latest|${IMAGE_TAG}|g" app/docker/dessmonitor-deploy.yaml | kubectl apply -f -
+          kubectl apply -f app/docker/dessmonitor‑svc.yaml
+          kubectl rollout status deploy/dessmonitor
