@@ -37,32 +37,3 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-# ─────────────────────────── 2️⃣  Deploy (k3s) ───────────────────────────
-  deploy:
-    needs: build-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: ⬇️  Checkout (для манифестов)
-        uses: actions/checkout@v4
-
-      - name: 🔑 Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: v1.29.0            # ≈ версия кластера
-
-      - name: 🗄️  Write kubeconfig
-        run: |
-          mkdir -p "$HOME/.kube"
-          echo "${KUBE_CONFIG}" > "$HOME/.kube/config"
-          # если KUBE_CONFIG хранится base64‑строкой, замените предыдущую строку на:
-          # echo "${KUBE_CONFIG}" | base64 --decode > "$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-
-      - name: 🚀 Deploy to k3s
-        run: |
-          IMAGE_TAG=${{ env.IMAGE_NAME }}:${{ github.sha }}
-          sed "s|redcopy/dessmonitor:latest|${IMAGE_TAG}|g" app/docker/dessmonitor-deploy.yaml | kubectl apply -f -
-          kubectl apply -f app/docker/dessmonitor‑svc.yaml
-          kubectl rollout status deploy/dessmonitor
