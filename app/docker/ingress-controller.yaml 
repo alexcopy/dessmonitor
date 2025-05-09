@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dessmonitor-ingress
+  namespace: dess
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  # TLS  секрете dessmonitor-tls
+  tls:
+    - hosts:
+        - dess.gpsbox.ru
+      secretName: dessmonitor-tls
+  rules:
+    # Правило для первого хоста
+    - host: dess.gpsbox.ru
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dessmonitor
+                port:
+                  number: 8085
+
+
