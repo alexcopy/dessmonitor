@@ -4,11 +4,12 @@ metadata:
   name: grafana-ingress
   namespace: dess
   annotations:
-    kubernetes.io/ingress.class: traefik
+    # оставьте ЛИБО аннотацию, ЛИБО spec.ingressClassName – достаточно одного механизма
+    # kubernetes.io/ingress.class: traefik
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
 spec:
-  ingressClassName: traefik
+  ingressClassName: traefik        # можем оставить эту строку
 
   tls:
     - hosts:
@@ -25,4 +26,4 @@ spec:
               service:
                 name: grafana
                 port:
-                  number: 3000
+                  number: 80        # ← должно совпадать с портом в `kubectl get svc grafana`
