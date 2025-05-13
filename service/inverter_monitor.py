@@ -8,23 +8,22 @@ from shared_state.shared_state import shared_state
 
 class InverterMonitor:
     def __init__(self, dess_api: DessAPI, poll_sec: int = 60):
-        self.api       = dess_api
-        self.interval  = poll_sec
-        self.logger    = InverterLogger()
-        self._stop     = asyncio.Event()
+        self.api      = dess_api
+        self.interval = poll_sec
+        self.logger   = InverterLogger()                  # файл + Loki
+        self.imp      = logging.getLogger("IMPORTANT")    # один раз!
+        self._stop    = asyncio.Event()
 
     async def run(self) -> None:
-        loop = asyncio.get_running_loop()
-
         while not self._stop.is_set():
             try:
                 dd = await asyncio.to_thread(self.api.fetch_device_data)
-                self.logger.log(dd)
+                self.logger.log(dd)                       # Inverter log
                 self._process_business_metrics(dd)
             except Exception as exc:
-                logging.getLogger("IMPORTANT").warning(f"[INV_MON] fetch failed: {exc}")
-
-            # снова — один вызов smart_sleep
+                # отправим в Loki причину ошибки
+                self.imp.warning("[INV_MON] fetch failed: %s", exc,
+                                 extra={"type": "inverter", "evt": "fetch_fail"})
             await smart_sleep(self._stop, self.interval)
 
     def stop(self):

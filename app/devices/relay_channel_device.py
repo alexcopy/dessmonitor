@@ -7,7 +7,7 @@ from typing import Any, Dict
 from app.devices.pump_power_map import PUMP_W_MAP
 
 # Типы «аналоговых» устройств, для которых аптайм не считаем
-ANALOG_TYPES = {"thermo", "thermometer", "termo_sensor", "temp_sensor"}
+ANALOG_TYPES = {"watertemp", "water_thermo", "thermo", "thermometer", "termo", "termo_sensor", "temp_sensor"}
 
 @dataclass
 class RelayChannelDevice:
@@ -35,7 +35,12 @@ class RelayChannelDevice:
     last_tick_ts: int = field(default_factory=lambda: int(datetime.now().timestamp()))
     today_run_sec: int = 0
     today_for_date: date = field(default_factory=date.today)
-
+    logger: logging.Logger = field(
+        init=False,  # не требует аргумента при создании объекта
+        repr=False,  # не выводится в __repr__
+        default=logging.getLogger("DeviceCore")
+    )
+    today_wh: float = 0.0
     def __post_init__(self):
         #  ← если в YAML ещё лежит api_key / api_sw
         if not self.control_key and self.api_key:
@@ -54,7 +59,11 @@ class RelayChannelDevice:
     def can_switch(self) -> bool:
         delta = int(datetime.now().timestamp()) - self.last_switched
         if delta < self.time_delay:
-            logging.info(f"[{self.name}] Cannot switch yet, wait {self.time_delay - delta}s more.")
+            self.logger.info(
+                "%s: cannot_switch wait=%ss",
+                self.name, self.time_delay - delta,
+                extra={"type": "device", "dev": self.name, "evt": "cannot_switch"},
+            )
             return False
         return True
 
@@ -148,7 +157,7 @@ class RelayChannelDevice:
         Записывает в переданный logger аптайм этого устройства,
         пропуская аналоговые.
         """
-        if self.device_type.lower() in self.ANALOG_TYPES:
+        if self.device_type.lower() in ANALOG_TYPES:
             return
         logger.info(f"{self.name}: uptime={self.uptime_str()}")
 
@@ -246,18 +255,26 @@ class RelayChannelDevice:
         return float(self.load_in_wt or 0.0)
 
     def tick(self, ts: int) -> None:
-        """Обновляет счётчик работы за день, если включён."""
+        # — обнуляем, если наступил новый день —
+        if date.fromtimestamp(ts) != self.today_for_date:
+            self.today_for_date = date.fromtimestamp(ts)
+            self.today_wh = 0.0
 
-        # Если день сменился — обнуляем счётчик
-        if self.today_for_date != date.today():
-            self.today_for_date = date.today()
-            self.today_run_sec = 0
-
-        # Если устройство включено
-        if self.is_device_on():
-            elapsed = ts - self.last_tick_ts
-            if elapsed > 0:
-                self.today_run_sec += elapsed
+        elapsed = ts - self.last_tick_ts
+        if elapsed > 0 and self.is_device_on():
+            # 1) берём мощность **на начало интервала**
+            pw = self._current_power_w()
+            self.today_wh += pw * (elapsed / 3600)  # Wh = P * t[h]
+        self.logger.debug(  # ← DEBUG, чтобы легко выключить
+            "energy_tick %s",  # строка‑шаблон
+            self.name,  # ← подставляем имя устройства
+            extra={
+                "evt": "energy_tick",
+                "dev": self.name,  # label для Loki/Grafana
+                "type": self.device_type.lower(),
+                "wh": self.today_wh
+            },
+        )
         self.last_tick_ts = ts
 
     @property

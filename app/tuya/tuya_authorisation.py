@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from tuya_connector import TuyaOpenAPI
 from tuya_iot import (
@@ -10,6 +11,7 @@ from tuya_iot import (
 
 from app.device_initializer import DeviceInitializer
 from app.config import Config
+from app.logger import add_file_logger
 
 config = Config()
 tuya_config = DeviceInitializer().get_tuya_config()
@@ -36,7 +38,14 @@ class TuyaAuthorisation(metaclass=SingletonMeta):
             TUYA_LOGGER.removeHandler(h)
         # ▸ 3. чтобы случайно не всплывал в root-логгер
         TUYA_LOGGER.propagate = False
-        TUYA_LOGGER.addHandler(logging.NullHandler())
+
+        sdk_file_logger = add_file_logger(
+            name="TUYA_SDK",
+            path=Path("logs/tuya_sdk.log"),
+            level=logging.ERROR,  # WARNING или INFO — по желанию
+        )
+
+        TUYA_LOGGER.addHandler(sdk_file_logger.handlers[0])
         self.openapi = TuyaOpenAPI(ENDPOINT, ACCESS_ID, ACCESS_KEY)
         self.openapi.connect()
         self.openapi.auth_type = AuthType.SMART_HOME

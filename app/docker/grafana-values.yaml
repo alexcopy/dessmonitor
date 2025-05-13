@@ -1,0 +1,32 @@
+admin:
+  existingSecret: grafana-admin-secret
+  userKey: admin-user
+  passwordKey: admin-password
+
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        url: http://loki.logging.svc.cluster.local:3100
+        access: proxy
+        jsonData:
+          maxLines: 1000
+
+dashboards:
+  default:
+    loki-overview:
+      gnetId: 13639
+      revision: 1
+      datasource: Loki
+
+service:
+  type: ClusterIP
+  port: 80

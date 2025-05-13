@@ -1,0 +1,58 @@
+# loki-stack-values.yaml
+###############################################################################
+# 1. Loki: храним логи 7 дней
+loki:
+  config:
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h        # 7 days
+    schema_config:
+      configs:
+        - from: 2020-10-15
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+
+###############################################################################
+# 2. Promtail: читаем /srv/dessmonitor/logs
+promtail:
+  # где хранить офсеты
+  positions:
+    filename: /run/promtail-positions.yaml
+
+  # тома, которые добавляем в DaemonSet
+  extraVolumes:
+    # каталог с логами на нодах
+    - name: dess-logs
+      hostPath:
+        path: /srv/dessmonitor/logs
+        type: DirectoryOrCreate
+    # том для файла позиций
+    - name: promtail-pos
+      emptyDir: {}                  # замените на pvc, если нужно сохранять между rebootами
+
+  # монтируем тома в контейнер promtail
+  extraVolumeMounts:
+    - name: dess-logs
+      mountPath: /var/log/dess      # так видит promtail
+      readOnly: true
+    - name: promtail-pos
+      mountPath: /run               # сюда ляжет promtail-positions.yaml
+
+  # scrape-конфиг
+  extraScrapeConfigs:
+    - job_name: dessmonitor
+      static_configs:
+        - targets: ["localhost"]
+          labels:
+            job: dessmonitor
+            env: prod
+            __path__: /var/log/dess/*.log
+
+###############################################################################
+# 3. (необязательно) Если нужен dashboard Grafana из этого же чарта
+# grafana:
+#   enabled: false   # уже есть самостоятельная Grafana, оставляем выключенной

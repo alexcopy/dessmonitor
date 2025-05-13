@@ -1,12 +1,13 @@
 # app/logic/smart_home_controller.py
 import asyncio
+import logging
 from enum import IntEnum
 from pathlib import Path
 
 from app.devices.pond_pump_controller import PondPumpController
 from app.devices.pump_power_map import PRESET_DESCR
 from app.devices.relay_device_manager import RelayDeviceManager
-from app.logger import add_file_logger
+from app.logger import add_file_logger, loki_handler
 from app.tuya.relay_tuya_controller import RelayTuyaController
 from app.utils.time_utils import night_multiplier
 from shared_state.shared_state import shared_state
@@ -37,9 +38,14 @@ class SmartHomeController:
         self.pump_int = pump_int
 
         self.log_business = add_file_logger("BusinessDecisions",
-                                            self.LOG_BUSINESS_PATH)
-        self.pump_logic = PondPumpController()
+                                            self.LOG_BUSINESS_PATH,
+                                            level=logging.INFO
+                                            )
 
+        lh = loki_handler()  # глобальный handler из logger.py
+        if lh not in self.log_business.handlers:
+            self.log_business.addHandler(lh)
+        self.pump_logic = PondPumpController()
         self._stop = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
         self._last_preset_logged: int or None = None

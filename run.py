@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import signal
+import sys
 from pathlib import Path
 
 from app.api import DessAPI
@@ -18,15 +19,18 @@ from service.inverter_monitor import InverterMonitor
 
 def disable_stdout_logging() -> None:
     """
-    Убираем StreamHandler у Tuya-SDK, чтобы не засорять консоль.
+    Убираем только **реальный** StreamHandler, который пишет в sys.stdout,
+    оставляя RotatingFileHandler'ы в покое.
     """
     root = logging.getLogger()
     for h in root.handlers[:]:
-        if isinstance(h, logging.StreamHandler):
+        # проверяем и тип, и то, что поток именно stdout
+        if type(h) is logging.StreamHandler and getattr(h, "stream", None) is sys.stdout:
             root.removeHandler(h)
-    logging.getLogger("tuya_iot").propagate = False
-    logging.getLogger("tuya_iot").addHandler(logging.NullHandler())
 
+    tuya = logging.getLogger("tuya_iot")
+    tuya.propagate = False
+    tuya.addHandler(logging.NullHandler())
 
 async def main() -> None:
     # ─── 0. ЛОГИРОВАНИЕ ──────────────────────────────────────────

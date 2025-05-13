@@ -1,3 +1,4 @@
+import logging
 import os
 # dessmonitor/api.py
 import time
@@ -9,6 +10,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
+from app.logger import loki_handler
 from shared_state.shared_state import shared_state
 
 _TOKEN_FILE = Path(
@@ -147,6 +149,11 @@ class DessAPI:
 
         if not self.token:               # первый запуск или токен протух
             self.authenticate()
+        lh = loki_handler()
+        if lh not in self.logger.handlers:
+            self.logger.addHandler(lh)
+
+        self.imp = logging.getLogger("IMPORTANT")
 
 
     def _generate_sign(self, param_str: str, use_password=False):
@@ -203,7 +210,9 @@ class DessAPI:
         except TokenExpiredError:
             raise
         except Exception as e:
-            self.logger.error(f"[API] Ошибка при запросе: {e}")
+            self.logger.error("[API] request error: %s", e,
+                              extra={"type": "dess_api", "evt": "error"})
+
             raise RuntimeError(f"Ошибка запроса: {e}")
 
     def authenticate(self) -> None:

@@ -7,6 +7,7 @@ from colorama import Fore, Style, init
 
 from app.devices.pump_power_map import PRESET_DESCR
 from app.devices.relay_channel_device import RelayChannelDevice
+from app.logger import add_file_logger, loki_handler
 from shared_state.shared_state import shared_state
 
 init(autoreset=True)
@@ -33,14 +34,21 @@ class DeviceStatusLogger:
         self._last_thermo_state: dict[str, tuple] = {}
 
     # ───────────────────────── helpers ─────────────────────────
-    @staticmethod
-    def _mk_logger(name: str, path: Path, level=logging.INFO) -> logging.Logger:
-        lg = logging.getLogger(name)
-        lg.setLevel(level)
-        fh = logging.FileHandler(path, encoding="utf-8")
-        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s",
-                                          "%Y-%m-%d %H:%M:%S"))
-        lg.addHandler(fh)
+
+    def _mk_logger(self, name: str, path: Path, level=logging.INFO) -> logging.Logger:
+        """
+        Возвращает логгер с 2‑мя хэндлерами:
+          • rotating‑файл (читаемый для людей)
+          • loki.log(logfmt для Grafana)
+        """
+        lg = add_file_logger(name=name,
+                             path=path,
+                             level=level,
+                             fmt="%(asctime)s %(levelname)s: %(message)s")
+        # Не дублируем, если Loki‑хэндлер уже подвешен
+        if loki_handler() not in lg.handlers:
+            lg.addHandler(loki_handler())
+
         return lg
 
     @staticmethod
