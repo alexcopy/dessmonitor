@@ -1,4 +1,4 @@
-from app.logger import add_file_logger, loki_handler
+from app.logger import add_file_logger, loki_handler, get_loki_logger
 from pathlib import Path
 import logging
 from app.api import DeviceData
@@ -26,5 +26,17 @@ class InverterLogger:
             self._logger.warning("InverterLogger: получили не DeviceData: %s", dd)
             return
 
-        # Loki получит key=value        ↓
-        self._logger.info(dd.summary(), extra={"type": "inverter"})
+        loki = get_loki_logger()
+        loki.info(
+            "inverter_metrics",
+            extra={
+                "type":      "inverter",
+                "ts":        dd.timestamp,
+                "mode":      dd.working_state,
+                "batt_v":    dd.battery_voltage,
+                "batt_pct":  dd.battery_capacity,
+                "pv_w":      dd.pv_total_power,
+                "out_w":     dd.output_power,
+                "load_pct":  dd.ac_output_load,
+            },
+        )

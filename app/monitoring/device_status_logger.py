@@ -7,7 +7,7 @@ from colorama import Fore, Style, init
 
 from app.devices.pump_power_map import PRESET_DESCR
 from app.devices.relay_channel_device import RelayChannelDevice
-from app.logger import add_file_logger, loki_handler
+from app.logger import add_file_logger, loki_handler, get_loki_logger
 from shared_state.shared_state import shared_state
 
 init(autoreset=True)
@@ -107,7 +107,23 @@ class DeviceStatusLogger:
             if amb     is not None: parts.append(f"ambient={amb}°C")
 
             rows.append(f"{d.name:<15} | {'; '.join(parts):<25} | day-energy={energy}")
+        loki = get_loki_logger()
+        now_ts = int(datetime.now().timestamp())
 
+        for d in devices:
+            if d.device_type.lower() in self.ANALOG_TYPES:
+                continue
+            uptime = now_ts - d.last_switched
+            energy = d.today_kwh
+            loki.info(
+                "device_metrics",
+                extra={
+                    "type":       "device_metrics",
+                    "dev":        d.name,
+                    "uptime_sec": uptime,
+                    "energy_kwh": round(energy, 3),
+                }
+            )
         # печатаем одним блоком — удобнее читать
         self._logger.info("\n" + "\n".join(rows))
 
