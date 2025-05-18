@@ -259,25 +259,29 @@ class RelayChannelDevice:
         if date.fromtimestamp(ts) != self.today_for_date:
             self.today_for_date = date.fromtimestamp(ts)
             self.today_wh = 0.0
+            self.today_run_sec = 0  # Сброс аптайма на новый день
 
         elapsed = ts - self.last_tick_ts
         if elapsed > 0 and self.is_device_on():
             # 1) берём мощность **на начало интервала**
             pw = self._current_power_w()
             self.today_wh += pw * (elapsed / 3600)  # Wh = P * t[h]
-        self.logger.debug(  # ← DEBUG, чтобы легко выключить
-            "energy_tick %s",  # строка‑шаблон
-            self.name,  # ← подставляем имя устройства
+            self.today_run_sec += elapsed  # <--- Вот это добавляет аптайм!
+
+        # DEBUG для контроля — хорошо!
+        self.logger.debug(
+            "energy_tick %s",
+            self.name,
             extra={
                 "evt": "energy_tick",
-                "dev": self.name,  # label для Loki/Grafana
+                "dev": self.name,
                 "type": self.device_type.lower(),
-                "wh": self.today_wh
+                "wh": self.today_wh,
+                "run_sec": self.today_run_sec,  # Теперь видно в логе!
             },
         )
         self.last_tick_ts = ts
 
     @property
     def today_kwh(self) -> float:
-        # Wh = P * t[h]; kWh = Wh / 1000
-        return (self._current_power_w() * (self.today_run_sec / 3600)) / 1000
+        return self.today_wh / 1000

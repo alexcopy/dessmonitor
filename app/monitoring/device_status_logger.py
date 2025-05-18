@@ -59,6 +59,15 @@ class DeviceStatusLogger:
         if m: return f"{m} m"
         return f"{s}s"
 
+    @staticmethod
+    def _format_duration(sec: int) -> str:
+        m, s = divmod(sec, 60)
+        h, m = divmod(m, 60)
+        if h:
+            return f"{h}h {m}m"
+        if m:
+            return f"{m}m"
+        return f"{s}s"
     # ─────────────────── snapshot (вертикальная таблица) ──────────────────
     # -----------------------------------------------------------------
     def log_snapshot(self, devices: Sequence[RelayChannelDevice]) -> None:
@@ -91,8 +100,13 @@ class DeviceStatusLogger:
             # ---- дискретные (реле / насос) --------------------------------
             if dtype not in self.ANALOG_TYPES:
                 state = "ON" if d.is_device_on() else "OFF"
-                up    = self._fmt_duration(now - d.last_switched) if d.is_device_on() else "—"
-                rows.append(f"{d.name:<15} | {state:<3} | run={up:<8} | day-energy={energy}")
+                # Суточный аптайм (обнуляется каждый день)
+                up = self._format_duration(d.today_run_sec) if d.today_run_sec else "—"
+                rows.append(
+                    f"{d.name:<15} | {state:<3} | run={self._format_duration(d.today_run_sec):<8} | "
+                    f"cur-on={self._format_duration(now - d.last_switched) if d.is_device_on() else '—':<8} | "
+                    f"day-energy={d.today_kwh:.2f} kWh"
+                )
                 continue
 
             # ---- аналоговые датчики ---------------------------------------
@@ -118,12 +132,15 @@ class DeviceStatusLogger:
             loki.info(
                 "device_metrics",
                 extra={
-                    "type":       "device_metrics",
-                    "dev":        d.name,
-                    "uptime_sec": uptime,
-                    "energy_kwh": round(energy, 3),
+                    "type": "device_metrics",
+                    "dev": d.name,
+                    "run_sec": d.today_run_sec,  # Сколько работал за сутки (в секундах)
+                    "uptime_sec": uptime,  # Сколько текущее включение (в секундах)
+                    "day_kwh": round(d.today_kwh, 3),  # КВт⋅ч за день
+                    "state": "ON" if d.is_device_on() else "OFF",
                 }
             )
+
         # печатаем одним блоком — удобнее читать
         self._logger.info("\n" + "\n".join(rows))
 
