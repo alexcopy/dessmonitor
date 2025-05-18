@@ -39,6 +39,10 @@ spec:
           mountPath: /app/devices.yaml
           subPath: devices.yaml
           readOnly: true
+        - name: cfg
+          mountPath: /app/web_fallback_url.txt
+          subPath: web_fallback_url.txt
+          readOnly: true
 
       volumes:
       - name: logs
