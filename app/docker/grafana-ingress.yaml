@@ -1,29 +1,43 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: grafana-ingress
-  namespace: dess
-  annotations:
-    # оставьте ЛИБО аннотацию, ЛИБО spec.ingressClassName – достаточно одного механизма
-    # kubernetes.io/ingress.class: traefik
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-spec:
-  ingressClassName: traefik        # можем оставить эту строку
+# grafana-values.yaml
+admin:
+  existingSecret: grafana-admin-secret
+  userKey: admin-user
+  passwordKey: admin-password
 
-  tls:
-    - hosts:
-        - grafana.gpsbox.ru
-      secretName: grafana-tls
+# 2. Хранилище данных Grafana
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
 
-  rules:
-    - host: grafana.gpsbox.ru
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: grafana
-                port:
-                  number: 80        # ← должно совпадать с портом в `kubectl get svc grafana`
+# 3. Сервис Grafana
+service:
+  type: ClusterIP
+  port: 80
+
+# 4. Provisioning: Datasource Loki
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki-stack.logging.svc.cluster.local:3100
+        # Если Loki по HTTP, без TLS:
+        jsonData:
+          maxLines: 1000
+        # Если используете basicAuth или другие опции, добавьте их сюда
+
+# 5. Автозагрузить ваш dashboard по GNet ID (как пример)
+dashboards:
+  default:
+    loki-overview:
+      gnetId: 13639
+      revision: 1
+      datasource: Loki
+
+# 6. (опционально) Отключить встроенную Loki, если она есть в этом чарте
+loki:
+  enabled: false

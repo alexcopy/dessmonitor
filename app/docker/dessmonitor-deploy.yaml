@@ -1,10 +1,14 @@
----
+# --------------------------------------------------------------- #
+#  Namespace                                   #
+# --------------------------------------------------------------- #
 apiVersion: v1
 kind: Namespace
 metadata:
   name: dess
-
 ---
+# --------------------------------------------------------------- #
+#  Deployment  dessmonitor  +  loki-sidecar                       #
+# --------------------------------------------------------------- #
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,45 +24,65 @@ spec:
       labels:
         app: dessmonitor
     spec:
-      containers:
-      - name: dessmonitor
-        image: redcopy/dessmonitor:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8084
-        volumeMounts:
-        - name: logs
-          mountPath: /app/logs
-        - name: cache
-          mountPath: /app/app/cache
-        - name: cfg
-          mountPath: /app/config.json
-          subPath: config.json
-          readOnly: true
-        - name: cfg
-          mountPath: /app/devices.yaml
-          subPath: devices.yaml
-          readOnly: true
-        - name: cfg
-          mountPath: /app/web_fallback_url.txt
-          subPath: web_fallback_url.txt
-          readOnly: true
-
       volumes:
-      - name: logs
-        hostPath:
-          path: /srv/dessmonitor/logs
-          type: DirectoryOrCreate
-      - name: cache
-        hostPath:
-          path: /srv/dessmonitor/cache
-          type: DirectoryOrCreate
-      - name: cfg
-        hostPath:
-          path: /srv/dessmonitor/configs
-          type: DirectoryOrCreate
+        # общий hostPath-каталог с логами
+        - name: dess-logs
+          hostPath:
+            path: /srv/dessmonitor/logs
+            type: DirectoryOrCreate
+        # кеш и конфиги — как было
+        - name: cache
+          hostPath:
+            path: /srv/dessmonitor/cache
+            type: DirectoryOrCreate
+        - name: cfg
+          hostPath:
+            path: /srv/dessmonitor/configs
+            type: DirectoryOrCreate
+
+      containers:
+        # ────────────────────────── основной сервис ──────────────
+        - name: dessmonitor
+          image: redcopy/dessmonitor:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8084
+          volumeMounts:
+            - name: dess-logs     # <-- путь, куда программа сама пишет
+              mountPath: /app/logs
+            - name: cache
+              mountPath: /app/app/cache
+            - name: cfg
+              mountPath: /app/config.json
+              subPath: config.json
+              readOnly: true
+            - name: cfg
+              mountPath: /app/devices.yaml
+              subPath: devices.yaml
+              readOnly: true
+            - name: cfg
+              mountPath: /app/web_fallback_url.txt
+              subPath: web_fallback_url.txt
+              readOnly: true
+
+        # ────────────────────────── sidecar: tail -F ─────────────
+        - name: loki-log-forwarder
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "[sidecar] tail -F /logs/loki.log"
+              tail -F /logs/loki.log
+          volumeMounts:
+            - name: dess-logs     # тот же hostPath, но в /logs
+              mountPath: /logs
+          resources: {}           # при желании задайте лимиты
 
 ---
+# --------------------------------------------------------------- #
+#  Service                                         #
+# --------------------------------------------------------------- #
 apiVersion: v1
 kind: Service
 metadata:
@@ -68,13 +92,10 @@ spec:
   selector:
     app: dessmonitor
   ports:
-    # порт, на котором сервис будет слушать,
-    # и на который будет рути́ть Ingress
-  - name: http
-    port: 8085
-    targetPort: 8084
-    protocol: TCP
-
+    - name: http
+      port: 8085
+      targetPort: 8084
+      protocol: TCP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -84,17 +105,13 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: traefik
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # чтобы слушать и на 80 (web), и на 443 (websecure)
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
 spec:
   ingressClassName: traefik
-
-  # TLS для обоих доменов
   tls:
     - hosts:
         - dess.gpsbox.ru
       secretName: dessmonitor-tls
-
   rules:
     - host: dess.gpsbox.ru
       http:
