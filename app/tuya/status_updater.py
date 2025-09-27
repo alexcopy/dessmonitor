@@ -17,7 +17,7 @@ class TuyaStatusUpdater(threading.Thread):
     Работает в отдельном потоке — не блокирует основной цикл.
     """
 
-    def __init__(self, interval: int = 30):
+    def __init__(self, interval: int = 120):
         super().__init__(daemon=True)
         self.interval = interval
         self.logger   = logging.getLogger("TuyaStatusUpdater")

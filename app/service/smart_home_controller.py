@@ -15,6 +15,8 @@ from shared_state.shared_state import shared_state
 
 class PumpPreset(IntEnum):
     STRICT = 1
+    DAY_NIGHT = 2
+    SPRING_AUTUMN = 3
     SUMMER = 4
     WINTER = 5
     AUTO = 6  # штатный «Manual»-режим

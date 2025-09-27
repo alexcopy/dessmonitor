@@ -8,7 +8,7 @@ import urllib.parse
 import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from app.logger import loki_handler
 from shared_state.shared_state import shared_state
@@ -16,6 +16,10 @@ from shared_state.shared_state import shared_state
 _TOKEN_FILE = Path(
     os.getenv("MONITOR_TOKEN_PATH", "app/cache/dess_token.json")
 )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Модель данных
+# ──────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class DeviceData:
@@ -31,7 +35,8 @@ class DeviceData:
     pv2_power: Optional[float] = None
     pv_total_power: Optional[float] = None
     output_voltage: Optional[float] = None
-    output_power: Optional[float] = None
+    output_power: Optional[float] = None            # Active power
+    output_apparent_power: Optional[float] = None   # ⬅️ NEW (для WEB)
     ac_input_voltage: Optional[float] = None
     ac_input_frequency: Optional[float] = None
     ac_output_load: Optional[float] = None
@@ -60,25 +65,28 @@ class DeviceData:
         mode_txt = self.working_state or "—"
         mode_icon = mode_icons.get(mode_txt, f"ℹ️ {mode_txt}")
 
+        # если нет активной мощности — подставим кажущуюся
+        out_power = self.output_power if self.output_power is not None else self.output_apparent_power
+
         # ── helper ──────────────────────────────────────────────
-        def fmt(val, unit="", width=5, prec=1):
+        def fmt(val, unit: str = "", width: int = 5, prec: int = 1):
             return f"{val:>{width}.{prec}f}{unit}" if val is not None else ""
 
         # ── строки лога ─────────────────────────────────────────
         raw_lines = [
-            "",  # пустая строка‑отступ между записями
+            "",  # пустая строка-отступ между записями
             f"┌─ {self.timestamp} ───────────────────────────────────",
             f"│ Режим           : {mode_icon}",
             f"│ Battery         : {fmt(self.battery_voltage, ' V')}  "
             f"| {fmt(self.battery_capacity, ' %', width=3, prec=0)}",
             f"│   Charge curr.  : {fmt(self.battery_charging_current, ' A')}",
             f"│   Disch. curr.  : {fmt(self.battery_discharging_current, ' A')}",
-            f"│ PV‑1            : {fmt(self.pv1_voltage, ' V')}  "
+            f"│ PV-1            : {fmt(self.pv1_voltage, ' V')}  "
             f"| {fmt(self.pv1_power, ' W', prec=0)}",
-            f"│ PV‑2            : {fmt(self.pv2_voltage, ' V')}  "
+            f"│ PV-2            : {fmt(self.pv2_voltage, ' V')}  "
             f"| {fmt(self.pv2_power, ' W', prec=0)}",
-            f"│ AC‑in           : {fmt(self.ac_input_voltage, ' V')}",
-            f"│ Output power    : {fmt(self.output_power, ' W', prec=0)}  "
+            f"│ AC-in           : {fmt(self.ac_input_voltage, ' V')}",
+            f"│ Output power    : {fmt(out_power, ' W', prec=0)}  "
             f"| Load {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
             "└───────────────────────────────────────────────────────",
         ]
@@ -99,31 +107,41 @@ class DeviceData:
 class TokenExpiredError(Exception):
     pass
 
+
 class DessAPI:
-    API_BASE = "http://api.dessmonitor.com/public/"
+    API_BASE = "https://api.dessmonitor.com/public/"  # https
     APP_ID = "com.demo.test"
     APP_VERSION = "3.6.2.1"
     APP_CLIENT = "android"
 
     TITLE_MAPPING = {
+        # общие
         "Timestamp": "timestamp",
         "时间戳": "timestamp",
+
         "Working State": "working_state",
+
         "Battery Voltage": "battery_voltage",
         "电池电压": "battery_voltage",
         "Battery Capacity": "battery_capacity",
         "Battery Charging Current": "battery_charging_current",
         "Battery Discharge Current": "battery_discharging_current",
+
         "PV1 Input Voltage": "pv1_voltage",
         "PV1 Input Power": "pv1_power",
         "PV2 input voltage": "pv2_voltage",
         "PV2 input power": "pv2_power",
         "PV total Power": "pv_total_power",
+        "PV Total Power": "pv_total_power",  # иногда другой регистр
+
         "Output Voltage": "output_voltage",
         "Output Active Power": "output_power",
+        "Output Apparent Power": "output_apparent_power",  # ⬅️ NEW
+
         "AC Input Voltage": "ac_input_voltage",
         "AC Input Frequency": "ac_input_frequency",
         "AC Output Load": "ac_output_load",
+
         "Battery Status": "battery_status",
         "PV Status": "pv_status",
         "Mains Status": "mains_status",
@@ -141,13 +159,13 @@ class DessAPI:
         self.dev_addr = config.dev_addr
         self.sn = config.sn
         self.logger = logger
-        self.token = None
-        self.secret = None
-        self.token_expiry = None
-        self.token_acquired_time = None
-        self._load_cached_token()        # ← попробуем
+        self.token: Optional[str] = None
+        self.secret: Optional[str] = None
+        self.token_expiry: Optional[float] = None
+        self.token_acquired_time: Optional[float] = None
+        self._load_cached_token()  # ← попробуем
 
-        if not self.token:               # первый запуск или токен протух
+        if not self.token:  # первый запуск или токен протух
             self.authenticate()
         lh = loki_handler()
         if lh not in self.logger.handlers:
@@ -155,22 +173,36 @@ class DessAPI:
 
         self.imp = logging.getLogger("IMPORTANT")
 
+    # ──────────────────────────────────────────────────────────
+    # Подпись
+    # ──────────────────────────────────────────────────────────
+    def _sha1_hex(self, raw: Union[str, bytes]) -> str:
+        """Безопасно для type-checker: приводим к bytes."""
+        raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else raw
+        return hashlib.sha1(raw_bytes).hexdigest()
 
-    def _generate_sign(self, param_str: str, use_password=False):
+    def _generate_sign(self, param_str: str, use_password: bool = False):
+        # нормализуем строку для подписи: без ведущего '&'
+        if param_str.startswith("&"):
+            param_str = param_str[1:]
+
         salt = str(int(time.time() * 1000))
         if use_password:
-            pwd_hash = hashlib.sha1(self.password.encode()).hexdigest()
+            pwd_hash = self._sha1_hex(self.password)
             raw = f"{salt}{pwd_hash}{param_str}"
         else:
+            # self.secret/self.token точно строки к этому моменту
             raw = f"{salt}{self.secret}{self.token}{param_str}"
-        return hashlib.sha1(raw.encode()).hexdigest(), salt
+        return self._sha1_hex(raw), salt
 
+    # ──────────────────────────────────────────────────────────
+    # HTTP запрос
+    # ──────────────────────────────────────────────────────────
     def _do_api_request(self, params: dict, need_auth: bool = True) -> dict:
-        # 1. копируем исходный словарь
-        params = params.copy()  # action / usr / company-key уже есть
+        # 1) копируем исходный словарь
+        params = params.copy()
 
-        # 2. ***Добавляем служебные поля ПОСЛЕ*** – update() сохраняет исходный порядок,
-        #    новые ключи уходят в конец, как в «старом» скрипте
+        # 2) служебные поля в конце
         params.update({
             "source": "1",
             "_app_client_": self.APP_CLIENT,
@@ -178,26 +210,26 @@ class DessAPI:
             "_app_version_": self.APP_VERSION
         })
 
-        # 3. формируем query_str в исходном порядке
+        # 3) query в исходном порядке
         query_str = "&".join(
             f"{urllib.parse.quote_plus(str(k))}={urllib.parse.quote_plus(str(v))}"
             for k, v in params.items()
         )
-        query_with_amp = "&" + query_str
 
-        # 4. подпись
-        sign, salt = self._generate_sign(query_with_amp, use_password=not need_auth)
+        # 4) подпись
+        sign, salt = self._generate_sign(query_str, use_password=not need_auth)
 
-        # 5. финальный URL
-        if need_auth:
-            url = f"{self.API_BASE}?sign={sign}&salt={salt}&token={self.token}{query_with_amp}"
-        else:
-            url = f"{self.API_BASE}?sign={sign}&salt={salt}{query_with_amp}"
+        # 5) финальный URL
+        url = (
+            f"{self.API_BASE}?sign={sign}&salt={salt}"
+            f"{f'&token={self.token}' if need_auth else ''}"
+            f"&{query_str}"
+        )
 
         self.logger.info(f"[API] Выполняем запрос: {url}")
 
         try:
-            print("The request YRL >>>", url, "\n>>> ", end="", flush=True)
+            print("The request URL >>>", url, "\n>>> ", end="", flush=True)
             with urllib.request.urlopen(url, timeout=120) as resp:
                 raw_data = resp.read()
             data = json.loads(raw_data.decode("utf-8"))
@@ -212,9 +244,11 @@ class DessAPI:
         except Exception as e:
             self.logger.error("[API] request error: %s", e,
                               extra={"type": "dess_api", "evt": "error"})
-
             raise RuntimeError(f"Ошибка запроса: {e}")
 
+    # ──────────────────────────────────────────────────────────
+    # Аутентификация
+    # ──────────────────────────────────────────────────────────
     def authenticate(self) -> None:
         self.logger.info("Авторизация (authSource)...")
         params = {"action": "authSource", "usr": self.email, "company-key": self.company_key}
@@ -242,10 +276,13 @@ class DessAPI:
         self._save_token()
 
     def should_refresh_token(self) -> bool:
-        if self.token_expiry is None:
+        if self.token_expiry is None or self.token_acquired_time is None:
             return True
-        return (time.time() - self.token_acquired_time) >= 0.9 * self.token_expiry
+        return (time.time() - self.token_acquired_time) >= 0.9 * float(self.token_expiry)
 
+    # ──────────────────────────────────────────────────────────
+    # Публичные методы
+    # ──────────────────────────────────────────────────────────
     def fetch_device_data(self) -> DeviceData:
         try:
             if self.should_refresh_token():
@@ -263,18 +300,18 @@ class DessAPI:
                 "sn": self.sn,
             }
             result = self._do_api_request(params, need_auth=True)
-            dd= self._parse_device_data(result)
+            dd = self._parse_device_data(result)
 
         except Exception as main_exc:
-            self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб‑кролл…")
-            dd= self.fetch_device_data_fallback()
+            self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб-кролл…")
+            dd = self.fetch_device_data_fallback()
 
         shared_state.update(
-                battery_voltage=dd.battery_voltage,
-                working_mode=dd.working_state,
-                pv_power=dd.pv_total_power,
-                load_percent=dd.ac_output_load,
-            )
+            battery_voltage=dd.battery_voltage,
+            working_mode=dd.working_state,
+            pv_power=dd.pv_total_power,
+            load_percent=dd.ac_output_load,
+        )
         shared_state["inverter_raw"] = dd.to_dict()
         return dd
 
@@ -282,7 +319,6 @@ class DessAPI:
         """
         Резервный вариант: web-кролл querySPDeviceLastData
         """
-        # собираем строку action точно так же, как в твоём примере
         action_str = (
             "&action=querySPDeviceLastData"
             f"&pn={urllib.parse.quote_plus(str(self.pn))}"
@@ -292,9 +328,9 @@ class DessAPI:
             "&i18n=en_US"
         )
 
-        # подпись и salt
+        # подпись и salt (нормализация & сделается внутри _generate_sign)
         sign, salt = self._generate_sign(action_str, use_password=False)
-        # в web‑варианте всегда передаём token
+
         url = (
             f"https://web.dessmonitor.com/public/"
             f"?sign={sign}&salt={salt}&token={self.token}{action_str}"
@@ -307,38 +343,46 @@ class DessAPI:
             payload = json.loads(raw)
         except Exception as e:
             self.logger.error(f"[WEB] Ошибка запроса: {e}")
-            raise RuntimeError(f"Веб‑кролл не удался: {e}")
+            raise RuntimeError(f"Веб-кролл не удался: {e}")
 
-        # разбираем полученный JSON
         dat = payload.get("dat", {})
-        # DeviceData инициализируем сразу с gts как timestamp
         dd = DeviceData(timestamp=dat.get("gts"))
+
+        # человекочитаемое время из gts (мс)
+        gts = dat.get("gts")
+        if gts:
+            try:
+                ts = time.localtime(int(gts) // 1000)
+                dd.timestamp = time.strftime("%Y-%m-%d %H:%M:%S", ts)
+            except Exception:
+                pass
 
         # pars — словарь массивов: gd_, sy_, pv_, bt_, bc_
         for section in dat.get("pars", {}).values():
             for item in section:
                 title = item.get("par")
-                val   = item.get("val")
-                # если это поле есть в TITLE_MAPPING — запишем в dd
+                val = item.get("val")
                 field = self.TITLE_MAPPING.get(title)
                 if not field:
                     continue
-                # строковые поля
                 if field in [
-                    "working_state", "battery_status", "pv_status",
-                    "mains_status", "load_status", "charger_priority", "output_priority"
+                    "timestamp", "working_state", "battery_status",
+                    "pv_status", "mains_status", "load_status",
+                    "charger_priority", "output_priority"
                 ]:
                     setattr(dd, field, val)
                 else:
                     try:
                         setattr(dd, field, float(val))
                     except Exception:
-                        # если не число — сохраняем None
                         setattr(dd, field, None)
 
-        self.logger.info("[WEB] Успешно спарсили данные из веб‑кролла.")
+        self.logger.info("[WEB] Успешно спарсили данные из веб-кролла.")
         return dd
 
+    # ──────────────────────────────────────────────────────────
+    # Парсер ответа основного API
+    # ──────────────────────────────────────────────────────────
     def _parse_device_data(self, data: dict) -> DeviceData:
         dd = DeviceData()
         for item in data.get("dat", []):
@@ -347,8 +391,8 @@ class DessAPI:
             field = self.TITLE_MAPPING.get(title)
             if field:
                 if field in ["timestamp", "working_state", "battery_status",
-                            "pv_status", "mains_status", "load_status",
-                            "charger_priority", "output_priority"]:
+                             "pv_status", "mains_status", "load_status",
+                             "charger_priority", "output_priority"]:
                     setattr(dd, field, val)
                 else:
                     try:
@@ -357,16 +401,19 @@ class DessAPI:
                         setattr(dd, field, None)
         return dd
 
+    # ──────────────────────────────────────────────────────────
+    # Кеш токена
+    # ──────────────────────────────────────────────────────────
     def _load_cached_token(self):
         if not _TOKEN_FILE.exists():
             return
         try:
             data = json.loads(_TOKEN_FILE.read_text())
             # небольшая проверка «жив ли» (10% буфер)
-            if time.time() - data["acquired_at"] < 0.9*data["expires_in"]:
-                self.token            = data["token"]
-                self.secret           = data["secret"]
-                self.token_expiry     = data["expires_in"]
+            if time.time() - data["acquired_at"] < 0.9 * data["expires_in"]:
+                self.token = data["token"]
+                self.secret = data["secret"]
+                self.token_expiry = data["expires_in"]
                 self.token_acquired_time = data["acquired_at"]
                 self.logger.info("[API] Восстановили token из кеша")
         except Exception as e:
@@ -376,9 +423,9 @@ class DessAPI:
         try:
             _TOKEN_FILE.parent.mkdir(exist_ok=True)
             _TOKEN_FILE.write_text(json.dumps({
-                "token":       self.token,
-                "secret":      self.secret,
-                "expires_in":  self.token_expiry,
+                "token": self.token,
+                "secret": self.secret,
+                "expires_in": self.token_expiry,
                 "acquired_at": self.token_acquired_time
             }))
         except Exception as e:

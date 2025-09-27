@@ -56,7 +56,7 @@ async def main() -> None:
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Асинхронный апдейтер статусов ──────────────────────
-    updater      = TuyaStatusUpdaterAsync(interval=30)
+    updater      = TuyaStatusUpdaterAsync(interval=120)
     updater_task = asyncio.create_task(updater.run())
 
     # ─── 4. Монитор инвертора (Dess API) ──────────────────────
@@ -69,8 +69,8 @@ async def main() -> None:
     smart_ctrl = SmartHomeController(
         dev_mgr    = dev_mgr,
         tuya_ctrl  = tuya_ctrl,
-        switch_int = 60,   # сек между проверками свитчей
-        pump_int   = 60,   # сек между коррекцией насоса
+        switch_int = 180,   # сек между проверками свитчей
+        pump_int   = 120,   # сек между коррекцией насоса
     )
     smart_ctrl.start()
 
