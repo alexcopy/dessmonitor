@@ -255,6 +255,13 @@ class DessAPI:
     # ──────────────────────────────────────────────────────────
     def authenticate(self) -> None:
         self.logger.info("Авторизация (authSource)...")
+        # ⬇️ Отладка
+        self.logger.debug(f"[AUTH] Email: {self.email}")
+        self.logger.debug(f"[AUTH] Company key: {self.company_key}")
+        pwd_hash = self._sha1_hex(self.password)
+        self.logger.debug(f"[AUTH] Password SHA1: {pwd_hash[:16]}...")
+
+
         params = {"action": "authSource", "usr": self.email, "company-key": self.company_key}
         result = self._do_api_request(params, need_auth=False)
         dat = result.get("dat", {})
@@ -343,6 +350,11 @@ class DessAPI:
             self.logger.error(f"[WEB] Ошибка запроса: {e}")
             raise RuntimeError(f"Веб-кролл не удался: {e}")
 
+        # ⬅️ Добавим проверку успешности
+        if payload.get("err") != 0:
+            self.logger.error(f"[WEB] API вернул ошибку: {payload.get('desc')}")
+            raise RuntimeError(f"Веб-кролл вернул ошибку: {payload.get('desc')}")
+
         dat = payload.get("dat", {})
         dd = DeviceData(timestamp=dat.get("gts"))
 
@@ -356,26 +368,32 @@ class DessAPI:
                 pass
 
         # pars — словарь массивов: gd_, sy_, pv_, bt_, bc_
-        for section in dat.get("pars", {}).values():
+        parsed_fields = []  # ⬅️ Для отладки
+        for section_name, section in dat.get("pars", {}).items():
             for item in section:
                 title = item.get("par")
                 val = item.get("val")
                 field = self.TITLE_MAPPING.get(title)
                 if not field:
                     continue
+
                 if field in [
                     "timestamp", "working_state", "battery_status",
                     "pv_status", "mains_status", "load_status",
                     "charger_priority", "output_priority"
                 ]:
                     setattr(dd, field, val)
+                    parsed_fields.append(f"{field}={val}")
                 else:
                     try:
-                        setattr(dd, field, float(val))
-                    except Exception:
+                        float_val = float(val)
+                        setattr(dd, field, float_val)
+                        parsed_fields.append(f"{field}={float_val}")
+                    except Exception as e:
+                        self.logger.warning(f"[WEB] Не удалось преобразовать {title}={val} в float: {e}")
                         setattr(dd, field, None)
 
-        self.logger.info("[WEB] Успешно спарсили данные из веб-кролла.")
+        self.logger.info(f"[WEB] Успешно спарсили {len(parsed_fields)} полей: {', '.join(parsed_fields[:5])}...")
         return dd
 
     # ──────────────────────────────────────────────────────────
