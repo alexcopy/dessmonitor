@@ -318,7 +318,7 @@ class DessAPI:
 
         except Exception as main_exc:
             self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб-кролл…")
-            dd = self.fetch_device_data_fallback()
+            return self.fetch_device_data_fallback()
 
     def fetch_device_data_fallback(self) -> DeviceData:
         """
