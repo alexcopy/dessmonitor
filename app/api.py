@@ -331,7 +331,7 @@ class DessAPI:
 
         url = (
             f"https://web.dessmonitor.com/public/"
-            f"?sign={sign}&salt={salt}&token={self.token}{action_str}"
+            f"?sign={sign}&salt={salt}&token={self.token}&{action_str}"
         )
         self.logger.info(f"[WEB] Выполняем запрос: {url}")
 
