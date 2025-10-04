@@ -166,7 +166,11 @@ class DessAPI:
         self._load_cached_token()  # ← попробуем
 
         if not self.token:  # первый запуск или токен протух
-            self.authenticate()
+            try:
+                self.authenticate()
+            except Exception as auth_exc:
+                self.logger.warning(f"[API] Не удалось аутентифицироваться при инициализации: {auth_exc}. Будем использовать веб-краулер.")
+
         lh = loki_handler()
         if lh not in self.logger.handlers:
             self.logger.addHandler(lh)
