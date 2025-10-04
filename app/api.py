@@ -290,6 +290,9 @@ class DessAPI:
                     self.refresh_token()
                 except TokenExpiredError:
                     self.authenticate()
+                except Exception as auth_exc:
+                    self.logger.info(f"[API] ошибка обновления токена: {auth_exc}. Пытаемся полную аутентификацию...")
+                    self.authenticate()
 
             params = {
                 "action": "queryDeviceLastData",
@@ -305,15 +308,6 @@ class DessAPI:
         except Exception as main_exc:
             self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб-кролл…")
             dd = self.fetch_device_data_fallback()
-
-        shared_state.update(
-            battery_voltage=dd.battery_voltage,
-            working_mode=dd.working_state,
-            pv_power=dd.pv_total_power,
-            load_percent=dd.ac_output_load,
-        )
-        shared_state["inverter_raw"] = dd.to_dict()
-        return dd
 
     def fetch_device_data_fallback(self) -> DeviceData:
         """
