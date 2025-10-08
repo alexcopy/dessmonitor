@@ -69,7 +69,7 @@ class DeviceData:
         out_power = self.output_power if self.output_power is not None else self.output_apparent_power
         # Получаем температуру воды из shared_state
         temp_raw = shared_state.get("temp_current")
-        water_temp = shared_state.get("watertemp") or shared_state.get("pondtemp")
+        water_temp = shared_state.get("water_temp") or shared_state.get("pondtemp")
         # ── helper ──────────────────────────────────────────────
         def fmt(val, unit: str = "", width: int = 5, prec: int = 1):
             return f"{val:>{width}.{prec}f}{unit}" if val is not None else ""
