@@ -180,11 +180,16 @@ class DeviceStatusLogger:
         temp  = raw_t/10 if raw_t is not None else None
         hum   = d.status.get("humidity_value")
         batt  = d.status.get("battery_percentage")
-        shared_state["ambient_temp"]=temp
-        if d.get_name() in  ["watertemp", "pondtemp"]:
-            amb= shared_state.get("ambient_temp")
 
-        msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%, AMB={amb}"
+        # Различаем датчик воды и воздуха
+        if d.get_name() in ["watertemp", "pondtemp"]:
+            shared_state["water_temp"] = temp
+            amb = shared_state.get("ambient_temp")
+            msg = f"[THERMO] {d.name}: Water={temp}°C, Humidity={hum}%, Battery={batt}%, Ambient={amb}°C"
+        else:
+            shared_state["ambient_temp"] = temp
+            msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%"
+
         self._details_logger.info(msg)
         state = (temp, hum, batt)
         if self._last_thermo_state.get(d.id) != state:

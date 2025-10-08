@@ -89,7 +89,7 @@ class DeviceData:
             f"│ AC-in           : {fmt(self.ac_input_voltage, ' V')}",
             f"│ Output power    : {fmt(out_power, ' W', prec=0)}  ",
             f"│ Water temp      : {fmt(water_temp, '°C')}  ",
-            f"| Load {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
+            f"| Load            : {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
             "└───────────────────────────────────────────────────────",
         ]
 
