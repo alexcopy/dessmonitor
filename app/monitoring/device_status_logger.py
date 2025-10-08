@@ -176,21 +176,34 @@ class DeviceStatusLogger:
 
     # --------------- THERMO ---------------
     def _handle_thermo(self, d: RelayChannelDevice) -> None:
+        print(f"[DEBUG THERMO] Устройство: {d.name} (id={d.id})")
+        print(f"[DEBUG THERMO] Тип: {d.device_type}")
+        print(f"[DEBUG THERMO] Полный статус: {d.status}")
+
         raw_t = d.status.get("temp_current")
+        print(f"[DEBUG THERMO] raw_t (temp_current) = {raw_t}")
         temp  = raw_t/10 if raw_t is not None else None
         hum   = d.status.get("humidity_value")
         batt  = d.status.get("battery_percentage")
 
         # Различаем датчик воды и воздуха
         if d.get_name() in ["watertemp", "pondtemp"]:
-            shared_state["water_temp"] = temp
-            print(f"[DEBUG WRITE] Записали water_temp={temp} в shared_state")
+            # Записываем только если значение не None (сохраняем последнее известное)
+            if temp is not None:
+                shared_state["water_temp"] = temp
+                print(f"[DEBUG WRITE] Записали water_temp={temp} в shared_state")
+            else:
+                print(f"[DEBUG WRITE] Пропускаем запись water_temp=None, сохраняем старое: {shared_state.get('water_temp')}")
             print(f"[DEBUG WRITE] shared_state.keys()={list(shared_state.keys())}")
             amb = shared_state.get("ambient_temp")
             msg = f"[THERMO] {d.name}: Water={temp}°C, Humidity={hum}%, Battery={batt}%, Ambient={amb}°C"
         else:
-            shared_state["ambient_temp"] = temp
-            print(f"[DEBUG WRITE] Записали ambient_temp={temp} в shared_state")
+            # Аналогично для ambient
+            if temp is not None:
+                shared_state["ambient_temp"] = temp
+                print(f"[DEBUG WRITE] Записали ambient_temp={temp} в shared_state")
+            else:
+                print(f"[DEBUG WRITE] Пропускаем запись ambient_temp=None")
             msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%"
 
         self._details_logger.info(msg)
