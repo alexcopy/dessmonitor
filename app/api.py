@@ -87,8 +87,8 @@ class DeviceData:
             f"│ PV-2            : {fmt(self.pv2_voltage, ' V')}  "
             f"| {fmt(self.pv2_power, ' W', prec=0)}",
             f"│ AC-in           : {fmt(self.ac_input_voltage, ' V')}",
-            f"│ Output power    : {fmt(out_power, ' W', prec=0)}  "
-            f"│ Water temp      : {fmt(water_temp, '°C')}  "
+            f"│ Output power    : {fmt(out_power, ' W', prec=0)}  ",
+            f"│ Water temp      : {fmt(water_temp, '°C')}  ",
             f"| Load {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
             "└───────────────────────────────────────────────────────",
         ]
