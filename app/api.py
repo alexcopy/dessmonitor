@@ -76,7 +76,7 @@ class DeviceData:
 
         # ── строки лога ─────────────────────────────────────────
         raw_lines = [
-            "\n ",  # пустая строка-отступ между записями
+            "",
             f"┌─ {self.timestamp} ───────────────────────────────────",
             f"│ Режим           : {mode_icon}",
             f"│ Battery         : {fmt(self.battery_voltage, ' V')}  "
@@ -89,12 +89,11 @@ class DeviceData:
             f"| {fmt(self.pv2_power, ' W', prec=0)}",
             f"│ AC-in           : {fmt(self.ac_input_voltage, ' V')}",
             f"│ Output power    : {fmt(out_power, ' W', prec=0)}  ",
+            f"│ Load            : {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
             f"│ Water temp      : {fmt(water_temp, '°C')}  ",
-            f"| Load            : {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
             "└───────────────────────────────────────────────────────",
+            "\n "
         ]
-        # DEBUG: проверяем что получили
-        print(f"[DEBUG] проверяем что получили water_temp={water_temp}, {temp_raw}")
         # — удаляем строки, где после «: » ничего не осталось —
         lines = []
         for ln in raw_lines:

@@ -2,9 +2,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
-
 from colorama import Fore, Style, init
-
 from app.devices.pump_power_map import PRESET_DESCR
 from app.devices.relay_channel_device import RelayChannelDevice
 from app.logger import add_file_logger, loki_handler, get_loki_logger
@@ -185,25 +183,18 @@ class DeviceStatusLogger:
         temp  = raw_t/10 if raw_t is not None else None
         hum   = d.status.get("humidity_value")
         batt  = d.status.get("battery_percentage")
-
         # Различаем датчик воды и воздуха
         if d.get_name() in ["watertemp", "pondtemp"]:
             # Записываем только если значение не None (сохраняем последнее известное)
             if temp is not None:
                 shared_state["water_temp"] = temp
-                print(f"[DEBUG WRITE] Записали water_temp={temp} в shared_state")
-            else:
-                print(f"[DEBUG WRITE] Пропускаем запись water_temp=None, сохраняем старое: {shared_state.get('water_temp')}")
-            print(f"[DEBUG WRITE] shared_state.keys()={list(shared_state.keys())}")
+
             amb = shared_state.get("ambient_temp")
             msg = f"[THERMO] {d.name}: Water={temp}°C, Humidity={hum}%, Battery={batt}%, Ambient={amb}°C"
         else:
             # Аналогично для ambient
             if temp is not None:
                 shared_state["ambient_temp"] = temp
-                print(f"[DEBUG WRITE] Записали ambient_temp={temp} в shared_state")
-            else:
-                print(f"[DEBUG WRITE] Пропускаем запись ambient_temp=None")
             msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%"
 
         self._details_logger.info(msg)
