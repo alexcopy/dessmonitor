@@ -68,6 +68,7 @@ class DeviceData:
         # если нет активной мощности — подставим кажущуюся
         out_power = self.output_power if self.output_power is not None else self.output_apparent_power
         # Получаем температуру воды из shared_state
+        temp_raw = shared_state.get("temp_current")
         water_temp = shared_state.get("watertemp") or shared_state.get("pondtemp")
         # ── helper ──────────────────────────────────────────────
         def fmt(val, unit: str = "", width: int = 5, prec: int = 1):
@@ -92,7 +93,8 @@ class DeviceData:
             f"| Load            : {fmt(self.ac_output_load, ' %', width=3, prec=0)}",
             "└───────────────────────────────────────────────────────",
         ]
-
+        # DEBUG: проверяем что получили
+        print(f"[DEBUG] проверяем что получили water_temp={water_temp}, {temp_raw}")
         # — удаляем строки, где после «: » ничего не осталось —
         lines = []
         for ln in raw_lines:
