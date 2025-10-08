@@ -76,7 +76,7 @@ class DeviceData:
 
         # ── строки лога ─────────────────────────────────────────
         raw_lines = [
-            "",  # пустая строка-отступ между записями
+            "\n ",  # пустая строка-отступ между записями
             f"┌─ {self.timestamp} ───────────────────────────────────",
             f"│ Режим           : {mode_icon}",
             f"│ Battery         : {fmt(self.battery_voltage, ' V')}  "
@@ -104,7 +104,6 @@ class DeviceData:
             if ln.endswith(":") or ln.rstrip().endswith(":"):  # поле None → пропуск
                 continue
             lines.append(ln)
-
         return "\n".join(lines)
 
 

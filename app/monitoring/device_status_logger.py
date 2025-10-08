@@ -184,10 +184,13 @@ class DeviceStatusLogger:
         # Различаем датчик воды и воздуха
         if d.get_name() in ["watertemp", "pondtemp"]:
             shared_state["water_temp"] = temp
+            print(f"[DEBUG WRITE] Записали water_temp={temp} в shared_state")
+            print(f"[DEBUG WRITE] shared_state.keys()={list(shared_state.keys())}")
             amb = shared_state.get("ambient_temp")
             msg = f"[THERMO] {d.name}: Water={temp}°C, Humidity={hum}%, Battery={batt}%, Ambient={amb}°C"
         else:
             shared_state["ambient_temp"] = temp
+            print(f"[DEBUG WRITE] Записали ambient_temp={temp} в shared_state")
             msg = f"[THERMO] {d.name}: Temp={temp}°C, Humidity={hum}%, Battery={batt}%"
 
         self._details_logger.info(msg)
