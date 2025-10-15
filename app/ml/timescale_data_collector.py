@@ -43,12 +43,10 @@ class TimescaleDataCollector:
             inverter_interval: int = 120,  # 2 минуты при работе от солнца
             grid_interval: int = 1800,  # 30 минут при работе от сети
             switching_interval: int = 10,  # 10 секунд при переключении
-
             # Параметры определения режима
             min_inverter_power: float = 50.0,  # Минимальная мощность для режима "инвертор"
             sunrise_hour: int = 6,  # Начало возможной работы от солнца
             sunset_hour: int = 20,  # Конец работы от солнца
-
             database_url: Optional[str] = None,
     ):
         """

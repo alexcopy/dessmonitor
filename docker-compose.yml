@@ -15,7 +15,7 @@ services:
       - ./devices.yaml:/app/devices.yaml:ro
     ports:
       - "8000:8000"
-      
+
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: dessmonitor-timescaledb

@@ -4,7 +4,6 @@
 Надёжное хранение: SQLite (WAL) + восстановление состояния после рестарта.
 Опционально: CSV/JSONL-экспорт.
 """
-
 import json
 import os
 import sqlite3
@@ -214,7 +213,9 @@ class SQLiteStorage:
     - Индексы по времени
     - WAL + synchronous=NORMAL (можно выставить FULL при жестких требованиях)
     """
-    def __init__(self, db_path: Path = Path("ml_data/data.sqlite")):
+    def __init__(self, db_path: Optional[Path] = None):
+        if db_path is None:
+            db_path = Path(os.getenv("ML_SQLITE_PATH", "ml_data/data.sqlite"))
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.logger = logging.getLogger(__name__)
@@ -315,25 +316,40 @@ class MLDataCollector:
     def __init__(
         self,
         # Персистентное хранилище:
-        db_path: Path = Path("ml_data/data.sqlite"),
+        db_path: Optional[Path] = None,
         # Необязательные экспорт-файлы (off по умолчанию):
         csv_path: Optional[Path] = None,
         json_path: Optional[Path] = None,
-        csv_export_enabled: bool = False,
-        jsonl_export_enabled: bool = False,
+        csv_export_enabled: Optional[bool] = None,
+        jsonl_export_enabled: Optional[bool] = None,
         # Тайминги/поведение:
-        collect_interval: int = 300,
+        collect_interval: Optional[int] = None,
         skip_invalid: bool = True,
         wait_for_first_data: int = 60,
     ):
         # Хранилище
+        if db_path is None:
+            db_path = Path(os.getenv("ML_SQLITE_PATH", "ml_data/data.sqlite"))
         self.store = SQLiteStorage(db_path)
 
         # Экспорт
-        self.csv_path = csv_path or Path("ml_data/training_data.csv")
-        self.json_path = json_path or Path("ml_data/training_data.jsonl")
+        if csv_path is None:
+            csv_path = Path(os.getenv("ML_CSV_PATH", "ml_data/training_data.csv"))
+        if json_path is None:
+            json_path = Path(os.getenv("ML_JSONL_PATH", "ml_data/training_data.jsonl"))
+        self.csv_path = csv_path
+        self.json_path = json_path
+
+        if csv_export_enabled is None:
+            csv_export_enabled = os.getenv("ML_CSV_EXPORT", "false").lower() in ("true", "1", "yes")
+        if jsonl_export_enabled is None:
+            jsonl_export_enabled = os.getenv("ML_JSONL_EXPORT", "false").lower() in ("true", "1", "yes")
+
         self.csv_export_enabled = csv_export_enabled
         self.jsonl_export_enabled = jsonl_export_enabled
+
+        if collect_interval is None:
+            collect_interval = int(os.getenv("ML_COLLECT_INTERVAL", "300"))
 
         self.collect_interval = collect_interval
         self.skip_invalid = skip_invalid

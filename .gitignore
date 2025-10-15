@@ -75,3 +75,4 @@ devices.yaml
 docs/_build/
 web_fallback_url.txt
 app/cache/dess_token.json
+local_test.sh

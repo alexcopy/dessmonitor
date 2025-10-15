@@ -6,7 +6,6 @@ import signal
 import sys
 from datetime import datetime
 from pathlib import Path
-
 from app.api import DessAPI
 from app.config import Config
 from app.device_initializer import DeviceInitializer
@@ -86,22 +85,37 @@ async def main() -> None:
 
     # ─── 7. DUAL ML DATA COLLECTORS (CSV + TimescaleDB) ────────
     # CSV/JSON коллектор (бэкап)
+    ml_data_dir = Path(os.getenv("ML_DATA_DIR", "ml_data"))
+    ml_sqlite_path = Path(os.getenv("ML_SQLITE_PATH", str(ml_data_dir / "data.sqlite")))
+    ml_csv_path = Path(os.getenv("ML_CSV_PATH", str(ml_data_dir / "training_data.csv")))
+    ml_jsonl_path = Path(os.getenv("ML_JSONL_PATH", str(ml_data_dir / "training_data.jsonl")))
+
+    # Интервалы и флаги экспорта
+    ml_collect_interval = int(os.getenv("ML_COLLECT_INTERVAL", "300"))
+    ml_csv_export = os.getenv("ML_CSV_EXPORT", "true").lower() in ("true", "1", "yes")
+    ml_jsonl_export = os.getenv("ML_JSONL_EXPORT", "true").lower() in ("true", "1", "yes")
+
+    # CSV/JSON коллектор
     ml_collector = MLDataCollector(
-        csv_path=Path("ml_data/training_data.csv"),
-        json_path=Path("ml_data/training_data.jsonl"),
-        csv_export_enabled=True,  # CSV экспорт
-        jsonl_export_enabled=True,  #JSONL экспорт
-        collect_interval=300,  # каждые 300 сек
+        db_path=ml_sqlite_path,
+        csv_path=ml_csv_path,
+        json_path=ml_jsonl_path,
+        csv_export_enabled=ml_csv_export,
+        jsonl_export_enabled=ml_jsonl_export,
+        collect_interval=ml_collect_interval,
     )
 
-    # TimescaleDB коллектор (адаптивный)
+    # TimescaleDB коллектор
+    ts_inverter_interval = int(os.getenv("TS_INVERTER_INTERVAL", "120"))
+    ts_grid_interval = int(os.getenv("TS_GRID_INTERVAL", "1800"))
+    ts_switching_interval = int(os.getenv("TS_SWITCHING_INTERVAL", "10"))
     ts_collector = TimescaleDataCollector(
-        inverter_interval=120,       # 2 (120) минуты при солнце ☀️
-        grid_interval=1800,          # 30 (1800) минут ночью 🌙
-        switching_interval=10,       # 10 секунд при переключении ⚡
-        min_inverter_power=50.0,     # Порог определения режима "инвертор"
-        sunrise_hour=6,              # ~восход
-        sunset_hour=20,              # ~закат
+        inverter_interval=ts_inverter_interval,                              # 2 (120) минуты при солнце ☀️
+        grid_interval=ts_grid_interval,                                      # 30 (1800) минут ночью 🌙
+        switching_interval=ts_switching_interval,                            # 10 секунд при переключении ⚡
+        min_inverter_power=float(os.getenv("TS_MIN_INVERTER_POWER", "50.0")),# Порог определения режима "инвертор"
+        sunrise_hour=int(os.getenv("TS_SUNRISE_HOUR", "6")),                 # ~восход
+        sunset_hour=int(os.getenv("TS_SUNSET_HOUR", "20")),                  # ~закат
     )
 
     # Показываем статистику
