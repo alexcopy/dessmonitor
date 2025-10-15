@@ -105,5 +105,86 @@ ON weather_data (time DESC);
 CREATE INDEX IF NOT EXISTS idx_weather_source
 ON weather_data (source, time DESC);
 
+
+-- ============================================================================
+-- 🆕 ML Training View: Tigo + Weather + Time Features
+-- ============================================================================
+-- Материализованное представление для быстрого доступа к обучающим данным
+CREATE MATERIALIZED VIEW IF NOT EXISTS ml_solar_training_data AS
+SELECT
+    -- Time features
+    DATE_TRUNC('minute', t.time) as time,
+    EXTRACT(HOUR FROM t.time) as hour,
+    EXTRACT(DOW FROM t.time) as day_of_week,
+    EXTRACT(MONTH FROM t.time) as month,
+    CASE
+        WHEN EXTRACT(MONTH FROM t.time) IN (12, 1, 2) THEN 'winter'
+        WHEN EXTRACT(MONTH FROM t.time) IN (3, 4, 5) THEN 'spring'
+        WHEN EXTRACT(MONTH FROM t.time) IN (6, 7, 8) THEN 'summer'
+        ELSE 'autumn'
+    END as season,
+    CASE WHEN EXTRACT(HOUR FROM t.time) BETWEEN 6 AND 20 THEN 1 ELSE 0 END as is_daytime,
+
+    -- Tigo system metrics (actual production)
+    t.system_id,
+    t.current_power_w as actual_power_w,
+    t.today_energy_kwh,
+    t.size_kw as system_size_kw,
+    t.modules_online,
+    t.efficiency_pct,
+
+    -- Weather (current)
+    w.ambient_temp,
+    w.humidity,
+    w.clouds_pct,
+    w.wind_speed_mps,
+    w.uvi,
+    w.pressure_hpa,
+
+    -- Weather (forecast for next hour)
+    w.forecast_temp,
+    w.forecast_clouds_pct,
+    w.forecast_pop,
+    w.forecast_wind_mps,
+
+    -- Weather (3h/6h aggregates)
+    w.forecast_3h_temp_delta,
+    w.forecast_3h_mean_clouds,
+    w.will_rain_next_3h,
+    w.forecast_6h_temp_delta,
+    w.forecast_6h_mean_clouds,
+    w.will_rain_next_6h,
+
+    -- Target: power in 1 hour (for training)
+    LEAD(t.current_power_w, 1) OVER (
+        PARTITION BY t.system_id
+        ORDER BY t.time
+    ) as target_power_1h,
+
+    -- Target: energy in next hour (for training)
+    LEAD(t.today_energy_kwh, 1) OVER (
+        PARTITION BY t.system_id
+        ORDER BY t.time
+    ) - t.today_energy_kwh as target_energy_1h
+
+FROM tigo_system_metrics t
+LEFT JOIN weather_data w ON DATE_TRUNC('minute', t.time) = DATE_TRUNC('minute', w.time)
+WHERE t.time > NOW() - INTERVAL '90 days'  -- Последние 90 дней
+ORDER BY t.time DESC;
+
+-- Индекс для быстрого доступа
+CREATE INDEX IF NOT EXISTS idx_ml_solar_time ON ml_solar_training_data (time DESC);
+
+-- Автоматическое обновление каждый час
+CREATE OR REPLACE FUNCTION refresh_ml_solar_training_data()
+RETURNS void AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY ml_solar_training_data;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Периодическое обновление (через pg_cron или вручную)
+-- SELECT cron.schedule('refresh-ml-solar', '0 * * * *', 'SELECT refresh_ml_solar_training_data()');
+
 -- Готово!
 \echo '✅ TimescaleDB tables created successfully!'
