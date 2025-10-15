@@ -76,3 +76,9 @@ devices.yaml
 docs/_build/
 web_fallback_url.txt
 app/cache/dess_token.json
+ml_data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.csv
+*.jsonl
