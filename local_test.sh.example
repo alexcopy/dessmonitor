@@ -1,0 +1,20 @@
+#!/bin/bash
+# local_test.sh.example - Template for local testing
+# Copy to local_test.sh and fill in your values
+
+# TimescaleDB (локальный Docker)
+export DATABASE_URL="postgresql://mluser:dev_password_123@localhost:5432/mldata"
+
+# OpenWeatherMap API
+# Get your key at: https://home.openweathermap.org/api_keys
+export OPENWEATHER_API_KEY="your_api_key_here"
+
+# Your location coordinates
+# Find at: https://www.latlong.net/
+export WEATHER_LAT="51.5074"
+export WEATHER_LON="-0.1278"
+
+echo "✅ Environment variables set for local testing"
+echo "   DATABASE_URL: $DATABASE_URL"
+echo "   WEATHER_LAT: $WEATHER_LAT, LON: $WEATHER_LON"
+echo "   OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:0:10}..."
