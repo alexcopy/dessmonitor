@@ -12,7 +12,7 @@ jsonschema==4.23.0
 jsonschema-specifications==2025.4.1
 matplotlib==3.10.7
 multidict==6.4.3
-numpy==2.3.
+numpy==2.3.3
 paho-mqtt==2.1.0
 pandas==2.3.3
 propcache==0.3.1
