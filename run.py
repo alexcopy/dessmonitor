@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 import asyncio
 import logging
+import os
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from app.api import DessAPI
 from app.config import Config
 from app.device_initializer import DeviceInitializer
 from app.logger import setup_logging, add_file_logger
+# ML модули
+from app.ml.ml_data_collector import MLDataCollector, ml_collection_loop
+from app.ml.timescale_data_collector import TimescaleDataCollector, timescale_collection_loop
 from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
 from app.tuya.relay_tuya_controller import RelayTuyaController
 from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
 from app.tuya.tuya_authorisation import TuyaAuthorisation
+from app.weather.openweather_service import OpenWeatherService
 from service.inverter_monitor import InverterMonitor
 
 
@@ -24,7 +30,6 @@ def disable_stdout_logging() -> None:
     """
     root = logging.getLogger()
     for h in root.handlers[:]:
-        # проверяем и тип, и то, что поток именно stdout
         if type(h) is logging.StreamHandler and getattr(h, "stream", None) is sys.stdout:
             root.removeHandler(h)
 
@@ -32,19 +37,17 @@ def disable_stdout_logging() -> None:
     tuya.propagate = False
     tuya.addHandler(logging.NullHandler())
 
+
 async def main() -> None:
     # ─── 0. ЛОГИРОВАНИЕ ──────────────────────────────────────────
-    # FULL + IMPORTANT (5 MB, 3 backup)
     full_log, important_log = setup_logging()
 
-    # отдельный ротационный лог для Dess-монитора
     dess_log = add_file_logger(
         name="DESS",
         path=Path("logs/dessmonitor.log"),
         level=logging.INFO
     )
 
-    # компактный статус-лог устройств
     status_logger = DeviceStatusLogger()
     disable_stdout_logging()
 
@@ -52,61 +55,184 @@ async def main() -> None:
     dev_mgr = DeviceInitializer().device_controller
 
     # ─── 2. TUYA-авторизация и контроллер ─────────────────────
-    auth      = TuyaAuthorisation()
+    auth = TuyaAuthorisation()
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Асинхронный апдейтер статусов ──────────────────────
-    updater      = TuyaStatusUpdaterAsync(interval=120)
+    updater = TuyaStatusUpdaterAsync(interval=120)
     updater_task = asyncio.create_task(updater.run())
 
     # ─── 4. Монитор инвертора (Dess API) ──────────────────────
-    cfg_inv       = Config()
-    dess_api      = DessAPI(cfg_inv, dess_log)
-    inverter_mon  = InverterMonitor(dess_api, poll_sec=60)
+    cfg_inv = Config()
+    dess_api = DessAPI(cfg_inv, dess_log)
+    inverter_mon = InverterMonitor(dess_api, poll_sec=60)
     inverter_task = asyncio.create_task(inverter_mon.run())
 
     # ─── 5. Бизнес-логика SmartHomeController ─────────────────
     smart_ctrl = SmartHomeController(
-        dev_mgr    = dev_mgr,
-        tuya_ctrl  = tuya_ctrl,
-        switch_int = 180,   # сек между проверками свитчей
-        pump_int   = 120,   # сек между коррекцией насоса
+        dev_mgr=dev_mgr,
+        tuya_ctrl=tuya_ctrl,
+        switch_int=180,  # сек между проверками свитчей
+        pump_int=120,  # сек между коррекцией насоса
     )
     smart_ctrl.start()
 
-    # ─── graceful shutdown ────────────────────────────────────
-    loop       = asyncio.get_running_loop()
+    # ─── 6. GRACEFUL SHUTDOWN SETUP ────────────────────────────
+    loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
+
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop_event.set)
 
+    # ─── 7. DUAL ML DATA COLLECTORS (CSV + TimescaleDB) ────────
+    # CSV/JSON коллектор (бэкап)
+    ml_collector = MLDataCollector(
+        csv_path=Path("ml_data/training_data.csv"),
+        json_path=Path("ml_data/training_data.jsonl"),
+        csv_export_enabled=True,  # CSV экспорт
+        jsonl_export_enabled=True,  #JSONL экспорт
+        collect_interval=300,  # каждые 300 сек
+    )
+
+    # TimescaleDB коллектор (адаптивный)
+    ts_collector = TimescaleDataCollector(
+        inverter_interval=120,       # 2 (120) минуты при солнце ☀️
+        grid_interval=1800,          # 30 (1800) минут ночью 🌙
+        switching_interval=10,       # 10 секунд при переключении ⚡
+        min_inverter_power=50.0,     # Порог определения режима "инвертор"
+        sunrise_hour=6,              # ~восход
+        sunset_hour=20,              # ~закат
+    )
+
+    # Показываем статистику
+    ml_stats = ml_collector.get_statistics()
+    ts_stats = ts_collector.get_statistics()
+
+    important_log.info(
+        f"[ML CSV] Data collection initialized. "
+        f"Records: {ml_stats.get('total_records', 0)}"
+        f"CSV: {ml_collector.csv_export_enabled}, "
+        f"JSONL: {ml_collector.jsonl_export_enabled}"
+    )
+    important_log.info(
+        f"[ML DB] Adaptive collector initialized. "
+        f"Intervals: ☀️{ts_stats['intervals']['inverter']}s / "
+        f"🌙{ts_stats['intervals']['grid']}s / "
+        f"⚡{ts_stats['intervals']['switching']}s"
+    )
+
+    # ─── X. WEATHER SERVICE ─────────────────────────────────────
+    openweather_api_key = os.getenv("OPENWEATHER_API_KEY")
     try:
+        weather_lat = float(os.getenv("WEATHER_LAT", "51.5074"))
+        weather_lon = float(os.getenv("WEATHER_LON", "-0.1278"))
+    except ValueError:
+        weather_lat = 51.5074
+        weather_lon = -0.1278
+        important_log.warning("Invalid WEATHER_LAT/LON, using defaults")
+
+    weather_task = None
+
+    if not openweather_api_key:
+        important_log.warning("⚠️  OPENWEATHER_API_KEY not set! Weather service disabled.")
+        weather_task = None
+
+    else:
+        try:
+            weather_service = OpenWeatherService(
+                api_key=openweather_api_key,
+                lat=weather_lat,
+                lon=weather_lon,
+                update_interval=600  # 10 минут
+            )
+            important_log.info(
+                f"[Weather] Service starting: lat={weather_lat}, lon={weather_lon}"
+            )
+
+            weather_task = asyncio.create_task(
+                weather_service.run(stop_event)
+            )
+        except Exception as e:
+            important_log.error(f"Failed to start weather service: {e}", exc_info=True)
+
+    # Две отдельные task!
+    ml_csv_task = asyncio.create_task(
+        ml_collection_loop(ml_collector, dev_mgr, stop_event)
+    )
+
+    ml_db_task = asyncio.create_task(
+        timescale_collection_loop(ts_collector, dev_mgr, stop_event)
+    )
+
+    # ─── 8. ОСНОВНОЙ ЦИКЛ ──────────────────────────────────────
+    try:
+        important_log.info("All services started. Running main loop...")
+
         while not stop_event.is_set():
-            # 5.1 вертикальная сводка
+            # 8.1 вертикальная сводка
             status_logger.log_snapshot(dev_mgr.get_devices())
-            # 5.2 детали (насос, термометр)
-            status_logger.log_device_details(dev_mgr.get_devices())
-            # 5.3 кто реально ON
-            on_names = [d.name for d in dev_mgr.all_devices_on()]
-            important_log.info(f"[MAIN] ON devices: {', '.join(on_names) or 'none'}")
+
+            # 8.2 детали (насос, термометр)
             status_logger.log_device_details(dev_mgr.get_devices())
 
+            # 8.3 кто реально ON
+            on_names = [d.name for d in dev_mgr.all_devices_on()]
+            important_log.info(f"[MAIN] ON devices: {', '.join(on_names) or 'none'}")
+
+            # 8.4 статистика ОБОИХ коллекторов каждые 30 минут
+            if datetime.now().minute % 30 == 0:
+                csv_stats = ml_collector.get_statistics()
+                db_stats = ts_collector.get_statistics()
+                important_log.info(
+                    f"[ML CSV] {csv_stats['total_records']} records | "
+                    f"[ML DB] {db_stats['total_records']} records, "
+                    f"mode: {db_stats.get('current_mode', 'unknown')}"
+                )
+
+            # 8.5 пауза или ждём stop_event
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=60)
             except asyncio.TimeoutError:
-                # просто прошёл интервал — повторяем
                 pass
-    finally:
-        important_log.info("Shutting down…")
 
-        # останавливаем фоновые сервисы
+    except Exception as e:
+        important_log.error(f"Error in main loop: {e}", exc_info=True)
+
+    finally:
+        # ─── 9. ОСТАНОВКА ВСЕХ СЕРВИСОВ ───────────────────────
+        important_log.info("Shutting down...")
+
+        # Останавливаем фоновые сервисы
         updater.stop()
         inverter_mon.stop()
         await smart_ctrl.stop()
+        # Отменяем ВСЕ задачи
+        if weather_task:
+            weather_task.cancel()
+        ml_csv_task.cancel()
+        ml_db_task.cancel()
+        updater_task.cancel()
+        inverter_task.cancel()
 
-        # ждём, пока они корректно завершатся
-        await asyncio.gather(updater_task, inverter_task, return_exceptions=True)
+        # Ждём, пока они корректно завершатся
+        await asyncio.gather(
+            updater_task,
+            inverter_task,
+            ml_csv_task,
+            ml_db_task,
+            weather_task if weather_task else asyncio.sleep(0),
+            return_exceptions=True
+        )
+
+        important_log.info("Shutdown complete")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n⚠️  Interrupted by user")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
+        logging.exception("Fatal error in main")
+        sys.exit(1)
