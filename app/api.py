@@ -257,13 +257,10 @@ class DessAPI:
     # ──────────────────────────────────────────────────────────
     def authenticate(self) -> None:
         self.logger.info("Авторизация (authSource)...")
-        # ⬇️ Отладка
-        self.logger.debug(f"[AUTH] Email: {self.email}")
-        self.logger.debug(f"[AUTH] Company key: {self.company_key}")
+        # ⚠️ Credentials не логируются в целях безопасности
+        self.logger.debug("[AUTH] Authenticating with provided credentials")
+
         pwd_hash = self._sha1_hex(self.password)
-        self.logger.debug(f"[AUTH] Password SHA1: {pwd_hash[:16]}...")
-
-
         params = {"action": "authSource", "usr": self.email, "company-key": self.company_key}
         result = self._do_api_request(params, need_auth=False)
         dat = result.get("dat", {})
@@ -317,6 +314,7 @@ class DessAPI:
             }
             result = self._do_api_request(params, need_auth=True)
             dd = self._parse_device_data(result)
+            return dd
 
         except Exception as main_exc:
             self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб-кролл…")

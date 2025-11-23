@@ -29,8 +29,16 @@ class CustomLogHandler(Handler):
         self._file.write(line + "\n")
 
     def close(self):
-        self._file.close()
+        if hasattr(self, '_file') and self._file and not self._file.closed:
+            self._file.close()
         super().close()
+
+    def __del__(self):
+        """Гарантируем закрытие файла при уничтожении объекта"""
+        try:
+            self.close()
+        except Exception:
+            pass  # Игнорируем ошибки при очистке
 
 _loki_handler = None
 

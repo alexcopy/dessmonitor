@@ -40,6 +40,7 @@ class OpenWeatherService:
         self._last_update: Optional[datetime] = None
         self._fetch_count = 0
         self._error_count = 0
+        self._session: Optional[aiohttp.ClientSession] = None
 
     async def fetch_weather(self) -> bool:
         """Получить погоду и прогноз, записать в shared_state"""
@@ -52,12 +53,31 @@ class OpenWeatherService:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                        self.base_url,
-                        params=params,
-                        timeout=aiohttp.ClientTimeout(total=self.timeout)
-                ) as resp:
+            if not self._session:
+                self.logger.warning("ClientSession not initialized, creating temporary one")
+                async with aiohttp.ClientSession() as session:
+                    return await self._do_fetch(session, params)
+
+            return await self._do_fetch(self._session, params)
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"❌ Weather API timeout after {self.timeout}s")
+            self._error_count += 1
+            return False
+
+        except Exception as e:
+            self.logger.error(f"❌ Weather fetch failed: {e}", exc_info=True)
+            self._error_count += 1
+            return False
+
+    async def _do_fetch(self, session: aiohttp.ClientSession, params: dict) -> bool:
+        """Внутренний метод для выполнения HTTP запроса"""
+        try:
+            async with session.get(
+                    self.base_url,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         self._update_shared_state(data)
@@ -81,13 +101,8 @@ class OpenWeatherService:
                         self._error_count += 1
                         return False
 
-        except asyncio.TimeoutError:
-            self.logger.error(f"❌ Weather API timeout after {self.timeout}s")
-            self._error_count += 1
-            return False
-
         except Exception as e:
-            self.logger.error(f"❌ Weather fetch failed: {e}", exc_info=True)
+            self.logger.error(f"❌ HTTP request error: {e}", exc_info=True)
             self._error_count += 1
             return False
 
@@ -132,22 +147,32 @@ class OpenWeatherService:
             f"update_interval={self.update_interval}s"
         )
 
-        # Первый запрос сразу
-        await self.fetch_weather()
+        # Создаем переиспользуемую сессию
+        self._session = aiohttp.ClientSession()
 
-        while not stop_event.is_set():
-            try:
-                await asyncio.wait_for(
-                    stop_event.wait(),
-                    timeout=self.update_interval
-                )
-            except asyncio.TimeoutError:
-                await self.fetch_weather()
+        try:
+            # Первый запрос сразу
+            await self.fetch_weather()
 
-        self.logger.info(
-            f"🌤️  Weather service stopped. "
-            f"Fetches: {self._fetch_count}, Errors: {self._error_count}"
-        )
+            while not stop_event.is_set():
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(),
+                        timeout=self.update_interval
+                    )
+                except asyncio.TimeoutError:
+                    await self.fetch_weather()
+
+        finally:
+            # Закрываем сессию при завершении
+            if self._session and not self._session.closed:
+                await self._session.close()
+                self._session = None
+
+            self.logger.info(
+                f"🌤️  Weather service stopped. "
+                f"Fetches: {self._fetch_count}, Errors: {self._error_count}"
+            )
 
     def get_statistics(self) -> dict:
         """Статистика работы сервиса"""
