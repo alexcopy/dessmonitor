@@ -181,6 +181,7 @@ async def main() -> None:
     # ─── 8. ОСНОВНОЙ ЦИКЛ ──────────────────────────────────────
     try:
         important_log.info("All services started. Running main loop...")
+        last_stats_minute = -1  # для отслеживания логирования статистики
 
         while not stop_event.is_set():
             # 8.1 вертикальная сводка
@@ -194,7 +195,9 @@ async def main() -> None:
             important_log.info(f"[MAIN] ON devices: {', '.join(on_names) or 'none'}")
 
             # 8.4 статистика ОБОИХ коллекторов каждые 30 минут
-            if datetime.now().minute % 30 == 0:
+            current_minute = datetime.now().minute
+            if current_minute % 30 == 0 and current_minute != last_stats_minute:
+                last_stats_minute = current_minute
                 csv_stats = ml_collector.get_statistics()
                 db_stats = ts_collector.get_statistics()
                 important_log.info(

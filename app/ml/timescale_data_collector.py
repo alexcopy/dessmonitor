@@ -71,9 +71,14 @@ class TimescaleDataCollector:
         self.sunset_hour = sunset_hour
         self.database_url = (
             database_url or
-            os.getenv("DATABASE_URL") or
-            "postgresql://mluser:secret@timescaledb-svc.dess.svc.cluster.local:5432/mldata"
+            os.getenv("DATABASE_URL")
         )
+
+        if not self.database_url:
+            raise ValueError(
+                "DATABASE_URL not provided! Set DATABASE_URL environment variable "
+                "or pass database_url parameter"
+            )
 
         self.pool: Optional[asyncpg.Pool] = None
         self._total_records = 0

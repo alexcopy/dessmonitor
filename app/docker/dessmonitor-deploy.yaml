@@ -47,6 +47,33 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8084
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -v grep | grep 'python.*run.py' || exit 1"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "test -f /app/logs/loki.log && ps aux | grep -v grep | grep 'python.*run.py' || exit 1"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
           volumeMounts:
             - name: dess-logs     # <-- путь, куда программа сама пишет
               mountPath: /app/logs

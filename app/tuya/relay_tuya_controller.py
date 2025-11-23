@@ -1,7 +1,6 @@
-import time
+import asyncio
 import logging
 from datetime import datetime, time as dt_time
-from os import device_encoding
 from typing import List, Optional, Any
 
 from app.devices.relay_channel_device import RelayChannelDevice
@@ -57,32 +56,32 @@ class RelayTuyaController:
         return False
 
     # ---------- batch-helpers ----------
-    def switch_all_on_soft(self, devices, inverter_voltage):
+    async def switch_all_on_soft(self, devices, inverter_voltage):
         for dev in devices:
             if dev.ready_to_switch_on(inverter_voltage):
                 logging.info(f"[TuyaCtl] SOFT-ON: {dev.name}")
                 self.switch_on_device(dev)
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-    def switch_all_off_soft(self, devices, inverter_voltage, inverter_on):
+    async def switch_all_off_soft(self, devices, inverter_voltage, inverter_on):
         for dev in devices:
             if dev.ready_to_switch_off(inverter_voltage, inverter_on):
                 logging.info(f"[TuyaCtl] SOFT-OFF: {dev.name}")
                 self.switch_off_device(dev)
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-    def switch_all_on_hard(self, devices: List[RelayChannelDevice]):
+    async def switch_all_on_hard(self, devices: List[RelayChannelDevice]):
         for device in devices:
             if not device.is_device_on():
                 logging.info(f"[RelayTuyaController] Жестко включаем: {device.name}")
                 self.switch_on_device(device)
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-    def switch_all_off_hard(self, devices: List[RelayChannelDevice]):
+    async def switch_all_off_hard(self, devices: List[RelayChannelDevice]):
         for device in devices:
             logging.info(f"[RelayTuyaController] Жестко выключаем: {device.name}")
             self.switch_off_device(device)
-            time.sleep(1)
+            await asyncio.sleep(1)
 
     def update_devices_status(self, devices: list[RelayChannelDevice]) -> None:
         try:
@@ -123,15 +122,15 @@ class RelayTuyaController:
     def select_device_by_id(devices: List[RelayChannelDevice], dev_id: str) -> Optional[RelayChannelDevice]:
         return next((d for d in devices if str(d.id) == str(dev_id)), None)
 
-    def switch_all_logic(self, devices: List[RelayChannelDevice], inverter_voltage: float):
+    async def switch_all_logic(self, devices: List[RelayChannelDevice], inverter_voltage: float):
         inverter = next((d for d in devices if d.name.lower() == "inverter"), None)
         if not inverter:
             logging.warning("[RelayTuyaController] Инвертор не найден среди устройств.")
             return
 
         if self.is_before_1830():
-            self.switch_all_on_soft(devices, inverter_voltage)
-        self.switch_all_off_soft(devices, inverter_voltage, inverter_on=inverter.is_device_on())
+            await self.switch_all_on_soft(devices, inverter_voltage)
+        await self.switch_all_off_soft(devices, inverter_voltage, inverter_on=inverter.is_device_on())
 
 
     # ──────────────────────────── публичные методы ────────────────────────────
@@ -166,7 +165,7 @@ class RelayTuyaController:
                "commands": [{"code": code, "value": value}]}
 
         try:
-            resp = self.authorisation.deviceManager.send_commands(cmd["devId"], cmd["commands"])
+            resp = self.authorisation.device_manager.send_commands(cmd["devId"], cmd["commands"])
             ok   = bool(resp.get("success"))
             if not ok:
                 self.logger.warning(f"[Tuya] command failed {resp}")
