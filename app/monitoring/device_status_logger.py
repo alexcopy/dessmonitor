@@ -151,6 +151,13 @@ class DeviceStatusLogger:
                 self._handle_pump(d)
             elif dtype in self.ANALOG_TYPES:
                 self._handle_thermo(d)
+            else:
+                # Логируем устройства с неизвестным типом для отладки
+                if dtype and dtype not in ["relay", "switch", "inverter"]:
+                    self._details_logger.debug(
+                        f"[DEBUG] Unknown device type: {d.name} (type={dtype}), "
+                        f"expected one of {self.ANALOG_TYPES}"
+                    )
 
     # ---------------- PUMP ----------------
     def _handle_pump(self, d: RelayChannelDevice) -> None:
@@ -174,12 +181,18 @@ class DeviceStatusLogger:
 
     # --------------- THERMO ---------------
     def _handle_thermo(self, d: RelayChannelDevice) -> None:
-        print(f"[DEBUG THERMO] Устройство: {d.name} (id={d.id})")
-        print(f"[DEBUG THERMO] Тип: {d.device_type}")
-        print(f"[DEBUG THERMO] Полный статус: {d.status}")
+        # Debug логирование через logger вместо print
+        self._details_logger.debug(f"[THERMO] Processing device: {d.name} (id={d.id}, type={d.device_type})")
 
         raw_t = d.status.get("temp_current")
-        print(f"[DEBUG THERMO] raw_t (temp_current) = {raw_t}")
+
+        if raw_t is None:
+            # Температура не найдена - логируем доступные ключи
+            self._details_logger.warning(
+                f"[THERMO] {d.name}: temp_current not found! "
+                f"Available keys: {list(d.status.keys())}"
+            )
+
         temp  = raw_t/10 if raw_t is not None else None
         hum   = d.status.get("humidity_value")
         batt  = d.status.get("battery_percentage")

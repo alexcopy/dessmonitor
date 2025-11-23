@@ -362,9 +362,24 @@ class DessAPI:
         gts = dat.get("gts")
         if gts:
             try:
-                ts = time.localtime(int(gts) // 1000)
+                # gts приходит в миллисекундах
+                timestamp_sec = int(gts) // 1000
+                ts = time.localtime(timestamp_sec)
                 dd.timestamp = time.strftime("%Y-%m-%d %H:%M:%S", ts)
-            except Exception:
+
+                # Логируем расхождение timezone если есть
+                from datetime import datetime, timezone
+                utc_time = datetime.fromtimestamp(timestamp_sec, tz=timezone.utc)
+                local_time = datetime.fromtimestamp(timestamp_sec)
+                if utc_time.hour != local_time.hour:
+                    self.logger.debug(
+                        f"[TIME] Timezone offset detected: "
+                        f"UTC={utc_time.strftime('%Y-%m-%d %H:%M:%S')}, "
+                        f"Local={local_time.strftime('%Y-%m-%d %H:%M:%S')} "
+                        f"(offset: {(local_time.hour - utc_time.hour) % 24}h)"
+                    )
+            except Exception as e:
+                self.logger.warning(f"[TIME] Failed to parse timestamp: {e}")
                 pass
 
         # pars — словарь массивов: gd_, sy_, pv_, bt_, bc_
