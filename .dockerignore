@@ -2,12 +2,58 @@
 logs/
 app/cache/
 config.json
+config_cache.json
+fallback_data.json
 devices.yaml
+devices_prod.yaml
+web_fallback_url.txt
+
+# ML and runtime data
+ml_data/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.csv
+*.jsonl
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+*.crt
 
 # IDE, venv и пр.
 __pycache__/
 *.py[cod]
 *.swp
+*.swo
+*.bak
+*.bak~
+.idea/
 .vscode/
-.env
+Thumbs.db
+.DS_Store
+__MACOSX/
 
+# Git and CI
+.git/
+.gitignore
+.dockerignore
+.github/
+
+# Project memory
+.project-memory/
+
+# Agent configs
+agents/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Test and cache directories
+.pytest_cache/
+.mypy_cache/

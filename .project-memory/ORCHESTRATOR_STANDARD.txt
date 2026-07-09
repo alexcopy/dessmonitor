@@ -1,0 +1,104 @@
+================================================================================
+ DESSMONITOR ORCHESTRATOR STANDARD
+================================================================================
+
+Project: dessmonitor — a home automation and pond energy monitoring system.
+Language: Python (Flask-based API).
+Database: TimescaleDB (PostgreSQL extension) for time-series metrics.
+Deployment: GitHub Actions → Docker Hub → ArgoCD → Kubernetes.
+
+================================================================================
+ 1. MANDATORY PROMPT SECTIONS
+================================================================================
+
+Every generated task prompt MUST include these sections in order:
+
+  TASK           — One-line description of the work.
+  AGENT          — Which agent executes (plan, plan-review, coder, precommit-review).
+  MODE           — Always "implementation" for coder; "review" for reviewers.
+  BRANCH         — Git branch name for this PR.
+  PR             — PR identifier (e.g., 0001-repository-safety-and-memory-bootstrap).
+  PRECONDITION   — Exact commands to run before starting.
+  CONTEXT        — Repository and deployment context.
+  REQUIRED READS — Files the agent must read before acting.
+  HARD RULES     — Non-negotiable constraints.
+  GOAL           — What success looks like.
+  ALLOWED FILES  — Files the agent may create or modify.
+  FORBIDDEN FILES — Files the agent must NOT touch.
+  SPECIFICATION  — Detailed implementation requirements.
+  VALIDATION CHECKLIST — Commands to verify correctness.
+  NON-GOALS      — Explicitly excluded work.
+  OUTPUT FORMAT  — Required response structure.
+
+================================================================================
+ 2. PROMPT FORMAT
+================================================================================
+
+- Generated prompts must be plain text.
+- Do not use Markdown tables for prompt sections (use plain text or simple lists).
+- Section headers should be ALL CAPS for clarity.
+- Commands must be in code-fenced blocks.
+
+================================================================================
+ 3. DEPLOYMENT MODEL PRESERVATION
+================================================================================
+
+Task prompts must preserve the Docker Hub plus ArgoCD deployment model unless
+the task explicitly changes deployment governance.
+
+The current deployment path is:
+  [Git push to master]
+       ↓
+  [GitHub Actions: build-and-deploy.yml]
+       ↓  builds Docker image
+  [Docker Hub: redcopy/dessmonitor:{latest,sha}]
+       ↓  ArgoCD syncs
+  [Kubernetes cluster: namespace dess]
+       ↓  applies
+  [app/docker/dessmonitor-deploy.yaml + other manifests]
+
+================================================================================
+ 4. LOCKED PLANNING ARTIFACTS
+================================================================================
+
+- PLAN.md and PLAN_REVIEW.yaml are locked after the planning commit.
+- Coder and precommit-review agents must treat these files as read-only.
+- Only plan and plan-review agents may create or modify these files.
+- The orchestrator must enforce this by not including these files in
+  ALLOWED FILES for coder or precommit-review prompts.
+
+================================================================================
+ 5. AGENT WORKFLOW
+================================================================================
+
+  Step | Agent           | Artifact
+  ------|-----------------|------------------------------------------
+  1    | plan            | PLAN.md
+  2    | plan-review     | PLAN_REVIEW.yaml
+  3    | coder           | CODER_REPORT.txt
+  4    | precommit-review| PRECOMMIT_REVIEW.yaml
+
+No agent may proceed unless the previous artifact is approved.
+
+================================================================================
+ 6. RUNTIME SAFETY REQUIREMENT
+================================================================================
+
+- ML or AI control must not directly operate relays without a safety policy
+  and fallback mechanism.
+- ML control must start in shadow or advisory mode before production control.
+- TimescaleDB must not be enabled in production until database connectivity,
+  schema migrations, and monitoring are verified.
+- These constraints must be reflected in task prompts for any PR involving
+  ML or database enablement.
+
+================================================================================
+ 7. COMPLIANCE
+================================================================================
+
+All generated prompts must comply with:
+  - AGENT_STANDARD.txt
+  - This ORCHESTRATOR_STANDARD.txt
+  - The approved PLAN.md for the current PR
+  - The PLAN_REVIEW.yaml warnings and constraints
+  - .project-memory/ADR/*.md for architectural decisions

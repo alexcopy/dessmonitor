@@ -1,0 +1,138 @@
+================================================================================
+ DESSMONITOR AGENT STANDARD
+================================================================================
+
+Project: dessmonitor — a home automation and pond energy monitoring system.
+Language: Python (Flask-based API).
+Database: TimescaleDB (PostgreSQL extension) for time-series metrics.
+Deployment: GitHub Actions → Docker Hub → ArgoCD → Kubernetes.
+
+================================================================================
+ 1. AGENT ROLES
+================================================================================
+
+Four agents operate in strict sequence:
+
+  1. plan          — Inspects repository, writes PLAN.md.
+  2. plan-review   — Reviews PLAN.md only, writes PLAN_REVIEW.yaml.
+  3. coder         — Implements approved PLAN.md, writes CODER_REPORT.txt.
+  4. precommit-review — Reviews final diff + validation, writes PRECOMMIT_REVIEW.yaml.
+
+Rule: No agent may proceed unless the previous artifact is approved.
+
+================================================================================
+ 2. LOCKED ARTIFACTS
+================================================================================
+
+PLAN.md and PLAN_REVIEW.yaml are LOCKED (locked) after the planning commit.
+
+- "Locked" means these files are read-only for coder and precommit-review agents.
+- Coder and precommit-review must NOT edit PLAN.md or PLAN_REVIEW.yaml.
+- Only the plan and plan-review agents may create or modify these files.
+- The lock is enforced by the sequential agent workflow: coder starts only after
+  plan-review approves, and precommit-review runs after coder completes.
+- These locked artifacts must remain read-only for all subsequent agents.
+
+================================================================================
+ 3. PRECONDITION COMMANDS (every agent)
+================================================================================
+
+Every agent MUST run these commands before any other action:
+
+  git rev-parse --verify HEAD
+  git branch --show-current
+  git status --short
+
+If any precondition fails, the agent must stop and report the failure.
+
+================================================================================
+ 4. ALLOWED AND FORBIDDEN FILE BOUNDARIES
+================================================================================
+
+Allowed files for coder and precommit-review:
+  - Files explicitly listed in PLAN.md ALLOWED FILES section.
+  - .project-memory/pr/<PR-ID>/CODER_REPORT.txt (coder only).
+  - .project-memory/pr/<PR-ID>/PRECOMMIT_REVIEW.yaml (precommit-review only).
+
+Forbidden files (unless PLAN.md explicitly allows):
+  - .project-memory/pr/<PR-ID>/PLAN.md
+  - .project-memory/pr/<PR-ID>/PLAN_REVIEW.yaml
+  - Dockerfile, docker-compose.yml
+  - app/** (Python runtime code)
+  - service/** (runtime code)
+  - shared_state/** (runtime code)
+  - init-db.sql
+  - .github/** (CI/CD workflows)
+  - app/docker/** (Kubernetes manifests)
+  - agents/**
+  - devices.yaml, devices_prod.yaml
+  - config.json, config_cache.json, fallback_data.json
+  - web_fallback_url.txt
+  - app/cache/**
+  - logs/**
+  - ml_data/**
+  - *.sqlite, *.sqlite3, *.sqlite-wal, *.sqlite-shm
+  - *.csv, *.jsonl
+  - .env, .env.*
+  - *.pem, *.key, *.crt
+
+================================================================================
+ 5. IMPLEMENTATION OUTPUT SECTIONS
+================================================================================
+
+Every coder implementation report (CODER_REPORT.txt) MUST include:
+
+  TASK COMPLETE
+  BLOCKERS
+  WARNINGS
+  FILES CHANGED
+  VALIDATION RUN
+  DEVIATIONS FROM PLAN
+  BOUNDARY CONFIRMATIONS
+  NEXT REQUIRED ACTION
+
+================================================================================
+ 6. REVIEW YAML FIELDS
+================================================================================
+
+Every plan-review and precommit-review YAML MUST include:
+
+  verdict
+  head_verified
+  branch_confirmed
+  blockers
+  warnings
+  checks
+  validation
+  commit_readiness
+
+================================================================================
+ 7. DEPLOYMENT MODEL PRESERVATION
+================================================================================
+
+The deployment model is:
+  GitHub Actions → Docker Hub → ArgoCD → Kubernetes
+
+No agent may alter this deployment pipeline unless the task explicitly changes
+deployment governance. The Docker Hub image repository is redcopy/dessmonitor.
+
+================================================================================
+ 8. RUNTIME SAFETY
+================================================================================
+
+- ML or AI control must NOT directly operate relays without a safety policy
+  and fallback mechanism.
+- ML control must start in shadow or advisory mode before production control.
+- TimescaleDB must not be enabled in production until database connectivity,
+  schema migrations, and monitoring are verified.
+
+================================================================================
+ 9. COMPLIANCE
+================================================================================
+
+All agents must comply with:
+  - This AGENT_STANDARD.txt
+  - ORCHESTRATOR_STANDARD.txt
+  - The approved PLAN.md for the current PR
+  - The PLAN_REVIEW.yaml warnings and constraints
+  - .project-memory/ADR/*.md for architectural decisions
