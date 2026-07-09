@@ -35,3 +35,6 @@ jobs:
 
       - name: 🔍 Runtime smoke validation
         run: python scripts/check-runtime-smoke.py
+
+      - name: 🔍 Image publishing boundary check
+        run: bash scripts/check-image-publishing-boundary.sh

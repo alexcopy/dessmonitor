@@ -13,7 +13,9 @@
    - Tags: `latest` and `${{ github.sha }}`
    - Uses `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets
 2. **Docker Hub** stores the image at `redcopy/dessmonitor`
-3. **ArgoCD** deploys from Docker Hub using GitOps manifests in `app/docker/dessmonitor-deploy.yaml`
+3. **ArgoCD** deploys from Docker Hub. The real ArgoCD/GitOps source of truth is in a separate
+   external repository. The `app/docker/` files in this repository are legacy, auxiliary, or
+   non-authoritative — they are NOT the real GitOps source of truth.
 4. The main manifest references `redcopy/dessmonitor:latest` — a mutable tag (known risk)
 
 ## Key Components
