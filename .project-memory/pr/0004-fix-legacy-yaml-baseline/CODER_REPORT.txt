@@ -1,0 +1,117 @@
+======================================================================
+CODER_REPORT.txt
+PR 0004 — Fix Legacy YAML Baseline
+Agent: coder (implementation-repair)
+Date: 2026-07-09T12:37:09Z
+HEAD: 9aba01c1db115b09a8d939dd6d699c1e7125d0ff
+Branch: 0004-fix-legacy-yaml-baseline
+======================================================================
+
+TASK COMPLETE
+yes — CODER_REPORT.txt created. The YAML fix was already applied
+before this repair task. Validation confirms the fix is correct.
+
+BLOCKERS
+None. The only precommit-review blocker (B-001: missing CODER_REPORT.txt)
+is resolved by this file.
+
+WARNINGS
+- This is a repair task (implementation-repair), not the original
+  implementation run. The YAML syntax fix in
+  app/docker/all_in_one/deployment.yaml was already applied by a prior
+  coder run. This task only creates the missing CODER_REPORT.txt.
+- System has no 'python' command; 'python3' was used for all Python
+  commands. PRECOMMIT_REVIEW.yaml confirms this is the expected
+  environment and validation already passed with python3.
+
+FILES CHANGED
+1. .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt
+   (this file — created by repair task)
+
+   The implementation diff (app/docker/all_in_one/deployment.yaml)
+   was created by a prior coder run and is documented here for
+   completeness:
+
+   app/docker/all_in_one/deployment.yaml
+   24 insertions, 8 deletions
+   Lines 17-20 (volumeMounts): semicolon-separated inline mappings
+     replaced with properly indented multiline block sequence entries.
+   Lines 22-25 (volumes): semicolon-separated inline mappings
+     replaced, inline flow-style objects expanded to block mappings.
+
+VALIDATION RUN
+All commands below were run with python3 (system has no 'python').
+
+1. python3 -m compileall -q . -x '/(ml_data|.project-memory|.git|venv|.venv)/'
+   Exit code: 0
+   Output: (silent — all files compile successfully)
+
+2. bash scripts/check-repo-safety.sh
+   Exit code: 0
+   Output:
+     OK: No tracked forbidden artifacts found.
+     OK: No untracked forbidden files found.
+     OK: All required patterns found in .dockerignore.
+     PASSED: All checks clean.
+
+3. bash scripts/check-project-memory.sh
+   Exit code: 0
+   Output:
+     OK: All 7 governance files present.
+     OK: PR 0003 artifacts present.
+     PASSED: All required files present.
+
+4. python3 scripts/validate-yaml.py
+   Exit code: 0
+   Output: All 22 YAML file(s) validated successfully.
+
+5. git diff --name-only HEAD -- .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+   Exit code: 0
+   Output: (none — PLAN.md not modified)
+
+6. git diff --name-only HEAD -- .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN_REVIEW.yaml
+   Exit code: 0
+   Output: (none — PLAN_REVIEW.yaml not modified)
+
+7. git diff --name-only HEAD
+   Exit code: 0
+   Output: app/docker/all_in_one/deployment.yaml
+   (only changed tracked file; CODER_REPORT.txt and PRECOMMIT_REVIEW.yaml
+    are new untracked files)
+
+8. test -f .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt
+   Exit code: 0
+   Output: CODER_REPORT.txt EXISTS
+
+DEVIATIONS FROM PLAN
+None. The YAML fix matches PLAN.md Section 5 exactly:
+- Semicolons removed from volumeMounts (lines 17-20).
+- Semicolons removed from volumes (lines 22-25).
+- Each key-value pair is on its own line with proper indentation.
+- All original Kubernetes values preserved.
+
+BOUNDARY CONFIRMATIONS
+- confirm: app/docker/all_in_one/deployment.yaml is the only tracked
+  file changed (24 insertions, 8 deletions)
+- confirm: fix is syntax-only — no Kubernetes semantics changed
+- confirm: invalid semicolon-separated YAML mapping converted to valid
+  multiline YAML block sequence entries
+- confirm: all original Kubernetes values preserved (image, names,
+  mount paths, subPaths, readOnly, PV claims, configMap, secret)
+- confirm: PLAN.md not edited (git diff confirms no changes)
+- confirm: PLAN_REVIEW.yaml not edited (git diff confirms no changes)
+- confirm: PRECOMMIT_REVIEW.yaml not edited by this repair task
+- confirm: no runtime behavior changed
+- confirm: no Docker image publishing behavior changed
+- confirm: no ArgoCD behavior changed
+- confirm: no ML control enabled
+- confirm: no validation scripts edited
+- confirm: no GitHub Actions workflows edited
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: only CODER_REPORT.txt created (allowed file)
+
+NEXT REQUIRED ACTION
+Precommit-review agent should re-evaluate PR 0004.
+CODER_REPORT.txt is now present. All validation commands pass.
+The only blocker (B-001) is resolved.

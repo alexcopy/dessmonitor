@@ -1,0 +1,199 @@
+# PRECOMMIT_REVIEW.yaml
+# PR 0004 — Fix Legacy YAML Baseline
+# Agent: precommit-review (re-evaluation after CODER_REPORT repair)
+# Date: 2026-07-09T12:37:47Z
+# HEAD: 9aba01c1db115b09a8d939dd6d699c1e7125d0ff
+# Branch: 0004-fix-legacy-yaml-baseline
+
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "File exists at .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt — previously failing blocker B-001 is now resolved"
+
+  - name: CODER_REPORT.txt contains all required sections
+    result: pass
+    notes: "All 8 required sections present: TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION"
+
+  - name: CODER_REPORT.txt describes the syntax-only YAML fix
+    result: pass
+    notes: "FILES CHANGED section documents semicolon-to-multiline conversion for volumeMounts (lines 17-20) and volumes (lines 22-25). Confirms all original Kubernetes values preserved."
+
+  - name: CODER_REPORT.txt records validation results
+    result: pass
+    notes: "VALIDATION RUN section records 8 commands with exit codes and output summaries. All pass: compileall (0), check-repo-safety (0), check-project-memory (0), validate-yaml (0), locked artifacts unchanged, CODER_REPORT existence confirmed"
+
+  - name: Branch is 0004-fix-legacy-yaml-baseline
+    result: pass
+    notes: "git branch --show-current returned '0004-fix-legacy-yaml-baseline' — matches PR 0004"
+
+  - name: Implementation diff exists
+    result: pass
+    notes: "git status --short shows: M app/docker/all_in_one/deployment.yaml (modified), ?? CODER_REPORT.txt (new), ?? PRECOMMIT_REVIEW.yaml (this artifact)"
+
+  - name: PLAN.md has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md — no output (locked)"
+
+  - name: PLAN_REVIEW.yaml has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN_REVIEW.yaml — no output (locked)"
+
+  - name: All changed files are within PR 0004 scope
+    result: pass
+    notes: "Changed tracked file: app/docker/all_in_one/deployment.yaml — matches PLAN.md Section 4.3. New untracked: CODER_REPORT.txt (required by PLAN.md Section 7), PRECOMMIT_REVIEW.yaml (this review). No files outside scope."
+
+  - name: No runtime Python code changed
+    result: pass
+    notes: "git diff --name-only HEAD shows only app/docker/all_in_one/deployment.yaml. No changes to run.py, app/, service/, shared_state/"
+
+  - name: No validation scripts changed
+    result: pass
+    notes: "git diff --name-only HEAD -- scripts/validate-yaml.py scripts/check-repo-safety.sh scripts/check-project-memory.sh — no output"
+
+  - name: No GitHub Actions workflows changed
+    result: pass
+    notes: "git diff --name-only HEAD -- .github/workflows/validate.yml .github/workflows/build-and-deploy.yml — no output"
+
+  - name: No Dockerfile or docker-compose.yml changed
+    result: pass
+    notes: "git diff --name-only HEAD -- Dockerfile docker-compose.yml — no output"
+
+  - name: No Docker image publishing behavior changed
+    result: pass
+    notes: "No CI workflow or Docker configuration changes. validate.yml and build-and-deploy.yml untouched."
+
+  - name: No ArgoCD behavior changed
+    result: pass
+    notes: "Active manifest app/docker/dessmonitor-deploy.yaml unchanged. Only app/docker/all_in_one/deployment.yaml (historical/example file) modified"
+
+  - name: No Kubernetes semantics changed beyond syntax correction
+    result: pass
+    notes: "All K8s field values preserved: image ghcr.io/you/dessmonitor:latest unchanged, volume names (logs/cache/cfg/secret) unchanged, mount paths unchanged, PV claim names unchanged, configMap name unchanged, secret name unchanged. Verified via Python yaml.safe_load parsing."
+
+  - name: No ML control enabled
+    result: pass
+    notes: "No ML code touched. Changes limited to a YAML-only syntax fix in a K8s manifest"
+
+  - name: YAML syntax failure is fixed
+    result: pass
+    notes: "/tmp/validate_venv/bin/python3 scripts/validate-yaml.py — exit code 0: 'All 22 YAML file(s) validated successfully.' Previously failed with exit code 1"
+
+  - name: Semicolon-separated invalid mapping replaced by valid YAML
+    result: pass
+    notes: "Lines 17-20 (volumeMounts) and lines 22-25 (volumes) changed from semicolon-separated inline syntax to properly indented multiline block sequence entries. Confirmed via git diff HEAD."
+
+  - name: Fix is syntax-only
+    result: pass
+    notes: "No new keys added, no keys removed, no values changed. Only YAML notation changed from semicolon-separated inline to multiline block sequence."
+
+  - name: Original Kubernetes values preserved
+    result: pass
+    notes: "Verified via Python parsing: container name=dessmonitor, image=ghcr.io/you/dessmonitor:latest, 4 volumeMounts, 4 volumes. All names, mountPaths, subPaths, claimNames, configMap names, secret names identical."
+
+  - name: No manifest was deleted, renamed, split, or moved
+    result: pass
+    notes: "File app/docker/all_in_one/deployment.yaml modified in-place. Single Deployment manifest remains a single document (parsed as 1 doc)."
+
+  - name: No forbidden patterns in modified/new files
+    result: pass
+    notes: "grep for 'TODO|PLACEHOLDER|\\?\\?\\?' in app/docker/all_in_one/deployment.yaml and CODER_REPORT.txt — no matches"
+
+  - name: No .ariadne residue
+    result: pass
+    notes: "find .ariadne -maxdepth 5 -type f — '.ariadne absent'"
+
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "9aba01c1db115b09a8d939dd6d699c1e7125d0ff"
+
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0004-fix-legacy-yaml-baseline"
+
+    - command: git status --short
+      result: pass
+      output_summary: "M app/docker/all_in_one/deployment.yaml, ?? .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt, ?? .project-memory/pr/0004-fix-legacy-yaml-baseline/PRECOMMIT_REVIEW.yaml — all within approved scope"
+
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: "Only app/docker/all_in_one/deployment.yaml — exactly matches PLAN.md Section 4.3"
+
+    - command: git diff --stat HEAD
+      result: pass
+      output_summary: "app/docker/all_in_one/deployment.yaml | 32 ++++++++++++++++++++++++-------- (24 insertions, 8 deletions)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "No output — PLAN.md not modified (locked)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN_REVIEW.yaml
+      result: pass
+      output_summary: "No output — PLAN_REVIEW.yaml not modified (locked)"
+
+    - command: test -f .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt
+      result: pass
+      output_summary: "EXISTS — previously missing blocker B-001 is now resolved"
+
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "Exit code 0 — all Python files compile successfully"
+
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit code 0 — no tracked forbidden artifacts, no untracked forbidden files, all .dockerignore patterns covered"
+
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit code 0 — all 7 governance files and PR 0003 artifacts present"
+
+    - command: /tmp/validate_venv/bin/python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit code 0 — 'All 22 YAML file(s) validated successfully.' YAML syntax failure fully resolved."
+
+    - command: /tmp/validate_venv/bin/python3 -c "import yaml; yaml.safe_load(open('app/docker/all_in_one/deployment.yaml'))"
+      result: pass
+      output_summary: "Parsed successfully: 1 document, kind=Deployment, name=dessmonitor"
+
+    - command: git diff --name-only HEAD -- app/docker/dessmonitor-deploy.yaml
+      result: pass
+      output_summary: "No output — active deployment manifest NOT modified"
+
+    - command: git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml
+      result: pass
+      output_summary: "No output — build-and-deploy workflow NOT modified"
+
+    - command: git diff --name-only HEAD -- scripts/validate-yaml.py scripts/check-repo-safety.sh scripts/check-project-memory.sh .github/workflows/validate.yml
+      result: pass
+      output_summary: "No output — no validation scripts or workflows modified"
+
+    - command: grep -n "TODO\|PLACEHOLDER\|???" app/docker/all_in_one/deployment.yaml .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt
+      result: pass
+      output_summary: "No placeholders found in any modified or new files"
+
+    - command: grep -E "^(TASK COMPLETE|BLOCKERS|WARNINGS|FILES CHANGED|VALIDATION RUN|DEVIATIONS FROM PLAN|BOUNDARY CONFIRMATIONS|NEXT REQUIRED ACTION)" .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt
+      result: pass
+      output_summary: "All 8 required CODER_REPORT.txt sections confirmed present"
+
+  not_run:
+    - command: python scripts/validate-yaml.py
+      reason: "System has no 'python' command (only 'python3'). Used /tmp/validate_venv/bin/python3 which has PyYAML available."
+
+    - command: python -m compileall -q .
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "No blockers. Commit all changes: app/docker/all_in_one/deployment.yaml (modified), .project-memory/pr/0004-fix-legacy-yaml-baseline/CODER_REPORT.txt (new), .project-memory/pr/0004-fix-legacy-yaml-baseline/PRECOMMIT_REVIEW.yaml (new)"
+    - "The YAML fix is syntax-only and all original Kubernetes values are preserved. All validation passes with exit code 0."
