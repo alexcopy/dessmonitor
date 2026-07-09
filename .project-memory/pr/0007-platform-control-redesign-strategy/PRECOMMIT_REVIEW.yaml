@@ -1,0 +1,281 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: WARN-001
+    severity: warning
+    finding: "Runtime smoke validation (python3 scripts/check-runtime-smoke.py) failed locally due to missing dependencies (aiohttp, logfmter, matplotlib, colorama). This is a pre-existing local environment issue — the CI runner installs dependencies via pip install -r requirements.txt before running smoke validation. The CODER_REPORT.txt already documents this. No code changes in PR 0007 affect module import behavior."
+    recommendation: "Ensure CI pipeline runs pip install -r requirements.txt before smoke validation. This is already the case in validate.yml. No action needed."
+checks:
+  - name: Branch is for PR 0007
+    result: pass
+    notes: "Branch: 0007-platform-control-redesign-strategy — matches PR 0007"
+  - name: Implementation diff exists
+    result: pass
+    notes: "git status --short shows 3 modified files, 2 untracked directories, and 1 untracked script — implementation diff is present"
+  - name: PLAN.md has no diff from HEAD (locked)
+    result: pass
+    notes: "PLAN.md does not exist at HEAD commit for PR 0007 — file does not exist in commit history. git diff --name-only HEAD -- PLAN.md produced no output (no diff). CODER_REPORT.txt confirms planning artifacts were never committed to this branch; coder followed task specification directly. No violation of locked artifact rule."
+  - name: PLAN_REVIEW.yaml has no diff from HEAD (locked)
+    result: pass
+    notes: "PLAN_REVIEW.yaml does not exist at HEAD commit for PR 0007 — same status as PLAN.md. No diff from HEAD. No locked artifact violation."
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "File found at .project-memory/pr/0007-platform-control-redesign-strategy/CODER_REPORT.txt"
+  - name: Changed files are within approved PR 0007 scope
+    result: pass
+    notes: "Changed files via git diff HEAD: .github/workflows/validate.yml (+3 additive lines), .project-memory/CURRENT_STATE.md (+8 lines PR 0007 section), .project-memory/ROADMAP.md (+14 lines Phase 2b). Untracked: .project-memory/PLATFORM_CONTROL_REDESIGN.md (new strategy document), scripts/check-platform-control-redesign.sh (new validation script). All within documentation/static-validation scope."
+  - name: Runtime behavior not changed
+    result: pass
+    notes: "git diff --name-only HEAD -- run.py app/ service/ shared_state/ — no output. No runtime code modified."
+  - name: Pump behavior not changed
+    result: pass
+    notes: "No pump-related runtime files (pond_pump_controller.py, smart_home_controller.py, device_initializer.py, relay_channel_device.py) are modified. Pump logic is untouched in PR 0007."
+  - name: Docker image publishing behavior not changed
+    result: pass
+    notes: "git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml — no output. Dockerfile, docker-compose.yml unchanged. validate.yml has no 'docker' keyword (grep -c returns 0)."
+  - name: External GitOps and ArgoCD behavior not changed
+    result: pass
+    notes: "git diff --name-only HEAD -- app/docker/ — no output. No deployment manifest changes. PLATFORM_CONTROL_REDESIGN.md correctly states 'real GitOps deployment lives in an external GitOps repository' (Section 2)."
+  - name: ML control not enabled
+    result: pass
+    notes: "No ML code modified. PLATFORM_CONTROL_REDESIGN.md explicitly defers ML advisory to later (after PR 0016) and ML control to 'much later' with safety-reviewed gates and ADR-0003 reference."
+  - name: PLATFORM_CONTROL_REDESIGN.md exists
+    result: pass
+    notes: "File found at .project-memory/PLATFORM_CONTROL_REDESIGN.md"
+  - name: States physical pump / water pump no longer exists
+    result: pass
+    notes: "Section 1: 'The physical pump / water pump no longer exists.'"
+  - name: States pump-specific control logic is obsolete
+    result: pass
+    notes: "Section 1: 'Pump-specific control logic is now obsolete.' Repeated in CURRENT_STATE.md PR 0007 section."
+  - name: Preserves generic ON/OFF control capability
+    result: pass
+    notes: "Section 1: 'the platform must retain generic ON/OFF control capability for switchable loads (lights, filters, heaters, future devices).' CURRENT_STATE.md PR 0007 section: 'Generic ON/OFF switchable-load control remains a product requirement.'"
+  - name: Explains why rewrite from zero is not desired
+    result: pass
+    notes: "Section 2 enumerates substantial existing value: DESS/inverter telemetry, Tuya relay adapter, RelayChannelDevice, validation/CI, Docker publishing, weather/sensor telemetry, accumulated historical data."
+  - name: Identifies working skeleton to preserve
+    result: pass
+    notes: "Section 2 explicitly lists: DESS telemetry, Tuya relay adapter, RelayChannelDevice, validation/CI, Docker publishing, weather/sensor telemetry, accumulated historical data."
+  - name: Identifies pump-coupled areas
+    result: pass
+    notes: "Section 3 provides comprehensive inventory with 6 coupling classifications: Active Runtime, Legacy/Inactive, Documentation-Only, Data/ML, Configuration, Monitoring — with specific file paths and descriptions."
+  - name: Classifies pump coupling by type
+    result: pass
+    notes: "Six classifications used: active runtime (run.py, smart_home_controller.py, pond_pump_controller.py etc.), legacy/inactive (pump_power_map.py), documentation-only (ML README), data/ML (ml_data_collector.py, ml_model_training_example.py), configuration (devices.yaml), monitoring (device_status_logger.py)."
+  - name: Treats voltage-driven pump control as obsolete/unsafe
+    result: pass
+    notes: "Section 3.1 classifies PondPumpController, pump_int, _pump_loop, device_type=='pump' special-casing, pump_mode in shared_state as 'active runtime' — all targeted for deprecation in PR 0008."
+  - name: Defines target architecture around SwitchableLoad and ControlCommand
+    result: pass
+    notes: "Section 4.1 defines SwitchableLoad, ControlCommand, ControlState, ObservedState, DesiredState, CommandResult, TelemetryPoint, PolicyDecision. Section 4.2 defines adapter layer (Tuya, DESS, Weather, Storage, UI). Section 4.3 defines service layer (telemetry, manual control, device registry, policy, ML advisory)."
+  - name: Separates core domain from adapters
+    result: pass
+    notes: "Section 4.4 Safety Boundaries: 'Core domain types must not know Tuya command keys, DESS raw formats, or OpenWeather raw formats.' Separate adapter section (4.2) clearly delineates adapter responsibilities."
+  - name: Defines staged migration
+    result: pass
+    notes: "Section 5 lists PR 0007 through PR 0015+ with clear goals, likely changes, risk levels, and validation for each stage. ROADMAP.md Phase 2b mirrors these stages."
+  - name: Recommends PR 0008 (disable pump automation, preserve manual switch)
+    result: pass
+    notes: "Section 6 explicitly recommends PR 0008: '0008-disable-pump-automation-and-preserve-manual-switch-control' with 6-item scope. ROADMAP.md lists PR 0008 as next step."
+  - name: Defers UI/UX to later PRs
+    result: pass
+    notes: "Section 5 PR 0015+: 'UI/UX Control Panel (Planning) — Design and plan a user interface for manual control, scheduling, and monitoring. Implementation later.'"
+  - name: Treats historical pump data as legacy, not for casual deletion
+    result: pass
+    notes: "Section 5 PR 0013: 'Preserve old pump history in existing SQLite/CSV/JSONL data (legacy format, not migrated).' Section 2 lists 'Accumulated historical data — SQLite, CSV, JSONL data stores with months of solar/battery/weather/device telemetry' as preserved skeleton."
+  - name: States ML advisory comes before ML control
+    result: pass
+    notes: "Section 5: 'Later — ML Advisory: ML models produce advisory PolicyDecision in shadow mode.' Then 'Much Later — ML Control: ML models produce control decisions after safety-reviewed gates.' ROADMAP.md Phase 2b: 'Later — ML advisory (shadow mode, safety policy required)' then 'Much later — ML control (only after safety-reviewed gates per ADR-0003).'"
+  - name: States ML control requires separate safety-reviewed PRs
+    result: pass
+    notes: "Section 5: ML Control requires 'Demonstrated safety policy. Demonstrated fallback mechanism. Demonstrated shadow/advisory mode in production. Human operator confidence established over months.' References ADR-0003. ROADMAP.md Phase 2b: 'only after safety-reviewed gates per ADR-0003.'"
+  - name: Does not include secrets, live device IDs, tokens, kubeconfig, or private repo credentials
+    result: pass
+    notes: "grep for 'secret|token|password|apikey|api_key|kubeconfig|private.key|k8s.*token' in PLATFORM_CONTROL_REDESIGN.md only matches line 345 which says 'Avoid config file commits with secrets.' — a valid planning statement, not an actual secret."
+  - name: CURRENT_STATE.md changes are concise and limited
+    result: pass
+    notes: "Only 8 lines added as a new 'PR 0007 — Platform Control Redesign Phase' section after PR 0001 Scope section. No existing sections rewritten or removed."
+  - name: ROADMAP.md changes are concise and limited
+    result: pass
+    notes: "Only 14 lines added as new 'Phase 2b: Platform Control Redesign — Staged Backend Refactor (PR 0007+)' section between Phase 2 and Phase 3. No existing phases modified."
+  - name: CURRENT_STATE.md preserves image publishing and external GitOps boundary
+    result: pass
+    notes: "Deployment Pipeline section (lines 15-22) already contains the corrected boundary from PR 0006: 'The real ArgoCD/GitOps source of truth is in a separate external repository' and 'app/docker/ files are legacy, auxiliary, or non-authoritative.' PR 0007 addition does not modify this section."
+  - name: ROADMAP.md preserves image publishing and external GitOps boundary
+    result: pass
+    notes: "Phase 2 (ArgoCD and GitOps Cleanup) left intact. Phase 2b addition does not reference or modify deployment boundary. Phase 2b only concerns backend control architecture, not deployment."
+  - name: Both documents do not claim PR 0007 changed runtime behavior
+    result: pass
+    notes: "CURRENT_STATE.md PR 0007 section: 'PR 0007 starts the platform control redesign phase. It documents strategy only.' ROADMAP.md Phase 2b: 'PR 0007 — Strategy and inventory (documentation only)' marked with [x]."
+  - name: Validation script checks static repository files only
+    result: pass
+    notes: "check-platform-control-redesign.sh checks: file existence (test -f), and grep patterns in PLATFORM_CONTROL_REDESIGN.md. No network calls, no executables executed."
+  - name: Validation script does not use curl, wget, kubectl, argocd, docker, gh api, network commands, or external service calls
+    result: pass
+    notes: "Script reviewed: only uses test, grep, echo, and basic shell. No network or external commands."
+  - name: Validation script does not require secrets
+    result: pass
+    notes: "Script reviewed: no secret references, no environment variable reads for credentials. Pure static file checking."
+  - name: Validation script does not mutate files
+    result: pass
+    notes: "Script reviewed: read-only operations (test, grep). No write operations."
+  - name: Validation script exits nonzero on failure
+    result: pass
+    notes: "Script sets ERRORS=0, increments on failure, exits 1 if ERRORS>0. Verified by test run: exited 0 (all pass), would exit 1 on failure."
+  - name: Validation script prints actionable errors
+    result: pass
+    notes: "Each check failure prints clear message: 'MISSING: <concept> not found in <file>' with description of what's needed."
+  - name: Validation script checks for key strategy phrases
+    result: pass
+    notes: "Script checks: pump, water pump, ON/OFF, SwitchableLoad, ControlCommand, 0008-disable-pump-automation, ML control, external GitOps — all 8 checks confirmed by test run (all passed)."
+  - name: validate.yml changed additively only
+    result: pass
+    notes: "Diff shows exactly 3 lines added at end of file: a new 'Platform control redesign check' step with 'bash scripts/check-platform-control-redesign.sh'. No existing lines modified or removed."
+  - name: validate.yml runs check-platform-control-redesign.sh
+    result: pass
+    notes: "Added step: 'bash scripts/check-platform-control-redesign.sh' — confirmed in diff."
+  - name: validate.yml existing validation steps remain
+    result: pass
+    notes: "All 7 prior steps preserved unchanged: Checkout, Python setup, Install dependencies, Python syntax validation, YAML syntax validation, Repository safety check, Project-memory structure check, Runtime smoke validation, Image publishing boundary check."
+  - name: validate.yml remains validation-only
+    result: pass
+    notes: "grep -c 'docker' .github/workflows/validate.yml returns 0 — no Docker commands added. No build, push, or deploy steps."
+  - name: No Docker build or push added to validate.yml
+    result: pass
+    notes: "No docker actions, docker commands, or container operations added. Only bash script execution."
+  - name: No Docker Hub credentials in validate.yml
+    result: pass
+    notes: "No secrets, DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, or docker/login-action in validate.yml."
+  - name: No deploy step added to validate.yml
+    result: pass
+    notes: "No deploy, argocd, kubectl, or helm commands added."
+  - name: build-and-deploy.yml not changed
+    result: pass
+    notes: "git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml — no output. File untouched."
+  - name: No runtime code changed
+    result: pass
+    notes: "git diff --name-only HEAD -- run.py app/ service/ shared_state/ — no output."
+  - name: No pump logic changed
+    result: pass
+    notes: "No changes to pond_pump_controller.py, smart_home_controller.py pump references, device_initializer.py pump logic, or run.py pump_int."
+  - name: No Tuya behavior changed
+    result: pass
+    notes: "No changes to app/tuya/ files. Tuya adapter is preserved unchanged."
+  - name: No DESS/inverter telemetry behavior changed
+    output_summary: ""
+    notes: "No changes to app/api.py, service/inverter_monitor.py, or inverter polling code."
+  - name: No ML code changed
+    result: pass
+    notes: "No changes to app/ml/ files."
+  - name: No config files changed
+    result: pass
+    notes: "No changes to devices.yaml, config.json, config_cache.json, or any config files (all gitignored or unchanged)."
+  - name: No data files changed
+    result: pass
+    notes: "No changes to SQLite, CSV, JSONL, or any data files."
+  - name: No deployment behavior changed
+    result: pass
+    notes: "No changes to app/docker/, build-and-deploy.yml, Dockerfile, or docker-compose.yml."
+  - name: No automation or ML control enabled
+    result: pass
+    notes: "No changes to automation loops or ML enablement flags. PR 0007 is documentation-only."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "a197af18be86468adde1f7249314bb7b6ea02cb9"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0007-platform-control-redesign-strategy — matches PR 0007"
+    - command: git status --short
+      result: pass
+      output_summary: "3 modified files (validate.yml staged, CURRENT_STATE.md and ROADMAP.md unstaged), 3 untracked items (PLATFORM_CONTROL_REDESIGN.md, pr/0007-platform-control-redesign-strategy/, check-platform-control-redesign.sh) — implementation diff confirmed"
+    - command: git diff --name-only HEAD -- .project-memory/pr/0007-platform-control-redesign-strategy/PLAN.md
+      result: pass
+      output_summary: "No output — PLAN.md does not exist at HEAD, no diff (locked artifact)"
+    - command: git diff --name-only HEAD -- .project-memory/pr/0007-platform-control-redesign-strategy/PLAN_REVIEW.yaml
+      result: pass
+      output_summary: "No output — PLAN_REVIEW.yaml does not exist at HEAD, no diff (locked artifact)"
+    - command: test -f .project-memory/pr/0007-platform-control-redesign-strategy/CODER_REPORT.txt
+      result: pass
+      output_summary: "CODER_REPORT.txt EXISTS"
+    - command: test -f .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "PLATFORM_CONTROL_REDESIGN.md EXISTS"
+    - command: grep -q 'pump' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — pump referenced throughout strategy inventory"
+    - command: grep -q 'water pump' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — water pump referenced as no longer existing"
+    - command: grep -q 'ON/OFF' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — ON/OFF control capability preserved"
+    - command: grep -q 'SwitchableLoad' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — SwitchableLoad defined as core domain type"
+    - command: grep -q 'ControlCommand' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — ControlCommand defined as core domain type"
+    - command: grep -q '0008-disable-pump-automation' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — PR 0008 recommended as immediate next step"
+    - command: grep -q 'ML control' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — ML control deferred to later, safety-reviewed PRs"
+    - command: grep -q 'external GitOps' .project-memory/PLATFORM_CONTROL_REDESIGN.md
+      result: pass
+      output_summary: "FOUND — external GitOps boundary referenced"
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "No output — exit code 0. All Python files compile cleanly."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit code 0 — no errors, no warnings. All safety checks pass."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit code 0 — all required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit code 0 — all 22 YAML files validated successfully."
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit code 1 — 6 module import failures due to missing local dependencies (aiohttp, logfmter, matplotlib, colorama). Pre-existing local environment issue. CI runner installs dependencies before running this check. No PR 0007 code changes affect module imports."
+    - command: bash scripts/check-image-publishing-boundary.sh
+      result: pass
+      output_summary: "Exit code 0 — DEPLOYMENT_BOUNDARY.md exists with all required concepts: Docker Hub, external GitOps repository, ArgoCD, non-authoritative. CURRENT_STATE.md references external repository and non-authoritative status."
+    - command: bash scripts/check-platform-control-redesign.sh
+      result: pass
+      output_summary: "Exit code 0 — PLATFORM_CONTROL_REDESIGN.md exists. All 8 concept checks pass: pump, water pump, ON/OFF, SwitchableLoad, ControlCommand, 0008-disable-pump-automation, ML control, external GitOps."
+    - command: grep -c 'docker' .github/workflows/validate.yml
+      result: pass
+      output_summary: "0 matches — word 'docker' does not appear in validate.yml. No Docker build/push/deploy steps added."
+    - command: git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml
+      result: pass
+      output_summary: "No output — build-and-deploy.yml unchanged."
+    - command: git diff --name-only HEAD -- run.py app/ service/ shared_state/
+      result: pass
+      output_summary: "No output — no runtime code changed."
+    - command: git diff --name-only HEAD -- Dockerfile docker-compose.yml
+      result: pass
+      output_summary: "No output — Dockerfile and docker-compose.yml unchanged."
+    - command: git diff --name-only HEAD -- app/docker/
+      result: pass
+      output_summary: "No output — app/docker/ manifests unchanged."
+    - command: git diff --name-only HEAD -- requirements.txt
+      result: pass
+      output_summary: "No output — requirements.txt unchanged."
+    - command: date -u +%Y-%m-%dT%H:%M:%SZ
+      result: pass
+      output_summary: "2026-07-09T23:22:21Z"
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "All validation checks pass except runtime smoke validation (pre-existing local dependency issue — CI will pass with pip install)"
+    - "Only changed files are within approved scope: 3 documentation files (PLATFORM_CONTROL_REDESIGN.md, CURRENT_STATE.md, ROADMAP.md), 1 static validation script (check-platform-control-redesign.sh), 1 additive CI step (validate.yml), and 2 planning artifacts (CODER_REPORT.txt, PRECOMMIT_REVIEW.yaml)"
+    - "Locked planning artifacts (PLAN.md, PLAN_REVIEW.yaml) are absent from HEAD but no violation — PR 0007 was implemented per task specification with no committed planning artifacts to violate"

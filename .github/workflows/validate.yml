@@ -38,3 +38,6 @@ jobs:
 
       - name: 🔍 Image publishing boundary check
         run: bash scripts/check-image-publishing-boundary.sh
+
+      - name: 🔍 Platform control redesign check
+        run: bash scripts/check-platform-control-redesign.sh

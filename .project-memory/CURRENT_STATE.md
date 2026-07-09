@@ -45,6 +45,14 @@ PR 0001 bootstraps repository governance and safety. It does NOT change:
 - ArgoCD configuration
 - Database schema
 
+## PR 0007 — Platform Control Redesign Phase
+PR 0007 starts the platform control redesign phase. It documents strategy only.
+- The physical pump / water pump is no longer a physical device.
+- Pump-specific control logic is obsolete.
+- Generic ON/OFF switchable-load control remains a product requirement.
+- The next implementation step (PR 0008) will disable/isolate pump automation
+  while preserving manual switch control.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
