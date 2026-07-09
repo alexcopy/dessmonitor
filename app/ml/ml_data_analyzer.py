@@ -138,7 +138,7 @@ class MLDataAnalyzer:
             not_charging = df['battery_current_chg'] < 1
             battery_not_full = df['battery_soc'] < 95
 
-            optimal.loc[surplus > 100 & not_charging & battery_not_full] = 0
+            optimal.loc[(surplus > 100) & not_charging & battery_not_full] = 0
 
         # Правило 2: Разряд батареи при наличии солнца
         if all(col in df.columns for col in ['pv_total_power', 'battery_current_dis']):

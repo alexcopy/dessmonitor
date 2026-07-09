@@ -1,0 +1,104 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings:
+  - id: W001
+    severity: warning
+    finding: "Plan does not include automated test infrastructure. Validation relies on manual grep/syntax checks. While this is acceptable given the 'no test infrastructure' constraint in CURRENT_STATE.md, automated tests would provide stronger guarantees."
+    recommendation: "Consider adding basic pytest unit tests in a future PR (PR 0003+) once test framework decision is made."
+
+checks:
+  - name: "PLAN.md exists"
+    result: pass
+    notes: "File exists at .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+  - name: "Verified TimescaleDB startup crash issue"
+    result: pass
+    notes: "Confirmed: timescale_data_collector.py lines 74-81 raise ValueError if DATABASE_URL is missing"
+  - name: "Verified TS_ENABLED flag missing"
+    result: pass
+    notes: "Confirmed: no TS_ENABLED gating in run.py lines 113-120"
+  - name: "Verified boolean precedence bug"
+    result: pass
+    notes: "Confirmed: ml_data_analyzer.py line 141 has precedence bug: surplus > 100 & not_charging & battery_not_full"
+  - name: "Verified fetch_device_data return path"
+    result: pass
+    notes: "Confirmed: always returns DeviceData (line 310 returns dd, line 320 returns fallback)"
+  - name: "Verified credential logging risk"
+    result: pass
+    notes: "Confirmed: app/api.py line 235 logs URL with credentials (usr, company-key params)"
+  - name: "Verified RelayTuyaController bug absent"
+    result: pass
+    notes: "Confirmed: switch_on_device/switch_off_device correctly update local status after Tuya command"
+  - name: "Verified init-db.sql schema mismatch"
+    result: pass
+    notes: "Confirmed: forecast_3h_mean_clouds and forecast_6h_mean_clouds referenced but not in weather_data; tigo_system_metrics table not created"
+  - name: "Deployment pipeline preserved"
+    result: pass
+    notes: "PLAN.md explicitly states GitHub Actions → Docker Hub → ArgoCD unchanged"
+  - name: "ML control not enabled"
+    result: pass
+    notes: "Boolean fix is data-labeling only, not control enablement. Aligns with ADR-0003."
+  - name: "K8s/ArgoCD not restructured"
+    result: pass
+    notes: "No changes to app/docker/* or deployment manifests"
+  - name: "Artifact locking defined"
+    result: pass
+    notes: "PLAN.md and PLAN_REVIEW.yaml locked per section 4.4 and 8"
+  - name: "CODER_REPORT.txt required"
+    result: pass
+    notes: "Section 9 requires coder to produce this artifact"
+  - name: "PRECOMMIT_REVIEW.yaml required"
+    result: pass
+    notes: "Section 9 requires precommit-review to produce this artifact"
+  - name: "Explicit allowed files defined"
+    result: pass
+    notes: "Section 4.3 lists run.py, timescale_data_collector.py, ml_data_analyzer.py"
+  - name: "Explicit forbidden files defined"
+    result: pass
+    notes: "Section 4.4 lists forbidden files including api.py, deployment files, SQL schema"
+
+validation:
+  commands_run:
+    - command: "git rev-parse --verify HEAD"
+      result: pass
+      output_summary: "3f3aaad5401033546cc949eb35fd5c1776530165"
+    - command: "git branch --show-current"
+      result: pass
+      output_summary: "0002-runtime-critical-fixes"
+    - command: "git status --short"
+      result: pass
+      output_summary: "?? .project-memory/pr/0002-runtime-critical-fixes/"
+    - command: "test -f .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: "grep -q 'GitHub Actions' .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "Found in sections 2, 4.4, 8"
+    - command: "grep -q 'Docker Hub' .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "Found in sections 2, 4.4, 8"
+    - command: "grep -q 'ArgoCD' .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "Found in sections 2, 4.4, 8"
+    - command: "grep -q 'locked' .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "Found in sections 4.4, 4.6, 8"
+    - command: "grep -q 'CODER_REPORT.txt' .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "Found in sections 4.5, 4.6, 9"
+    - command: "grep -q 'PRECOMMIT_REVIEW.yaml' .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "Found in sections 4.5, 4.6"
+  not_run: []
+
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "Plan review approved (this artifact)"
+    - "Coder reads PLAN.md and implements Fixes 1-3 in section 5"
+    - "Coder runs validation commands in section 6"
+    - "Coder creates CODER_REPORT.txt with required sections"
+    - "Precommit-review verifies changes and creates PRECOMMIT_REVIEW.yaml"

@@ -1,0 +1,94 @@
+================================================================================
+ CODER REPORT — PR 0002: Runtime Critical Fixes
+================================================================================
+
+TASK COMPLETE
+=============
+Yes — all three implementation fixes from PLAN.md have been completed.
+
+BLOCKERS
+========
+None.
+
+WARNINGS
+========
+None. PLAN_REVIEW.yaml had no warnings requiring action.
+
+FILES CHANGED
+=============
+Modified files:
+  run.py                              — Added TS_ENABLED gate for TimescaleDB startup
+  app/ml/timescale_data_collector.py  — Moved DATABASE_URL check from __init__ to initialize()
+  app/ml/ml_data_analyzer.py          — Fixed boolean precedence in optimality expression
+
+New files:
+  .project-memory/pr/0002-runtime-critical-fixes/CODER_REPORT.txt — this report
+
+VALIDATION RUN
+==============
+
+=== Precondition ===
+  git rev-parse --verify HEAD → 6b4ddb9e487b38d03c950973c2fa56978ae3deb3
+  git branch --show-current → 0002-runtime-critical-fixes
+  git status --short → clean
+
+=== Validation Checklist ===
+  1. git status --short → only 3 allowed files modified (PASS)
+  2. python3 -m compileall -q . → exit 0 (PASS)
+  3. python3 -m py_compile run.py app/ml/timescale_data_collector.py app/ml/ml_data_analyzer.py → exit 0 (PASS)
+  4. grep -q "TS_ENABLED" run.py → PASS
+  5. grep -q "DATABASE_URL" app/ml/timescale_data_collector.py → PASS
+  6. grep -n "surplus" app/ml/ml_data_analyzer.py → line 141 shows "(surplus > 100)" with parentheses (PASS)
+  7. git diff --name-only HEAD -- PLAN.md → 0 lines (PASS)
+  8. git diff --name-only HEAD -- PLAN_REVIEW.yaml → 0 lines (PASS)
+  9. git diff --name-only HEAD → only run.py, timescale_data_collector.py, ml_data_analyzer.py (PASS)
+  10. test -f CODER_REPORT.txt → PASS
+
+=== PLAN.md Section 6 Additional Validation ===
+  AST parse run.py → OK
+  AST parse timescale_data_collector.py → OK
+  AST parse ml_data_analyzer.py → OK
+  TS_ENABLED construction count → 1 (inside if block)
+  ValueError removed from __init__ → confirmed (no top-level ValueError raise)
+
+DEVIATIONS FROM PLAN
+====================
+None. All three fixes implemented exactly as specified:
+
+Fix 1 (run.py):
+  - Added TS_ENABLED env var check at the start of the TimescaleDB section
+  - When disabled: ts_collector = None, ml_db_task = None, log info message
+  - When enabled: construct TimescaleDataCollector, create ml_db_task as before
+  - Updated shutdown section to handle ml_db_task being None
+  - Updated 30-minute stats logging to handle ts_collector being None
+
+Fix 2 (timescale_data_collector.py):
+  - Removed ValueError raise from __init__ when DATABASE_URL is missing
+  - Added DATABASE_URL check in initialize() — returns False with error log
+  - Existing collect_data() already handles not_initialized state gracefully
+
+Fix 3 (ml_data_analyzer.py):
+  - Changed `surplus > 100 & not_charging & battery_not_full`
+  - To `(surplus > 100) & not_charging & battery_not_full`
+  - Only line 141 changed, no other analyzer logic modified
+
+BOUNDARY CONFIRMATIONS
+======================
+- Confirmed: implementation followed approved PLAN.md
+- Confirmed: PLAN.md not modified
+- Confirmed: PLAN_REVIEW.yaml not modified
+- Confirmed: only PLAN.md-approved implementation paths changed
+- Confirmed: validation commands run and recorded
+- Confirmed: no git mutation commands run
+- Confirmed: no Docker commands run
+- Confirmed: no deployment pipeline changes (GitHub Actions → Docker Hub → ArgoCD unchanged)
+- Confirmed: no ML control enabled (TS_ENABLED defaults to disabled)
+- Confirmed: no Kubernetes/ArgoCD manifests modified
+- Confirmed: no Dockerfile, docker-compose.yml, or CI workflows modified
+- Confirmed: no secrets, device configs, runtime data, logs, SQLite, CSV, JSONL, or ml_data added
+- Confirmed: no test infrastructure added (deferred per PLAN.md)
+
+NEXT REQUIRED ACTION
+====================
+Precommit-review agent should verify the final diff against PLAN.md approved
+scope and produce PRECOMMIT_REVIEW.yaml.
