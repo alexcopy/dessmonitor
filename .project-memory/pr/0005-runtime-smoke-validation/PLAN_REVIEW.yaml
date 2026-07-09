@@ -1,0 +1,164 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "File found at .project-memory/pr/0005-runtime-smoke-validation/PLAN.md"
+  - name: Identifies gap between syntax validation and runtime smoke validation
+    result: pass
+    notes: "Section 2.2 explicitly states compileall checks syntax only, does not catch ModuleNotFoundError, ImportError from unsafe module-level code, or broken initialization. Defines need for runtime smoke validation."
+  - name: Separates safe smoke validation from unsafe runtime startup
+    result: pass
+    notes: "Section 4.2 explicitly lists what the script does NOT do: no app server start, no external service calls, no network, no secrets. Section 4.4 design confirms read-only import checking only."
+  - name: Preserves GitHub Actions to Docker Hub to ArgoCD deployment model
+    result: pass
+    notes: "Section 2.1 documents the existing pipeline. Section 5.2 states the workflow remains validation-only. Section 5.3 forbids editing build-and-deploy.yml."
+  - name: Does not change Docker image publishing behavior
+    result: pass
+    notes: "Section 5.2 says workflow remains validation-only, does not build Docker images. Section 5.3 forbids editing build-and-deploy.yml and Dockerfile."
+  - name: Does not restructure ArgoCD
+    result: pass
+    notes: "Section 5.3 forbids editing app/docker/ manifests. Section 10 confirms no ArgoCD/K8s changes."
+  - name: Does not change Kubernetes behavior
+    result: pass
+    notes: "Section 10 confirms no ArgoCD or K8s changes. No edits to app/docker/."
+  - name: Does not enable ML control
+    result: pass
+    notes: "Section 9 defers ML control to PR 0008+, blocked by ADR-0003. ML code remains untouched."
+  - name: Defines explicit allowed implementation files
+    result: pass
+    notes: "Section 5.1: create scripts/check-runtime-smoke.py. Section 5.2: edit .github/workflows/validate.yml (add one step)."
+  - name: Defines forbidden implementation files
+    result: pass
+    notes: "Section 5.3 lists forbidden files including run.py, app/, service/, shared_state/, build-and-deploy.yml, validate-yaml.py, check-repo-safety.sh, check-project-memory.sh, Dockerfile, docker-compose.yml, requirements.txt, app/docker/*, .project-memory standards, PLAN.md, PLAN_REVIEW.yaml."
+  - name: Defines validation commands
+    result: pass
+    notes: "Section 7 lists 11 validation commands covering smoke script existence, execution, compileall, YAML validation, safety check, project-memory check, git diff scoping, locked artifact verification, build-and-deploy diff, coder artifact, and docker step absence."
+  - name: Defines artifact locking for PLAN.md and PLAN_REVIEW.yaml
+    result: pass
+    notes: "Sections 5.4, 5.5, and 10 confirm PLAN.md and PLAN_REVIEW.yaml are LOCKED; coder must NOT edit them."
+  - name: Does not start the application server
+    result: pass
+    notes: "Section 4.2 explicitly states does NOT start application server or background task. Section 4.4 uses importlib.import_module() only — no instantiation."
+  - name: Does not call Tuya, DESS, OpenWeather, TimescaleDB, Docker, Kubernetes, or network services
+    result: pass
+    notes: "Section 4.2 explicitly lists these as not called. Section 4.4 design confirms no instantiation, no network calls, no service connections."
+  - name: Does not require secrets or device config files
+    result: pass
+    notes: "Section 4.2 confirms no secrets/config files required. Section 4.5 sets only TS_ENABLED=false, other env vars deliberately unset."
+  - name: Uses safe environment defaults
+    result: pass
+    notes: "Section 4.5 documents comprehensive safety: TS_ENABLED=false; MONITOR_CONFIG_JSON, DATABASE_URL, OPENWEATHER_API_KEY are deliberately absent to test graceful handling."
+  - name: TS_ENABLED remains disabled by default
+    result: pass
+    notes: "Section 4.5 explicitly sets os.environ.setdefault('TS_ENABLED', 'false')."
+  - name: Unsafe imports or modules with side effects are excluded
+    result: pass
+    notes: "Section 3.3 identifies app.tuya.tuya_authorisation as unsafe (Config() and DeviceInitializer() at module level). Section 4.4 excludes it via UNSAFE_MODULES set. Section 9 defers refactoring to PR 0006+."
+  - name: Script exits nonzero on failure
+    result: pass
+    notes: "Section 4.4 main() returns 1 if any module fails to import. Loop prints actionable error per failure."
+  - name: Script prints actionable errors
+    result: pass
+    notes: "Section 4.4 error format: '❌ <mod_name>: <exception_message>' — includes both the module name and the specific error."
+  - name: run.py classified
+    result: pass
+    notes: "Section 3.1: safe — all code in function/class definitions with if __name__ == '__main__' guard."
+  - name: app/api.py classified
+    result: pass
+    notes: "Section 3.1: safe — module-level code is only os.getenv() (safe) and Path() construction (no file read)."
+  - name: app/ml/timescale_data_collector.py classified
+    result: pass
+    notes: "Section 3.1: safe — try/except import for asyncpg, logging.getLogger, class/enum definitions only. Section 3.2: guarded with TS_ENABLED=false."
+  - name: app/ml/ml_data_analyzer.py classified
+    result: pass
+    notes: "Section 3.1: safe — standard library + pandas/matplotlib imports. No module-level code execution."
+  - name: app/tuya/relay_tuya_controller.py classified
+    result: pass
+    notes: "Section 3.1: safe — imports RelayChannelDevice and shared_state. No module-level side effects."
+  - name: app/weather/openweather_service.py classified
+    result: pass
+    notes: "Section 3.1: safe — aiohttp import, shared_state import, class definition only."
+  - name: app/monitoring/device_status_logger.py classified
+    result: pass
+    notes: "Section 3.1: safe — colorama.init() at module level is safe (ANSI init). No file I/O at import time."
+  - name: CI workflow edit is validation-only
+    result: pass
+    notes: "Section 6 shows the final validate.yml adds only one step: python scripts/check-runtime-smoke.py. All 4 existing validation steps preserved. No docker steps."
+  - name: Existing validation commands remain
+    result: pass
+    notes: "Section 6 preserves compileall, validate-yaml.py, check-repo-safety.sh, check-project-memory.sh in their original order."
+  - name: No Docker build or push planned
+    result: pass
+    notes: "Section 5.2 states workflow remains validation-only, does not build Docker images. Section 7 command 11 confirms docker step count is 0."
+  - name: Docker Hub credentials not required
+    result: pass
+    notes: "validate.yml has no docker/login-action step. No secrets referenced. Section 5.2 confirms no Docker Hub credentials required."
+  - name: No deployment planned
+    result: pass
+    notes: "validate.yml contains only validation steps. No deploy, kubectl, or ArgoCD commands."
+  - name: No external services or network access required
+    result: pass
+    notes: "All validation commands are local: compileall, python scripts/*.py, bash scripts/*.sh. No network calls, no service connections."
+  - name: Coder forbidden from editing PLAN.md and PLAN_REVIEW.yaml
+    result: pass
+    notes: "Section 5.3 explicitly lists them as forbidden. Section 5.5 step 3 states 'Must NOT edit PLAN.md or PLAN_REVIEW.yaml'. Section 10 confirms locked artifacts."
+  - name: Coder forbidden from editing runtime application code
+    result: pass
+    notes: "Section 5.3 forbids run.py, app/, service/, shared_state/. Only scripts/ and validate.yml are allowed."
+  - name: Coder forbidden from changing deployment behavior
+    result: pass
+    notes: "Section 5.3 forbids build-and-deploy.yml, Dockerfile, docker-compose.yml, app/docker/*."
+  - name: Coder forbidden from adding secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data
+    result: pass
+    notes: "Section 4.2 confirms script does NOT write cache/logs/data. Section 5.3 forbids adding such files. Script is read-only."
+  - name: Coder must create CODER_REPORT.txt
+    result: pass
+    notes: "Section 8 requires CODER_REPORT.txt with TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION."
+  - name: Precommit-review must create PRECOMMIT_REVIEW.yaml
+    result: pass
+    notes: "Section 5.5 step 4 specifies precommit-review produces PRECOMMIT_REVIEW.yaml."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "1157f178ecc3a068fe46f2833394ef618d6c4e00"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0005-runtime-smoke-validation — matches PR 0005"
+    - command: git status --short
+      result: pass
+      output_summary: "Only ?? .project-memory/pr/0005-runtime-smoke-validation/ present — expected for uncommitted PLAN.md"
+    - command: test -f .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "PLAN.md EXISTS"
+    - command: grep -q 'runtime smoke' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — runtime smoke referenced"
+    - command: grep -q 'GitHub Actions' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — GitHub Actions deployment model referenced"
+    - command: grep -q 'Docker Hub' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — Docker Hub deployment model referenced"
+    - command: grep -q 'ArgoCD' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — ArgoCD deployment model referenced"
+    - command: grep -q 'locked' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — artifact locking referenced"
+    - command: grep -q 'CODER_REPORT.txt' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — CODER_REPORT.txt required"
+    - command: grep -q 'PRECOMMIT_REVIEW.yaml' .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "FOUND — PRECOMMIT_REVIEW.yaml required"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed alongside PLAN.md"
+    - "Branch 0005-runtime-smoke-validation must have both PLAN.md and this PLAN_REVIEW.yaml committed before coder proceeds"
