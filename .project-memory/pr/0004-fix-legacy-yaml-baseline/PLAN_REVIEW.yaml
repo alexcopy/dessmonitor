@@ -1,0 +1,137 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "File found at .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md"
+  - name: Identifies the current YAML validation failure
+    result: pass
+    notes: "Section 3 documents exact command output: ERROR: app/docker/all_in_one/deployment.yaml: line 17: mapping values are not allowed here. Root cause analyzed as semicolons used as YAML key-value separators on lines 17-24."
+  - name: Identifies app/docker/all_in_one/deployment.yaml as target file
+    result: pass
+    notes: "Section 3 explicitly names the file; Section 4.3 lists it as the sole editable file; full before/after diff in Section 5."
+  - name: Separates syntax correction from behavior changes
+    result: pass
+    notes: "Section 4.2 explicitly lists must-not-fix items: no image names, tags, namespaces, labels, ports, resource limits, or other K8s field values. Section 9 confirms YAML syntax only."
+  - name: Preserves GitHub Actions to Docker Hub to ArgoCD deployment model
+    result: pass
+    notes: "Section 2.1 documents the pipeline. Section 4.4 forbids editing build-and-deploy.yml, validate.yml, and active manifest app/docker/dessmonitor-deploy.yaml."
+  - name: Does not change Docker image publishing behavior
+    result: pass
+    notes: "Section 4.4 forbids editing CI workflows and Docker configuration. CI files untouched."
+  - name: Does not restructure ArgoCD
+    result: pass
+    notes: "Section 4.2 explicitly says 'Do not change the active app/docker/dessmonitor-deploy.yaml'. Section 8 defers manifest consolidation to PR 0005+."
+  - name: Does not plan broad Kubernetes cleanup
+    result: pass
+    notes: "Section 4.2: 'Do not edit other files in app/docker/all_in_one/'. Only the single deployment.yaml file is targeted. Section 8 explicitly says no other all_in_one files need changes."
+  - name: Does not enable ML control
+    result: pass
+    notes: "Section 8 defers ML control enablement to PR 0006+, blocked by ADR-0003. No ML code touched."
+  - name: Defines explicit allowed implementation files
+    result: pass
+    notes: "Section 4.3 lists exactly 1 file: app/docker/all_in_one/deployment.yaml"
+  - name: Defines forbidden implementation files
+    result: pass
+    notes: "Section 4.4 lists forbidden files including all runtime code, CI workflows, scripts, other K8s manifests, Docker config, project-memory standards, PLAN.md, PLAN_REVIEW.yaml"
+  - name: Defines validation commands
+    result: pass
+    notes: "Section 6 lists 10 validation commands: YAML validation, Python verification of parsed content, git diff checks for scope, compileall, safety check, project-memory check, artifact existence, deploy.yaml diff, build-and-deploy diff"
+  - name: Defines artifact locking for PLAN.md and PLAN_REVIEW.yaml
+    result: pass
+    notes: "Sections 4.5, 4.6, and 9 confirm PLAN.md and PLAN_REVIEW.yaml are LOCKED; coder must NOT edit them."
+  - name: Targets existing YAML syntax failure detected by validate-yaml.py
+    result: pass
+    notes: "Section 3 documents exact validate-yaml.py output. Confirmed by running python3 scripts/validate-yaml.py which reports ERROR: app/docker/all_in_one/deployment.yaml: line 17: mapping values are not allowed here"
+  - name: Does not require Kubernetes cluster access
+    result: pass
+    notes: "Fix is a text edit to a YAML file. No kubectl, no K8s API, no apply operations. All validation commands run locally."
+  - name: Does not apply manifests to a cluster
+    result: pass
+    notes: "No apply, deploy, or kubectl commands in plan. Validation is read-only YAML parsing."
+  - name: Does not edit validation logic
+    result: pass
+    notes: "Section 4.2: 'Do not edit scripts/validate-yaml.py — the validator is correct; the legacy YAML is invalid.' The validate-yaml.py output confirmed 21 of 22 files pass — only the legacy file fails."
+  - name: Prefers minimal syntax-only fix
+    result: pass
+    notes: "Section 5 provides exact before/after diff. Only change: remove semicolons and split into multiline YAML. All original values, indentation level, and file structure preserved."
+  - name: Does not allow changing image tags, ports, env vars, replicas, namespaces, labels, or resource semantics
+    result: pass
+    notes: "Section 4.2 explicitly forbids changing these. Section 5 shows all K8s field values unchanged."
+  - name: Does not allow deleting the problematic manifest
+    result: pass
+    notes: "Section 4.2 explicitly says 'Do not delete the all_in_one directory'. File is fixed in-place."
+  - name: Coder forbidden from editing PLAN.md and PLAN_REVIEW.yaml
+    result: pass
+    notes: "Section 4.4 explicitly lists them as forbidden. Section 4.6 step 3 states 'Must NOT edit PLAN.md or PLAN_REVIEW.yaml'. Section 9 confirms locked artifacts."
+  - name: Coder forbidden from editing runtime application code
+    result: pass
+    notes: "Section 4.4 forbids run.py, app/, service/, shared_state/. No runtime code changes planned."
+  - name: Coder forbidden from editing Dockerfile or docker-compose.yml
+    result: pass
+    notes: "Section 4.4 forbids Dockerfile and docker-compose.yml."
+  - name: Coder forbidden from editing build-and-deploy workflow
+    result: pass
+    notes: "Section 4.4 forbids .github/workflows/build-and-deploy.yml and .github/workflows/validate.yml."
+  - name: Coder forbidden from changing deployment behavior
+    result: pass
+    notes: "Section 4.4 forbids editing active manifest app/docker/dessmonitor-deploy.yaml, Dockerfile, docker-compose.yml."
+  - name: Coder forbidden from adding secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data
+    result: pass
+    notes: "Section 4.4 covers all forbidden patterns. Only the single deployment.yaml is edited — no new files created."
+  - name: Coder must create CODER_REPORT.txt
+    result: pass
+    notes: "Section 7 requires CODER_REPORT.txt with TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION"
+  - name: Precommit-review must create PRECOMMIT_REVIEW.yaml
+    result: pass
+    notes: "Section 4.6 step 4 specifies precommit-review produces PRECOMMIT_REVIEW.yaml; Section 6 command 9 verifies its existence."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "cfcf9785474e042b5c6cf7393c557c6f9ba1932e"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0004-fix-legacy-yaml-baseline — matches PR 0004"
+    - command: git status --short
+      result: pass
+      output_summary: "Only ?? .project-memory/pr/0004-fix-legacy-yaml-baseline/ present — expected for uncommitted PLAN.md"
+    - command: test -f .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "PLAN.md EXISTS"
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "ERROR: app/docker/all_in_one/deployment.yaml: line 17: mapping values are not allowed here. Exit code 1. 21/22 files pass. Confirms PLAN.md's analysis — the single pre-existing error is in the target file."
+    - command: grep -q 'app/docker/all_in_one/deployment.yaml' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — target file documented in PLAN.md"
+    - command: grep -q 'validate-yaml.py' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — validator referenced in PLAN.md"
+    - command: grep -q 'GitHub Actions' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — GitHub Actions deployment model referenced"
+    - command: grep -q 'Docker Hub' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — Docker Hub deployment model referenced"
+    - command: grep -q 'ArgoCD' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — ArgoCD deployment model referenced"
+    - command: grep -q 'locked' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — artifact locking referenced"
+    - command: grep -q 'CODER_REPORT.txt' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — CODER_REPORT.txt required"
+    - command: grep -q 'PRECOMMIT_REVIEW.yaml' .project-memory/pr/0004-fix-legacy-yaml-baseline/PLAN.md
+      result: pass
+      output_summary: "FOUND — PRECOMMIT_REVIEW.yaml required"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed alongside PLAN.md"
+    - "Branch 0004-fix-legacy-yaml-baseline must have both PLAN.md and this PLAN_REVIEW.yaml committed before coder proceeds"
