@@ -1,0 +1,162 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: HEAD matches expected SHA
+    result: pass
+    notes: "HEAD is 6b4ddb9e487b38d03c950973c2fa56978ae3deb3"
+
+  - name: Branch is correct
+    result: pass
+    notes: "Branch is 0002-runtime-critical-fixes"
+
+  - name: PLAN.md not modified
+    result: pass
+    notes: "No output from git diff --name-only HEAD -- PLAN.md"
+
+  - name: PLAN_REVIEW.yaml not modified
+    result: pass
+    notes: "No output from git diff --name-only HEAD -- PLAN_REVIEW.yaml"
+
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "File exists at .project-memory/pr/0002-runtime-critical-fixes/CODER_REPORT.txt"
+
+  - name: TS_ENABLED gating implemented in run.py
+    result: pass
+    notes: "run.py line 109: ts_enabled = os.getenv('TS_ENABLED', '').lower() in ('true', '1', 'yes', 'on')"
+
+  - name: TimescaleDataCollector construction gated
+    result: pass
+    notes: "run.py lines 110-120: TimescaleDataCollector only constructed when ts_enabled is True"
+
+  - name: ml_db_task creation gated
+    result: pass
+    notes: "run.py lines 122-126: ml_db_task only created when ts_enabled and ts_collector are not None"
+
+  - name: DATABASE_URL check moved to initialize()
+    result: pass
+    notes: "timescale_data_collector.py lines 90-97: DATABASE_URL check returns False in initialize() instead of raising ValueError in __init__"
+
+  - name: Boolean precedence bug fixed
+    result: pass
+    notes: "ml_data_analyzer.py line 141: optimal.loc[(surplus > 100) & not_charging & battery_not_full] = 0"
+
+  - name: No ValueError raised in __init__
+    result: pass
+    notes: "timescale_data_collector.py __init__ (lines 47-83) does not raise ValueError for missing DATABASE_URL"
+
+  - name: Only allowed files changed
+    result: pass
+    notes: "git diff --name-only HEAD shows only: run.py, app/ml/timescale_data_collector.py, app/ml/ml_data_analyzer.py"
+
+  - name: No deployment files changed
+    result: pass
+    notes: "No changes to Dockerfile, docker-compose.yml, .github/workflows/, app/docker/, init-db.sql"
+
+  - name: No app/api.py changes
+    result: pass
+    notes: "app/api.py not in git diff"
+
+  - name: No Tuya code changes
+    result: pass
+    notes: "No changes to app/tuya/"
+
+  - name: No OpenWeather code changes
+    result: pass
+    notes: "No changes to app/weather/"
+
+  - name: No Kubernetes/ArgoCD changes
+    result: pass
+    notes: "No changes to app/docker/"
+
+  - name: No CI workflow changes
+    result: pass
+    notes: "No changes to .github/workflows/"
+
+  - name: No SQL schema changes
+    result: pass
+    notes: "No changes to init-db.sql"
+
+  - name: No secrets or runtime data added
+    result: pass
+    notes: "No new secrets, device configs, logs, SQLite, CSV, JSONL, or ml_data files"
+
+  - name: No ML control enabled
+    result: pass
+    notes: "TS_ENABLED defaults to disabled. Boolean fix is data-labeling only."
+
+  - name: Python syntax check passes
+    result: pass
+    notes: "python3 -m py_compile run.py app/ml/timescale_data_collector.py app/ml/ml_data_analyzer.py exits 0"
+
+  - name: compileall passes
+    result: pass
+    notes: "python3 -m compileall -q . exits 0"
+
+  - name: Shutdown handles None tasks
+    result: pass
+    notes: "run.py lines 224-244: ml_db_task.cancel() and gather only when not None"
+
+  - name: Stats logging handles disabled TimescaleDB
+    result: pass
+    notes: "run.py lines 209-216: DB stats logging only when ts_enabled and ts_collector is not None"
+
+validation:
+  commands_run:
+    - command: "git rev-parse --verify HEAD"
+      result: pass
+      output_summary: "6b4ddb9e487b38d03c950973c2fa56978ae3deb3"
+    - command: "git branch --show-current"
+      result: pass
+      output_summary: "0002-runtime-critical-fixes"
+    - command: "git status --short"
+      result: pass
+      output_summary: "M app/ml/ml_data_analyzer.py, M app/ml/timescale_data_collector.py, M run.py, ?? CODER_REPORT.txt"
+    - command: "git diff --name-only HEAD -- .project-memory/pr/0002-runtime-critical-fixes/PLAN.md"
+      result: pass
+      output_summary: "No output - PLAN.md not modified"
+    - command: "git diff --name-only HEAD -- .project-memory/pr/0002-runtime-critical-fixes/PLAN_REVIEW.yaml"
+      result: pass
+      output_summary: "No output - PLAN_REVIEW.yaml not modified"
+    - command: "test -f .project-memory/pr/0002-runtime-critical-fixes/CODER_REPORT.txt"
+      result: pass
+      output_summary: "File exists"
+    - command: "grep -n 'TS_ENABLED' run.py"
+      result: pass
+      output_summary: "Found at lines 108, 109, 133"
+    - command: "grep -n 'DATABASE_URL' app/ml/timescale_data_collector.py"
+      result: pass
+      output_summary: "Found at lines 74, 92"
+    - command: "grep -n 'surplus' app/ml/ml_data_analyzer.py"
+      result: pass
+      output_summary: "Line 141 shows (surplus > 100) with parentheses"
+    - command: "python3 -m py_compile run.py app/ml/timescale_data_collector.py app/ml/ml_data_analyzer.py"
+      result: pass
+      output_summary: "No output - syntax OK"
+    - command: "python3 -m compileall -q ."
+      result: pass
+      output_summary: "No output - compileall passed"
+    - command: "git diff --name-only HEAD"
+      result: pass
+      output_summary: "Only run.py, app/ml/timescale_data_collector.py, app/ml/ml_data_analyzer.py"
+
+  not_run: []
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "All required validation checks pass"
+    - "Implementation is within PR 0002 scope"
+    - "No deployment pipeline changes"
+    - "No ML control enabled (TS_ENABLED defaults to disabled)"
+    - "No secrets or runtime data added"
+    - "Stage modified files with: git add run.py app/ml/timescale_data_collector.py app/ml/ml_data_analyzer.py .project-memory/pr/0002-runtime-critical-fixes/CODER_REPORT.txt"
+    - "Create commit with descriptive message about runtime critical fixes"
+    - "Push to remote and create pull request"

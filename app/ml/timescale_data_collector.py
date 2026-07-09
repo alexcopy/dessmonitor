@@ -74,12 +74,6 @@ class TimescaleDataCollector:
             os.getenv("DATABASE_URL")
         )
 
-        if not self.database_url:
-            raise ValueError(
-                "DATABASE_URL not provided! Set DATABASE_URL environment variable "
-                "or pass database_url parameter"
-            )
-
         self.pool: Optional[asyncpg.Pool] = None
         self._total_records = 0
         self._last_collection = None
@@ -93,6 +87,13 @@ class TimescaleDataCollector:
 
     async def initialize(self) -> bool:
         """Инициализация: подключение к БД и создание таблиц"""
+        if not self.database_url:
+            logger.error(
+                "DATABASE_URL not provided. Set DATABASE_URL environment variable "
+                "or pass database_url parameter to enable TimescaleDB collection."
+            )
+            return False
+
         if not ASYNCPG_AVAILABLE:
             logger.error("asyncpg not available - cannot connect to database")
             return False

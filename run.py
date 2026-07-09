@@ -105,34 +105,41 @@ async def main() -> None:
         collect_interval=ml_collect_interval,
     )
 
-    # TimescaleDB коллектор
-    ts_inverter_interval = int(os.getenv("TS_INVERTER_INTERVAL", "120"))
-    ts_grid_interval = int(os.getenv("TS_GRID_INTERVAL", "1800"))
-    ts_switching_interval = int(os.getenv("TS_SWITCHING_INTERVAL", "10"))
-    ts_collector = TimescaleDataCollector(
-        inverter_interval=ts_inverter_interval,                              # 2 (120) минуты при солнце ☀️
-        grid_interval=ts_grid_interval,                                      # 30 (1800) минут ночью 🌙
-        switching_interval=ts_switching_interval,                            # 10 секунд при переключении ⚡
-        min_inverter_power=float(os.getenv("TS_MIN_INVERTER_POWER", "50.0")),# Порог определения режима "инвертор"
-        sunrise_hour=int(os.getenv("TS_SUNRISE_HOUR", "6")),                 # ~восход
-        sunset_hour=int(os.getenv("TS_SUNSET_HOUR", "20")),                  # ~закат
-    )
+    # TimescaleDB коллектор (только если TS_ENABLED)
+    ts_enabled = os.getenv("TS_ENABLED", "").lower() in ("true", "1", "yes", "on")
 
-    # Показываем статистику
+    if ts_enabled:
+        ts_inverter_interval = int(os.getenv("TS_INVERTER_INTERVAL", "120"))
+        ts_grid_interval = int(os.getenv("TS_GRID_INTERVAL", "1800"))
+        ts_switching_interval = int(os.getenv("TS_SWITCHING_INTERVAL", "10"))
+        ts_collector = TimescaleDataCollector(
+            inverter_interval=ts_inverter_interval,                              # 2 (120) минуты при солнце ☀️
+            grid_interval=ts_grid_interval,                                      # 30 (1800) минут ночью 🌙
+            switching_interval=ts_switching_interval,                            # 10 секунд при переключении ⚡
+            min_inverter_power=float(os.getenv("TS_MIN_INVERTER_POWER", "50.0")),# Порог определения режима "инвертор"
+            sunrise_hour=int(os.getenv("TS_SUNRISE_HOUR", "6")),                 # ~восход
+            sunset_hour=int(os.getenv("TS_SUNSET_HOUR", "20")),                  # ~закат
+        )
+
+        ts_stats = ts_collector.get_statistics()
+        important_log.info(
+            f"[ML DB] Adaptive collector initialized. "
+            f"Intervals: ☀️{ts_stats['intervals']['inverter']}s / "
+            f"🌙{ts_stats['intervals']['grid']}s / "
+            f"⚡{ts_stats['intervals']['switching']}s"
+        )
+    else:
+        ts_collector = None
+        important_log.info("[ML DB] TimescaleDB collection disabled (set TS_ENABLED=true to enable)")
+
+    # Показываем статистику CSV коллектора
     ml_stats = ml_collector.get_statistics()
-    ts_stats = ts_collector.get_statistics()
 
     important_log.info(
         f"[ML CSV] Data collection initialized. "
         f"Records: {ml_stats.get('total_records', 0)}"
         f"CSV: {ml_collector.csv_export_enabled}, "
         f"JSONL: {ml_collector.jsonl_export_enabled}"
-    )
-    important_log.info(
-        f"[ML DB] Adaptive collector initialized. "
-        f"Intervals: ☀️{ts_stats['intervals']['inverter']}s / "
-        f"🌙{ts_stats['intervals']['grid']}s / "
-        f"⚡{ts_stats['intervals']['switching']}s"
     )
 
     # ─── X. WEATHER SERVICE ─────────────────────────────────────
@@ -174,9 +181,12 @@ async def main() -> None:
         ml_collection_loop(ml_collector, dev_mgr, stop_event)
     )
 
-    ml_db_task = asyncio.create_task(
-        timescale_collection_loop(ts_collector, dev_mgr, stop_event)
-    )
+    if ts_enabled and ts_collector is not None:
+        ml_db_task = asyncio.create_task(
+            timescale_collection_loop(ts_collector, dev_mgr, stop_event)
+        )
+    else:
+        ml_db_task = None
 
     # ─── 8. ОСНОВНОЙ ЦИКЛ ──────────────────────────────────────
     try:
@@ -194,17 +204,20 @@ async def main() -> None:
             on_names = [d.name for d in dev_mgr.all_devices_on()]
             important_log.info(f"[MAIN] ON devices: {', '.join(on_names) or 'none'}")
 
-            # 8.4 статистика ОБОИХ коллекторов каждые 30 минут
+            # 8.4 статистика коллекторов каждые 30 минут
             current_minute = datetime.now().minute
             if current_minute % 30 == 0 and current_minute != last_stats_minute:
                 last_stats_minute = current_minute
                 csv_stats = ml_collector.get_statistics()
-                db_stats = ts_collector.get_statistics()
                 important_log.info(
-                    f"[ML CSV] {csv_stats['total_records']} records | "
-                    f"[ML DB] {db_stats['total_records']} records, "
-                    f"mode: {db_stats.get('current_mode', 'unknown')}"
+                    f"[ML CSV] {csv_stats['total_records']} records"
                 )
+                if ts_enabled and ts_collector is not None:
+                    db_stats = ts_collector.get_statistics()
+                    important_log.info(
+                        f"[ML DB] {db_stats['total_records']} records, "
+                        f"mode: {db_stats.get('current_mode', 'unknown')}"
+                    )
 
             # 8.5 пауза или ждём stop_event
             try:
@@ -227,17 +240,24 @@ async def main() -> None:
         if weather_task:
             weather_task.cancel()
         ml_csv_task.cancel()
-        ml_db_task.cancel()
+        if ml_db_task is not None:
+            ml_db_task.cancel()
         updater_task.cancel()
         inverter_task.cancel()
 
-        # Ждём, пока они корректно завершатся
-        await asyncio.gather(
+        # Собираем задачи для ожидания
+        gather_tasks = [
             updater_task,
             inverter_task,
             ml_csv_task,
-            ml_db_task,
             weather_task if weather_task else asyncio.sleep(0),
+        ]
+        if ml_db_task is not None:
+            gather_tasks.insert(3, ml_db_task)
+
+        # Ждём, пока они корректно завершатся
+        await asyncio.gather(
+            *gather_tasks,
             return_exceptions=True
         )
 
