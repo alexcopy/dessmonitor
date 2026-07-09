@@ -1,0 +1,193 @@
+======================================================================
+CODER_REPORT.txt
+PR 0006 — Image Publishing Boundary
+Agent: coder (implementation)
+Date: 2026-07-09T21:51:35Z
+HEAD: 52748cc1c153216356dad2684ca63a6633036dc1
+Branch: 0006-image-publishing-boundary
+======================================================================
+
+TASK COMPLETE
+yes — Image publishing boundary documentation, static validation script,
+CURRENT_STATE.md correction, and validate.yml workflow update implemented.
+
+BLOCKERS
+None.
+
+WARNINGS
+- System has no 'python' command; 'python3' was used for all local
+  validation commands. CI uses 'python' (resolves to 3.12 via
+  setup-python@v5).
+- The boundary check script uses `grep` with `\|` alternation for the
+  "external GitOps repository" concept check. This works on BSD grep
+  (macOS) and GNU grep (Linux CI). The pattern is:
+  `GitOps.*external\|external.*GitOps` to match either word order.
+
+FILES CHANGED
+1. .project-memory/DEPLOYMENT_BOUNDARY.md (NEW)
+   - Documents that this repository owns app source code, validation,
+     Docker build input, and Docker image publishing to Docker Hub
+     (redcopy/dessmonitor).
+   - Documents that this repository does NOT own real ArgoCD
+     Applications, real K8s production manifests, or real GitOps
+     deployment state.
+   - States that the real ArgoCD/GitOps source of truth is in a
+     separate external repository.
+   - States that app/docker/ files are legacy, auxiliary, or
+     non-authoritative.
+   - States that agents must not treat app/docker/ files as production
+     truth or infer live ArgoCD state from this repository.
+   - States that Docker image publishing behavior must remain stable
+     unless explicitly planned.
+   - States that ML control remains disabled until a later
+     safety-reviewed PR.
+
+2. .project-memory/CURRENT_STATE.md (MODIFIED)
+   - Corrected deployment pipeline item 3: replaced the incorrect claim
+     that "ArgoCD deploys from Docker Hub using GitOps manifests in
+     app/docker/dessmonitor-deploy.yaml" with the corrected statement
+     that the real ArgoCD/GitOps source of truth is in a separate
+     external repository and that app/docker/ files are legacy,
+     auxiliary, or non-authoritative.
+   - All other sections preserved unchanged.
+
+3. scripts/check-image-publishing-boundary.sh (NEW)
+   - Static repository-only bash validation script.
+   - No network access, no Docker Hub queries, no GitHub API calls,
+     no Kubernetes queries, no ArgoCD queries, no secrets.
+   - Checks:
+     a. .project-memory/DEPLOYMENT_BOUNDARY.md exists.
+     b. File contains: Docker Hub, external GitOps repository, ArgoCD,
+        non-authoritative.
+     c. .project-memory/CURRENT_STATE.md references external repository
+        and non-authoritative app/docker files.
+   - Prints actionable errors per check. Exits 0 on pass, 1 on fail.
+   - Consistent style with existing scripts/check-project-memory.sh.
+
+4. .github/workflows/validate.yml (MODIFIED)
+   - Added one additive step after runtime smoke validation:
+     "Image publishing boundary check" runs
+     bash scripts/check-image-publishing-boundary.sh.
+   - All existing 5 validation steps preserved unchanged.
+   - No Docker build, push, login, or secrets steps added.
+   - grep -c "docker" returns 0 (zero docker references).
+   - build-and-deploy.yml NOT modified.
+
+VALIDATION RUN
+All Python commands run with python3 (system has no 'python').
+
+1. bash scripts/check-image-publishing-boundary.sh
+   Exit code: 0
+   Output: PASSED: All boundary checks passed.
+   Details:
+     OK: .project-memory/DEPLOYMENT_BOUNDARY.md exists
+     OK: 'Docker Hub' found
+     OK: 'external GitOps repository' found
+     OK: 'ArgoCD' found
+     OK: 'non-authoritative' found
+     OK: CURRENT_STATE.md references external repository
+     OK: CURRENT_STATE.md references non-authoritative app/docker files
+
+2. python3 -m compileall -q . -x '/(ml_data|.project-memory|.git|venv|.venv)/'
+   Exit code: 0 — all Python files compile successfully
+
+3. bash scripts/check-repo-safety.sh
+   Exit code: 0 — PASSED: All checks clean (0 errors, 0 warnings)
+
+4. bash scripts/check-project-memory.sh
+   Exit code: 0 — PASSED: All required files present
+   (7 governance files + PR 0003 artifacts)
+
+5. python3 scripts/validate-yaml.py
+   Exit code: 0 — All 22 YAML file(s) validated successfully
+
+6. test -f scripts/check-runtime-smoke.py
+   Exit code: 0 — SMOKE_SCRIPT EXISTS
+
+7. grep "Docker Hub" .project-memory/DEPLOYMENT_BOUNDARY.md
+   Exit code: 0 — FOUND
+
+8. grep "external" .project-memory/DEPLOYMENT_BOUNDARY.md
+   Exit code: 0 — FOUND
+
+9. grep "GitOps" .project-memory/DEPLOYMENT_BOUNDARY.md
+   Exit code: 0 — FOUND
+
+10. grep "ArgoCD" .project-memory/DEPLOYMENT_BOUNDARY.md
+    Exit code: 0 — FOUND
+
+11. grep "app/docker" .project-memory/DEPLOYMENT_BOUNDARY.md
+    Exit code: 0 — FOUND
+
+12. grep "non-authoritative" .project-memory/DEPLOYMENT_BOUNDARY.md
+    Exit code: 0 — FOUND
+
+13. grep "check-image-publishing-boundary.sh" .github/workflows/validate.yml
+    Exit code: 0 — FOUND
+
+14. git diff --name-only HEAD -- PLAN.md
+    Exit code: 0 — no output (PLAN.md not modified)
+
+15. git diff --name-only HEAD -- PLAN_REVIEW.yaml
+    Exit code: 0 — no output (PLAN_REVIEW.yaml not modified)
+
+16. git diff --name-only HEAD
+    Exit code: 0 — output:
+    .github/workflows/validate.yml
+    .project-memory/CURRENT_STATE.md
+    (DEPLOYMENT_BOUNDARY.md and check-image-publishing-boundary.sh
+     are new untracked files not in diff)
+
+17. git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml
+    Exit code: 0 — no output (build-and-deploy.yml not modified)
+
+18. git diff --name-only HEAD -- app/docker/
+    Exit code: 0 — no output (app/docker/ files not modified)
+
+19. grep -c "docker" .github/workflows/validate.yml
+    Output: 0 — validate.yml has zero docker references
+
+20. test -f .project-memory/pr/0006-image-publishing-boundary/CODER_REPORT.txt
+    Exit code: 0 — EXISTS
+
+DEVIATIONS FROM PLAN
+None. All implementation matches PLAN.md Sections 6.1-6.4 exactly.
+
+The grep pattern for "external GitOps repository" in the validation
+script uses the alternation `GitOps.*external\|external.*GitOps` because
+the DEPLOYMENT_BOUNDARY.md document has "GitOps" appearing before
+"external" in the key sentence: "The real ArgoCD/GitOps source of truth
+lives in a **separate external repository**." This is a regex detail,
+not a plan deviation — both word orders are valid and the concept check
+still verifies that both terms appear in close proximity.
+
+BOUNDARY CONFIRMATIONS
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: ROADMAP.md not modified
+- confirm: ADR-0002 not modified (preserved for audit trail)
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no runtime application code changed
+- confirm: no Dockerfile or docker-compose.yml changes
+- confirm: no build-and-deploy.yml changes
+- confirm: no app/docker/ file changes
+- confirm: no ArgoCD or Kubernetes behavior changes
+- confirm: no Docker image publishing behavior changes
+- confirm: no ML control enabled
+- confirm: no dependencies added (requirements.txt unchanged)
+- confirm: no secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data created
+- confirm: boundary check script is static and read-only
+- confirm: validate.yml remains validation-only (0 docker references)
+- confirm: DEPLOYMENT_BOUNDARY.md documents that real GitOps is external
+- confirm: CURRENT_STATE.md corrected to reflect external ArgoCD/GitOps
+
+NEXT REQUIRED ACTION
+Precommit-review agent should evaluate PR 0006. All implementation
+files match the approved plan scope. The deployment boundary is now
+documented and statically validated.
