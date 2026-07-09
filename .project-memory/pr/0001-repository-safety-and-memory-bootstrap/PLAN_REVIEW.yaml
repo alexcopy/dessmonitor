@@ -1,0 +1,164 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+dirty_tree_within_scope: true
+
+blockers: []
+
+warnings:
+  - id: W-001
+    severity: warning
+    finding: The word "locked" does not appear in PLAN.md. Validation checklist item 9 (grep -q "locked") fails. The plan uses "approved" to describe the sequential agent gating mechanism (Section 4: "No agent may proceed unless the previous artifact is approved") which achieves the same practical protection, but the specific word "locked" is absent from the document.
+    recommendation: The sequential approval gate (plan → plan-review → coder → precommit-review) functionally prevents alteration of locked artifacts. However, for full spec compliance, consider adding explicit language such as "PLAN.md and PLAN_REVIEW.yaml must be committed and locked before coder starts" in Section 4 or as a standalone governance rule.
+
+  - id: W-002
+    severity: warning
+    finding: PLAN.md does not contain an explicit prohibition stating that "coder and precommit-review must not edit PLAN.md or PLAN_REVIEW.yaml." The plan establishes a sequential agent workflow (Section 4) where precommit-review runs after coder, making it impractical for precommit-review to alter its own upstream input artifact. The plan also limits coder's scope to "Implementation Checklist" (Section 7) rather than planning artifacts. However, the explicit constraint is not written as a rule.
+    recommendation: Add a governance rule to Section 4 or a dedicated "Agent Constraints" section: "Coder and precommit-review agents must not edit PLAN.md or PLAN_REVIEW.yaml. These files are read-only once committed at HEAD." This aligns with the SPECIFICATION item 11 requirement.
+
+  - id: W-003
+    severity: warning
+    finding: PLAN.md Section 2.3 states "Current .gitignore already covers: ... devices_prod.yaml — present" but validation confirms that `devices_prod.yaml` is NOT currently present in .gitignore (the grep check fails). The plan's "Current" description in Section 2.3 does not match the observed file state. The implementation checklist (item 11: "Update .gitignore with devices_prod.yaml") correctly lists this as a required fix, so the coder will add it, but the diagnostic framing in Section 2.3 is inaccurate.
+    recommendation: Section 2.3 framing should be corrected to "Gaps identified (additions only):" to accurately describe the current file state rather than claiming coverage that does not yet exist.
+
+checks:
+  - name: PLAN.md exists and is committed at HEAD
+    result: pass
+    notes: File confirmed at .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md, committed at b238b508dc18a416d2ce76257d6f6cbe5990078f
+
+  - name: PLAN.md uses dessmonitor as project identity
+    result: pass
+    notes: "Project name: dessmonitor" confirmed in Section 1. Multiple references to dessmonitor throughout.
+
+  - name: PR 0001 scoped to repository safety and memory bootstrap only
+    result: pass
+    notes: "PR 0001 is the first bootstrap PR. It adds project memory infrastructure, repository governance, and safety hardening. It must not alter production runtime behavior..." — Section 2.
+
+  - name: Deployment path documented: GitHub Actions → Docker Hub → ArgoCD
+    result: pass
+    notes: Section 6 documents the full path. CI/CD pipeline described in Section 1 (current state) and Section 6 (documentation). Section 3 explicitly lists changes PR 0001 does NOT make.
+
+  - name: No production runtime behavior changes
+    result: pass
+    notes: "This PR does not alter production runtime behavior" — Section 9. No Python, SQL, YAML (runtime), Dockerfile, or workflow logic changed except .dockerignore and .gitignore.
+
+  - name: No ML control enablement in PR 0001
+    result: pass
+    notes: "ML control enabling — PR 0002+" listed in Section 3 Out of Scope table.
+
+  - name: No TimescaleDB production enablement in PR 0001
+    result: pass
+    notes: "TimescaleDB production enablement — PR 0002+" listed in Section 3. Existing init-db.sql and timescale_data_collector.py are documented but not modified.
+
+  - name: No Kubernetes/ArgoCD restructuring in PR 0001
+    result: pass
+    notes: "K8s manifest restructuring — PR 0003+" and "ArgoCD Application manifest cleanup — PR 0003+" in Section 3. Section 9 confirms no K8s manifests modified.
+
+  - name: Four agents defined: plan, plan-review, coder, precommit-review
+    result: pass
+    notes: Section 4 agent workflow table defines all four agents. grep confirmed "plan-review", "precommit-review", and "coder" in PLAN.md.
+
+  - name: PLAN_REVIEW.yaml documented as required artifact
+    result: pass
+    notes: "PLAN_REVIEW.yaml ← Plan-review agent output" in Section 2.5 artifact layout. grep -q "PLAN_REVIEW.yaml" passes.
+
+  - name: "Locked" word present in PLAN.md
+    result: fail
+    notes: "grep -q 'locked' .project-memory/pr/.../PLAN.md" returns no match. The word "locked" does not appear. Section 4 uses "approved" instead ("No agent may proceed unless the previous artifact is approved"). See warning W-001.
+
+  - name: Explicit coder/precommit-review edit prohibition present
+    result: fail
+    notes: No rule stating "coder and precommit-review must not edit PLAN.md or PLAN_REVIEW.yaml" is present in the document. Sequential workflow (Section 4) makes it impractical but constraint is not explicit. See warning W-002.
+
+  - name: .dockerignore gaps identified and planned for fix
+    result: pass
+    notes: "Finding F-001: .dockerignore gaps" identified. Section 2.2 specifies all patterns to add. Section 7 checklist item 10 includes updating .dockerignore.
+
+  - name: .gitignore gaps identified and planned for fix
+    result: pass
+    notes: "devices_prod.yaml" and ".project-memory/" are identified as gaps in Section 2.3. Section 7 checklist items include updating .gitignore. Note: Section 2.3 framing ("already covers") is inaccurate for devices_prod.yaml — see warning W-003.
+
+  - name: No tracked secret/config files found
+    result: pass
+    notes: "Finding F-004" and "git ls-files | grep <forbidden_patterns>" confirms no forbidden files are tracked. No git rm --cached action needed per plan.
+
+  - name: git archive handoff method documented
+    result: pass
+    notes: Section 5.2 documents "git archive --format=zip --output=dessmonitor-<tag>.zip HEAD" and "git ls-files | zip -@ ..." as required handoff methods.
+
+  - name: Later PRs clearly distinguished from PR 0001 scope
+    result: pass
+    notes: Section 3 "Out of Scope — Later PRs" table explicitly routes ML control, TimescaleDB production, K8s restructuring, immutable tags, GitOps overlays, and ArgoCD cleanup to later PRs (0002+, 0003+, 0004+).
+
+  - name: No changes to CI/CD pipeline, Docker Hub, or ArgoCD behavior
+    result: pass
+    notes: Section 6 "What PR 0001 Does NOT Change" explicitly enumerates unchanged components: GitHub Actions steps, Docker Hub push, ArgoCD sync, Ingress, Service, Deployment specs.
+
+  - name: docker-compose.yml references redcopy/dessmonitor:latest
+    result: pass
+    notes: Observed in docker-compose.yml. Plan acknowledges this (Section 3: immutable tag problem routed to PR 0003). Not changed in PR 0001.
+
+  - name: ArgoCD manifest references redcopy/dessmonitor:latest
+    result: pass
+    notes: app/docker/dessmonitor-deploy.yaml line "image: redcopy/dessmonitor:latest". Plan documents this as production risk in Section 5.3, routed to PR 0003.
+
+  - name: All required directories exist
+    result: pass
+    notes: app/docker, app/ml, app/weather, app/tuya, app/monitoring, service, shared_state — all confirmed present. "Finding F-006" in plan.
+
+  - name: scripts/check-repo-safety.sh planned as deliverable
+    result: pass
+    notes: Section 2.4 defines optional lightweight safety check script. Section 7 checklist item 12 includes creating it.
+
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: b238b508dc18a416d2ce76257d6f6cbe5990078f
+    - command: git branch --show-current
+      result: pass
+      output_summary: 0001-repository-safety-and-memory-bootstrap
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/" — only untracked .project-memory/ directory, which is expected location for review artifact. No unrelated local changes.
+    - command: test -f .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md
+      result: pass
+      output_summary: File exists and is committed at HEAD
+    - command: grep -q "GitHub Actions" .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md
+      result: pass
+      output_summary: Match found
+    - command: grep -q "Docker Hub" .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md
+      result: pass
+      output_summary: Match found
+    - command: grep -q "ArgoCD" .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md
+      result: pass
+      output_summary: Match found
+    - command: grep -q "locked" .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md
+      result: fail
+      output_summary: No match found — word "locked" absent from document. See warning W-001.
+    - command: grep -q "PLAN_REVIEW.yaml" .project-memory/pr/0001-repository-safety-and-memory-bootstrap/PLAN.md
+      result: pass
+      output_summary: Match found
+    - command: git ls-files | grep -iE "(config\.json|config_cache\.json|fallback_data\.json|devices\.yaml|devices_prod\.yaml|web_fallback_url\.txt|\.env|\.pem|\.key|\.crt)"
+      result: pass
+      output_summary: No output — no forbidden files tracked
+    - command: grep -q "devices_prod.yaml" .gitignore
+      result: fail
+      output_summary: devices_prod.yaml NOT currently in .gitignore. Plan's Section 2.3 claim of existing coverage is inaccurate. Plan's Section 7 checklist correctly lists this as a fix to be applied.
+    - command: grep -q "project-memory" .gitignore
+      result: fail
+      output_summary: .project-memory/ NOT currently in .gitignore. Plan's Section 2.3 gap list and Section 7 checklist correctly identify this addition.
+    - command: grep -q "web_fallback_url.txt" .gitignore
+      result: pass
+      output_summary: web_fallback_url.txt is already covered in .gitignore (present in "generated files" section)
+
+  not_run: []
+
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed at HEAD before coder starts (plan is already committed at b238b508dc18a416d2ce76257d6f6cbe5990078f)"
+    - "PLAN_REVIEW.yaml must be written and committed by plan-review agent before coder begins implementation (this artifact satisfies that requirement)"
+    - "The three warnings W-001, W-002, W-003 should be resolved or acknowledged before coder starts, though they are non-blocking"
+    - "Coder implementation checklist items (Section 7 of PLAN.md) must be followed exactly — only the listed files may be created/edited"
+    - "After coder completes, precommit-review must verify the final diff against PLAN.md approved scope"
