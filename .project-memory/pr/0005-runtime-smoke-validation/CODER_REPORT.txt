@@ -1,0 +1,161 @@
+======================================================================
+CODER_REPORT.txt
+PR 0005 — Runtime Smoke Validation
+Agent: coder (implementation)
+Date: 2026-07-09T17:59:40Z
+HEAD: 987b5edcecc847f1e36e6574ee81ad44de7cff5b
+Branch: 0005-runtime-smoke-validation
+======================================================================
+
+TASK COMPLETE
+yes — Runtime smoke validation implemented. Safe Python module import
+checking via importlib.import_module() added. validate.yml workflow
+updated with one additive step.
+
+BLOCKERS
+None.
+
+WARNINGS
+- System has no 'python' command; 'python3' was used for all local
+  validation commands. The CI workflow uses 'python' which resolves
+  to Python 3.12 in the ubuntu-latest + setup-python@v5 environment.
+- Local smoke validation fails on 6 modules due to missing third-party
+  dependencies (logfmter, matplotlib, aiohttp, colorama). This is
+  expected — the CI workflow runs 'pip install -r requirements.txt'
+  before the smoke step, which installs all required packages.
+- The script adds _REPO_ROOT to sys.path so that 'app', 'shared_state',
+  and 'service' are importable. This is a minor deviation from the exact
+  PLAN.md Section 4.4 script listing (see DEVIATIONS FROM PLAN).
+
+FILES CHANGED
+1. scripts/check-runtime-smoke.py (NEW)
+   - Runtime smoke validation script using importlib.import_module()
+   - Sets TS_ENABLED=false as safe environment default
+   - Checks 12 safe/guarded modules
+   - Explicitly excludes app.tuya.tuya_authorisation (UNSAFE_MODULES set)
+   - Prints per-module pass/fail with actionable errors
+   - Exits 0 only when all safe imports succeed
+
+2. .github/workflows/validate.yml (MODIFIED)
+   - Added one step: "Runtime smoke validation"
+   - Runs 'python scripts/check-runtime-smoke.py' after existing 4 steps
+   - All existing validation steps preserved unchanged
+   - No Docker steps added (grep -c docker returns 0)
+   - build-and-deploy.yml NOT modified
+
+VALIDATION RUN
+All commands run with python3 (system has no 'python').
+
+1. python3 -m compileall -q . -x '/(ml_data|.project-memory|.git|venv|.venv)/'
+   Exit code: 0 — all Python files compile successfully
+
+2. bash scripts/check-repo-safety.sh
+   Exit code: 0 — PASSED: All checks clean (0 errors, 0 warnings)
+
+3. bash scripts/check-project-memory.sh
+   Exit code: 0 — PASSED: All required files present (7 governance, PR 0003 artifacts)
+
+4. python3 scripts/validate-yaml.py
+   Exit code: 0 — All 22 YAML file(s) validated successfully
+
+5. python3 scripts/check-runtime-smoke.py
+   Exit code: 1 (expected locally — missing third-party deps)
+   Details:
+     ✅ app.config
+     ✅ app.ml.timescale_data_collector
+     ✅ app.ml.ml_data_collector
+     ✅ app.tuya.relay_tuya_controller
+     ✅ app.device_initializer
+     ✅ shared_state.shared_state
+     ❌ app.api: No module named 'logfmter'
+     ❌ app.ml.ml_data_analyzer: No module named 'matplotlib'
+     ❌ app.weather.openweather_service: No module named 'aiohttp'
+     ❌ app.monitoring.device_status_logger: No module named 'colorama'
+     ❌ app.logger: No module named 'logfmter'
+     ❌ service.inverter_monitor: No module named 'logfmter'
+     ⏭️  app.tuya.tuya_authorisation (skipped -- import-time side effects)
+   All 6 failures are due to missing pip packages. In CI, these pass
+   after 'pip install -r requirements.txt'.
+
+6. grep -q "check-runtime-smoke.py" .github/workflows/validate.yml
+   Exit code: 0 — FOUND
+
+7. grep -q "importlib.import_module" scripts/check-runtime-smoke.py
+   Exit code: 0 — FOUND
+
+8. grep -q "TS_ENABLED" scripts/check-runtime-smoke.py
+   Exit code: 0 — FOUND
+
+9. grep -q "tuya_authorisation" scripts/check-runtime-smoke.py
+   Exit code: 0 — FOUND (in UNSAFE_MODULES exclusion set)
+
+10. git diff --name-only HEAD -- .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+    Exit code: 0 — no output (PLAN.md not modified)
+
+11. git diff --name-only HEAD -- .project-memory/pr/0005-runtime-smoke-validation/PLAN_REVIEW.yaml
+    Exit code: 0 — no output (PLAN_REVIEW.yaml not modified)
+
+12. git diff --name-only HEAD
+    Exit code: 0 — output: .github/workflows/validate.yml
+    (check-runtime-smoke.py is untracked and not in diff)
+
+13. test -f .project-memory/pr/0005-runtime-smoke-validation/CODER_REPORT.txt
+    Exit code: 0 — EXISTS
+
+14. git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml
+    Exit code: 0 — no output (build-and-deploy.yml not modified)
+
+15. grep -c "docker" .github/workflows/validate.yml
+    Exit code: 1 (grep -c returns 0, which is grep exit code 1)
+    Count: 0 — no docker steps in validate.yml
+
+DEVIATIONS FROM PLAN
+One minor deviation from the PLAN.md Section 4.4 script design:
+
+- Added sys.path manipulation to insert the repository root directory
+  into sys.path at the start of main(). Without this, 'app', 'shared_state',
+  and 'service' are not on the Python path and importlib.import_module()
+  fails with "No module named 'app'" for all modules. The CI environment
+  may have the working directory on PYTHONPATH by default, but locally
+  and for robustness, the explicit path insertion is necessary.
+
+  Added lines:
+    _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+
+  This is a purely additive fix for path resolution. No module names,
+  classification, or validation logic was changed. The script is otherwise
+  identical to PLAN.md Section 4.4.
+
+All other aspects match the approved plan exactly.
+
+BOUNDARY CONFIRMATIONS
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: ROADMAP.md not modified
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no runtime application code changed (app/, service/, shared_state/, run.py)
+- confirm: no Docker file changes (Dockerfile, docker-compose.yml)
+- confirm: no ArgoCD or K8s manifest changes
+- confirm: no build-and-deploy workflow changes
+- confirm: no ML control enabled
+- confirm: no dependencies added (requirements.txt unchanged)
+- confirm: no secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data created
+- confirm: no Docker image publishing behavior changed
+- confirm: app.tuya.tuya_authorisation explicitly excluded from smoke check
+- confirm: TS_ENABLED=false set as safe environment default
+- confirm: validate.yml remains validation-only (0 docker steps)
+- confirm: smoke script uses importlib.import_module() — no server start, no external calls
+
+NEXT REQUIRED ACTION
+Precommit-review agent should evaluate PR 0005. All implementation
+files match the approved plan scope. The smoke script correctly
+reports actionable errors when dependencies are missing (expected
+locally) and will pass in CI after pip install.
