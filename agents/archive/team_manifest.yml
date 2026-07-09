@@ -1,0 +1,13 @@
+agents:
+  - id: platform_architect
+    file: agents/01_platform_architect.md
+    phase: design_review
+  - id: repository_scaffolder
+    file: agents/02_repository_scaffolder.md
+    phase: sprint_0
+  - id: runner_patch_engineer
+    file: agents/03_runner_patch_engineer.md
+    phase: sprint_1
+  - id: qa_contracts_reviewer
+    file: agents/04_qa_contracts_reviewer.md
+    phase: every_change

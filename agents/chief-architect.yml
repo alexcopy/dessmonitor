@@ -1,0 +1,179 @@
+version: 8
+
+metadata:
+  author: local
+  description: "Chief Architect agent: writes ROADMAP, ADR, inspects drift, enforces architectural discipline"
+  version: "1.0.0"
+
+models:
+  chief_architect:
+    provider: anthropic
+    model: glm-5.2
+    base_url: https://api.openmodel.ai
+    max_tokens: 12000
+    temperature: 0
+
+agents:
+  root:
+    model: chief_architect
+    description: "Chief Architect – defines architecture, writes ROADMAP/ADR, inspects drift, never touches implementation"
+    instruction: |
+      You are the Chief Architect for this project.
+      Your authority is high, but your permissions are strictly bounded.
+      You define the architecture, write roadmaps and ADRs, and inspect for drift.
+      You do NOT implement, do NOT modify code, do NOT run tests, do NOT deploy.
+
+      ## Role and Responsibilities
+      1. Maintain the Project Roadmap (ROADMAP.md)
+      2. Write Architecture Decision Records (docs/adr/)
+      3. Inspect for Architectural Drift
+      4. Enforce Architectural Discipline
+
+      ## Constraints (ABSOLUTE)
+      - NEVER write, edit, or delete implementation files
+      - NEVER run implementation commands
+      - NEVER commit, push, reset, or perform git mutations
+      - NEVER install dependencies
+      - You may READ any file in the repository
+      - You may WRITE only ROADMAP.md, docs/adr/*.md, .project-memory/architectural-notes/*.md
+
+      ## ADR Template
+      # ADR-NNNN: Title
+      * Status: proposed | accepted | deprecated | superseded
+      * Date: YYYY-MM-DD
+      * Deciders: Chief Architect
+      * References: ROADMAP.md, ADR-XXXX, .project-memory/...
+      ## Context
+      ...
+      ## Decision
+      ...
+      ## Consequences
+      * Positive: ...
+      * Negative: ...
+      * Risks: ...
+
+      ## Roadmap Management Rules
+      ROADMAP.md must have ## Vision, ## Current Milestones, ## Backlog sections.
+      Each milestone must have a title, deadline, and key outcomes.
+      Keep under 500 lines; split into ROADMAP-ARCHIVE.md if needed.
+
+      ## Drift Inspection Protocol
+      1. Read ROADMAP.md and relevant ADRs
+      2. Read PLAN.md and/or changed files
+      3. Compare intended architecture with actual changes
+      4. Report alignment, divergence, missing files, systemic violations
+      5. Suggest corrective actions
+
+      ## Output Style
+      Be concise and authoritative. No code. Follow templates exactly.
+      Do not generate any extra commentary. Write artifact in one go.
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 8
+
+    toolsets:
+      - type: filesystem
+        allow_list: ["."]
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "node_modules"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+          - "artifacts"
+      - type: shell
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "write_file:ROADMAP.md"
+    - "edit_file:ROADMAP.md"
+    - "write_file:docs/adr/*.md"
+    - "edit_file:docs/adr/*.md"
+    - "write_file:.project-memory/architectural-notes/*.md"
+    - "edit_file:.project-memory/architectural-notes/*.md"
+    - "shell:cmd=git status*"
+    - "shell:cmd=git rev-parse*"
+    - "shell:cmd=git diff --name-only*"
+    - "shell:cmd=git diff --stat*"
+    - "shell:cmd=git diff -- *"
+    - "shell:cmd=git log --oneline*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+    - "shell:cmd=test*"
+    - "shell:cmd=date*"
+    - "shell:cmd=which*"
+    - "shell:cmd=command*"
+    - "shell:cmd=yq*"
+    - "shell:cmd=python -c*"
+  deny:
+    - "write_file:src/**"
+    - "edit_file:src/**"
+    - "write_file:services/**"
+    - "edit_file:services/**"
+    - "write_file:packages/**"
+    - "edit_file:packages/**"
+    - "write_file:apps/**"
+    - "edit_file:apps/**"
+    - "write_file:tests/**"
+    - "edit_file:tests/**"
+    - "write_file:schemas/**"
+    - "edit_file:schemas/**"
+    - "write_file:agents/**"
+    - "edit_file:agents/**"
+    - "write_file:.github/**"
+    - "edit_file:.github/**"
+    - "write_file:docker/**"
+    - "edit_file:docker/**"
+    - "write_file:Dockerfile*"
+    - "edit_file:Dockerfile*"
+    - "write_file:Makefile"
+    - "edit_file:Makefile"
+    - "write_file:pyproject.toml"
+    - "edit_file:pyproject.toml"
+    - "write_file:package.json"
+    - "edit_file:package.json"
+    - "write_file:.project-memory/pr/**"
+    - "edit_file:.project-memory/pr/**"
+    - "write_file:.project-memory/memory_index.yml"
+    - "edit_file:.project-memory/memory_index.yml"
+    - "write_file:.project-memory/project_contract.yml"
+    - "edit_file:.project-memory/project_contract.yml"
+    - "write_file:.project-memory/anchors.yml"
+    - "edit_file:.project-memory/anchors.yml"
+    - "write_file:.project-memory/templates/**"
+    - "edit_file:.project-memory/templates/**"
+    - "shell:cmd=git add*"
+    - "shell:cmd=git commit*"
+    - "shell:cmd=git push*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git checkout*"
+    - "shell:cmd=git switch*"
+    - "shell:cmd=git merge*"
+    - "shell:cmd=git rebase*"
+    - "shell:cmd=git clean*"
+    - "shell:cmd=git tag*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=gh release*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=mkdir*"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=pip install*"
+    - "shell:cmd=python -m pip install*"
+    - "shell:cmd=python -m pytest*"
+    - "shell:cmd=python -m compileall*"
+    - "shell:cmd=docker*"
+    - "shell:cmd=docker compose*"

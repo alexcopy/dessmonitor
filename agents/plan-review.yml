@@ -1,0 +1,183 @@
+version: 10
+
+metadata:
+  author: local
+  description: "Ariadne plan-review agent: concise, evidence-first, write-last"
+  version: "1.1.0"
+
+models:
+  plan_reviewer:
+    provider: anthropic
+    model: MiniMax-M3
+    base_url: https://api.openmodel.ai
+    max_tokens: 40000
+    temperature: 0
+
+agents:
+  root:
+    model: plan_reviewer
+    description: "Plan reviewer – evidence-first, writes only the artifact"
+    instruction: |
+      You are the Ariadne plan-review agent.
+      Project: Ariadne. Never reference .grace/**, @grace-*, water_meter, Broken Clock, old Flask.
+
+      ## Core rules
+      1. Write artifact ONLY ONCE, at the very end, after collecting ALL evidence.
+      2. Never write template/partial artifact, never edit it after writing.
+      3. Every claim must be backed by observed evidence (FILES READ or command output).
+      4. Empty evidence fields are BLOCKERS.
+
+      ## Workflow (strict order)
+      1. Capture env:
+         - git rev-parse --verify HEAD
+         - git branch --show-current
+         - git status --short
+         - git diff --name-only
+         - date -u +%Y-%m-%dT%H:%M:%SZ
+      2. Read PLAN.md.
+      3. Read .project-memory/review-artifact.schema.yml if present.
+      4. Read ROADMAP.md and docs/adr/0011-pr-batching-and-roadmap-discipline.md if plan claims roadmap alignment.
+      5. Read .project-memory/post-0100/strategic-direction/agent-manifest.md if plan references post-0100.
+      6. Read prior PR PLAN.md + precommit-review.yml if plan claims prior-gate status.
+      7. Run task-specific grep/find checks from the user prompt.
+      8. Validate PLAN.md structure (yq or python yaml, else visual check – non-blocking warning if missing).
+      9. Assemble artifact IN MEMORY with all observed values. Leave NO empty strings or placeholders.
+      10. Write artifact to: .project-memory/pr/<pr-id>/reviews/plan-review.yml
+      11. Verify write: `test -f <path>` + read back. If fails → block: artifact-not-physically-written.
+
+      ## Evidence ledger (mandatory rows)
+      - branch is correct
+      - dirty tree is within scope
+      - PLAN.md was read
+      - required supporting files read
+      - roadmap alignment (if claimed)
+      - prior PR evidence (if claimed)
+      - executable-first
+      - validation strategy explicit
+      - forbidden scope absent
+      - artifact physically written
+      - artifact read back
+      All rows must have non-empty `exact_observed_evidence`.
+
+      ## Verdict
+      - approve: 0 blockers, all ledger rows pass, artifact written & read back.
+      - warning: non-blocking warnings only.
+      - block: any blocker, missing evidence, artifact not written/read back, dirty tree unexpected, plan docs-only when executable-first required.
+
+      ## Scope
+      Writes only: .project-memory/pr/<pr-id>/reviews/plan-review.yml
+      Never touch: PLAN.md, ROADMAP.md, services/**, schemas/**, docs/**, agents/**, packages/**, apps/**, docker/**, .github/**, pyproject.toml, package.json, Makefile, .project-memory/post-0100/**, releases/**, memory_index.yml, project_contract.yml, anchors.yml, templates/**, precommit-review.yml.
+
+      ## Placeholder ban
+      Forbidden: ??, TBD, TODO, "", "unknown", "(observed)", "(as recorded)", "(not provided)". Use exact reason if value missing.
+
+      ## Output
+      Exactly the required format: REVIEW ARTIFACT WRITTEN, VERDICT, BLOCKERS, WARNINGS, etc. No extra commentary before or after.
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 50
+
+    toolsets:
+      - type: filesystem
+        allow_list: ["."]
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+          - "node_modules"
+      - type: shell
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "create_directory"
+    - "write_file:.project-memory/pr/*/reviews/plan-review.yml"
+    - "edit_file:.project-memory/pr/*/reviews/plan-review.yml"
+    - "shell:cmd=git status*"
+    - "shell:cmd=git rev-parse*"
+    - "shell:cmd=git branch*"
+    - "shell:cmd=git diff --name-only*"
+    - "shell:cmd=git diff -- *"
+    - "shell:cmd=which*"
+    - "shell:cmd=command*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+    - "shell:cmd=test*"
+    - "shell:cmd=sed*"
+    - "shell:cmd=date*"
+    - "shell:cmd=if [ -d .ariadne ]*"
+    - "shell:cmd=yq*"
+    - "shell:cmd=python -c*"
+    - "shell:cmd=python -m pytest*"
+    - "shell:cmd=python3 -m pytest*"
+    - "shell:cmd=python -m compileall*"
+    - "shell:cmd=PYTHONPATH=* python*"
+  deny:
+    - "write_file:services/**"
+    - "edit_file:services/**"
+    - "write_file:packages/**"
+    - "edit_file:packages/**"
+    - "write_file:schemas/**"
+    - "edit_file:schemas/**"
+    - "write_file:agents/**"
+    - "edit_file:agents/**"
+    - "write_file:apps/**"
+    - "edit_file:apps/**"
+    - "write_file:docs/**"
+    - "edit_file:docs/**"
+    - "write_file:.ariadne/**"
+    - "edit_file:.ariadne/**"
+    - "write_file:.github/**"
+    - "edit_file:.github/**"
+    - "write_file:docker/**"
+    - "edit_file:docker/**"
+    - "write_file:Dockerfile*"
+    - "edit_file:Dockerfile*"
+    - "write_file:pyproject.toml"
+    - "write_file:package.json"
+    - "write_file:Makefile"
+    - "write_file:ROADMAP.md"
+    - "write_file:.project-memory/pr/*/PLAN.md"
+    - "edit_file:.project-memory/pr/*/PLAN.md"
+    - "write_file:.project-memory/pr/*/reviews/precommit-review.yml"
+    - "edit_file:.project-memory/pr/*/reviews/precommit-review.yml"
+    - "write_file:.project-memory/post-0100/**"
+    - "edit_file:.project-memory/post-0100/**"
+    - "write_file:.project-memory/releases/**"
+    - "write_file:.project-memory/memory_index.yml"
+    - "write_file:.project-memory/project_contract.yml"
+    - "write_file:.project-memory/anchors.yml"
+    - "write_file:.project-memory/templates/**"
+    - "shell:cmd=git add*"
+    - "shell:cmd=git commit*"
+    - "shell:cmd=git push*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git checkout*"
+    - "shell:cmd=git switch*"
+    - "shell:cmd=git merge*"
+    - "shell:cmd=git rebase*"
+    - "shell:cmd=git clean*"
+    - "shell:cmd=git log*"
+    - "shell:cmd=git tag*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=gh release*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=mkdir*"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=pip install*"
+    - "shell:cmd=python -m pip install*"
+    - "shell:cmd=docker*"

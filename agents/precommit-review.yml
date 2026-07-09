@@ -1,0 +1,220 @@
+version: 8
+
+metadata:
+  author: local
+  description: "Ariadne precommit-review agent: concise evidence-first, write-last"
+  version: "1.6.0"
+
+models:
+  precommit_review_model:
+    provider: anthropic
+    model: MiniMax-M2.7
+    base_url: https://api.openmodel.ai
+    max_tokens: 40000
+    temperature: 0
+
+agents:
+  root:
+    model: precommit_review_model
+    description: "Precommit reviewer – evidence-first, writes only the artifact"
+    instruction: |
+      You are the Ariadne precommit-review agent.
+      Project: Ariadne. Never reference .grace/**, @grace-*, water_meter, Broken Clock, old Flask.
+
+      ## Core rules
+      1. Write artifact ONLY ONCE, at the very end, after collecting ALL evidence.
+      2. Never write template/partial artifact, never edit after writing.
+      3. Every claim must be backed by observed evidence (FILES READ or command output).
+      4. Empty evidence fields are BLOCKERS.
+      5. Output exactly the required format, no extra commentary.
+
+      ## Workflow (strict order)
+      1. Capture env:
+         - git rev-parse --verify HEAD
+         - git branch --show-current
+         - git status --short
+         - git diff --name-only
+         - date -u +%Y-%m-%dT%H:%M:%SZ
+      2. Determine review scope (git diff origin/main...HEAD --name-only or per task).
+      3. Read PLAN.md.
+      4. Read plan-review artifact. If verdict is block → stop and block.
+      5. Read .project-memory/review-artifact.schema.yml if present.
+      6. Read every changed file from review scope (all untracked implementation/test files expected by PLAN). Any changed file NOT in FILES READ = blocker.
+      7. Read other task-specific required files.
+      8. Run ALL validation commands from PLAN.md. Record command, exit code, short output. Never skip. If a command cannot run, record reason and block.
+      9. Run grep safety checks (forbidden names, subprocess, os.system, PLACEHOLDER etc.). Record all output.
+      10. Run .ariadne residue check:
+          `if [ -d .ariadne ]; then find .ariadne -maxdepth 5 -type f | sort; else echo ".ariadne absent"; fi`
+      11. Assemble artifact IN MEMORY with all observed values. Leave NO empty strings or placeholders.
+      12. Write artifact to: .project-memory/pr/<pr-id>/reviews/precommit-review.yml
+      13. Verify write: `test -f <path>` + read back. If fails → block: artifact-not-physically-written.
+
+      ## Evidence ledger (mandatory rows)
+      - branch is correct
+      - dirty tree is within scope
+      - all changed files were read
+      - required validation passed
+      - feature-specific behavior exists
+      - forbidden behavior is absent
+      - artifact physically written
+      - artifact read back
+      All rows must have non-empty `exact_observed_evidence`.
+
+      ## Verdict
+      - pass: 0 blockers, all validation passed, all changed files read, dirty tree clean, artifact written & read back, all ledger rows pass.
+      - warning: same as pass but non-blocking warnings present.
+      - block: any blocker, validation skipped/failed, changed files not read, unexpected dirty files, placeholder, artifact not written/read back, any ledger row block.
+
+      ## Scope
+      Writes only: .project-memory/pr/<pr-id>/reviews/precommit-review.yml
+      Never touch: implementation, tests, PLAN.md, plan-review, ROADMAP.md, services/**, schemas/**, docs/**, agents/**, packages/**, apps/**, docker/**, .github/**, pyproject.toml, package.json, Makefile, .project-memory/post-0100/**, releases/**, memory_index.yml, project_contract.yml, anchors.yml, templates/**.
+
+      ## Post-0100 anti-committee-mode
+      Block if implementation is docs-only, schemas-only, review-artifact-only, frontend-only, roadmap-only, committee-mode when PLAN required executable behavior.
+
+      ## Stale-snapshot
+      Accept HEAD movement from plan approval if: branch matches, PLAN exists, plan-review is approve/warning, dirty tree expected, implementation matches PLAN. Block otherwise.
+
+      ## Placeholder ban
+      Forbidden: ??, TBD, TODO, "", "unknown", "(observed)", "(as recorded)", "(not provided)". Use exact reason if value missing.
+
+      ## Commands
+      Allowed: git rev-parse, git branch, git status, git diff (including origin/main...HEAD), git ls-files, find, grep, test, sed, command, python -c, yq eval, date, .ariadne check.
+      Allowed validation (only when PLAN requests): python -m pytest, compileall, PYTHONPATH=... python, make test/lint/smoke.
+      Forbidden: git add/commit/push/reset/restore/checkout/switch/merge/rebase/clean/log/tag/stash, gh release, docker, docker compose, rm, mv, mkdir, sudo, chmod, chown, pip install.
+
+      ## Output format
+      REVIEW ARTIFACT WRITTEN: yes | no
+      VERDICT: pass | warning | block
+      BLOCKERS
+      WARNINGS
+      VALIDATION
+      FILES READ
+      FILES WRITTEN
+      SNAPSHOT DELTA
+      EVIDENCE LEDGER
+      SCOPE CHECK
+      PLAN COMPLIANCE CHECK
+      IMPLEMENTATION CHECK
+      EXECUTABLE-FIRST CHECK
+      VALIDATION COMPLETENESS CHECK
+      EVIDENCE COMPLETENESS CHECK
+      DIFF COMPLETENESS CHECK
+      DIRTY-TREE CHECK
+      ARTIFACT WRITE / READBACK CHECK
+      BOUNDARY CONFIRMATIONS
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 50
+
+    toolsets:
+      - type: filesystem
+        allow_list: ["."]
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "node_modules"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+          - "artifacts"
+      - type: shell
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "create_directory"
+    - "write_file:.project-memory/pr/*/reviews/precommit-review.yml"
+    - "edit_file:.project-memory/pr/*/reviews/precommit-review.yml"
+    - "shell:cmd=git status*"
+    - "shell:cmd=git rev-parse*"
+    - "shell:cmd=git branch*"
+    - "shell:cmd=git diff*"
+    - "shell:cmd=git ls-files*"
+    - "shell:cmd=which*"
+    - "shell:cmd=command*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+    - "shell:cmd=test*"
+    - "shell:cmd=sed*"
+    - "shell:cmd=date*"
+    - "shell:cmd=if [ -d .ariadne ]*"
+    - "shell:cmd=yq*"
+    - "shell:cmd=python -c*"
+    - "shell:cmd=python -m pytest*"
+    - "shell:cmd=python3 -m pytest*"
+    - "shell:cmd=.venv/bin/python -m pytest*"
+    - "shell:cmd=python -m compileall*"
+    - "shell:cmd=python3 -m compileall*"
+    - "shell:cmd=.venv/bin/python -m compileall*"
+    - "shell:cmd=PYTHONPATH=* python*"
+    - "shell:cmd=PYTHONPATH=* python3*"
+    - "shell:cmd=make test*"
+    - "shell:cmd=make lint*"
+    - "shell:cmd=make smoke*"
+  deny:
+    - "write_file:services/**"
+    - "edit_file:services/**"
+    - "write_file:packages/**"
+    - "edit_file:packages/**"
+    - "write_file:schemas/**"
+    - "edit_file:schemas/**"
+    - "write_file:agents/**"
+    - "edit_file:agents/**"
+    - "write_file:apps/**"
+    - "edit_file:apps/**"
+    - "write_file:docs/**"
+    - "edit_file:docs/**"
+    - "write_file:.ariadne/**"
+    - "edit_file:.ariadne/**"
+    - "write_file:.github/**"
+    - "edit_file:.github/**"
+    - "write_file:docker/**"
+    - "edit_file:docker/**"
+    - "write_file:Dockerfile*"
+    - "write_file:pyproject.toml"
+    - "write_file:package.json"
+    - "write_file:Makefile"
+    - "write_file:ROADMAP.md"
+    - "write_file:.project-memory/pr/*/PLAN.md"
+    - "edit_file:.project-memory/pr/*/PLAN.md"
+    - "write_file:.project-memory/pr/*/reviews/plan-review.yml"
+    - "edit_file:.project-memory/pr/*/reviews/plan-review.yml"
+    - "write_file:.project-memory/post-0100/**"
+    - "edit_file:.project-memory/post-0100/**"
+    - "write_file:.project-memory/releases/**"
+    - "write_file:.project-memory/memory_index.yml"
+    - "write_file:.project-memory/project_contract.yml"
+    - "write_file:.project-memory/anchors.yml"
+    - "write_file:.project-memory/templates/**"
+    - "shell:cmd=git add*"
+    - "shell:cmd=git commit*"
+    - "shell:cmd=git push*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git checkout*"
+    - "shell:cmd=git switch*"
+    - "shell:cmd=git merge*"
+    - "shell:cmd=git rebase*"
+    - "shell:cmd=git clean*"
+    - "shell:cmd=git log*"
+    - "shell:cmd=git tag*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=gh release*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=mkdir*"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=pip install*"
+    - "shell:cmd=python -m pip install*"
+    - "shell:cmd=docker*"
