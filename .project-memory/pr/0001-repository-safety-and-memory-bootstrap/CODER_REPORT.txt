@@ -1,0 +1,145 @@
+================================================================================
+ CODER REPORT — PR 0001: Repository Safety and Memory Bootstrap
+================================================================================
+
+TASK COMPLETE
+=============
+Yes — all implementation items from PLAN.md have been completed.
+
+BLOCKERS
+========
+None (initial implementation).
+
+=== REPAIR: Git Tracking Blocker (Post-Precommit-Review) ===
+
+Blockers B-001, B-002, B-003 from PRECOMMIT_REVIEW.yaml were addressed:
+
+B-001: .project-memory/ was added to .gitignore in the initial implementation,
+which caused all project-memory files to be ignored by Git. This was a mistake.
+The .project-memory/ entry has been REMOVED from .gitignore. Project-memory
+files are project artifacts that MUST be tracked by Git.
+
+B-002: After removing .project-memory/ from .gitignore, all project-memory
+files are now visible as untracked candidates in git status --short.
+
+B-003: CODER_REPORT.txt is no longer ignored by Git and is visible as an
+untracked candidate.
+
+Policy correction: .project-memory must be tracked by Git but may remain
+excluded from the Docker build context through .dockerignore. The
+.project-memory/ entry remains in .dockerignore (line 47) as intended.
+
+WARNINGS
+========
+1. W-001 (locked word): Addressed in AGENT_STANDARD.txt Section 2. The word
+   "locked" (lowercase) now appears in the LOCKED ARTIFACTS section, along
+   with "LOCKED" and "Locked" variants. The section explicitly states that
+   PLAN.md and PLAN_REVIEW.yaml are locked after the planning commit and that
+   coder and precommit-review must not edit them.
+
+2. W-002 (explicit edit prohibition): Addressed in AGENT_STANDARD.txt Section 2.
+   The section now explicitly states: "Coder and precommit-review must NOT edit
+   PLAN.md or PLAN_REVIEW.yaml." and "Only the plan and plan-review agents may
+   create or modify these files."
+
+3. W-003 (devices_prod.yaml not in .gitignore): Addressed. devices_prod.yaml
+   has been added to .gitignore in the "Конфиги и приватные данные" section.
+   It has also been added to .dockerignore.
+
+FILES CHANGED
+=============
+New files:
+  .project-memory/AGENT_STANDARD.txt
+  .project-memory/ORCHESTRATOR_STANDARD.txt
+  .project-memory/ROADMAP.md
+  .project-memory/CURRENT_STATE.md
+  .project-memory/ADR/ADR-0001-agent-workflow.md
+  .project-memory/ADR/ADR-0002-dockerhub-argocd-deployment.md
+  .project-memory/ADR/ADR-0003-runtime-safety-before-ml-control.md
+  .project-memory/pr/.gitkeep
+  scripts/check-repo-safety.sh
+
+Modified files:
+  .gitignore — added devices_prod.yaml (initial); removed .project-memory/ (repair)
+  .dockerignore — completely rewritten with comprehensive exclusion patterns;
+    .project-memory/ remains excluded from Docker build context
+
+VALIDATION RUN
+==============
+
+=== Initial Implementation ===
+1. git rev-parse --verify HEAD → 04e2377106593a9c3776fab26f8047b9e8a52f90 (PASS)
+2. git branch --show-current → 0001-repository-safety-and-memory-bootstrap (PASS)
+3. git status --short at start → clean (PASS)
+4-11. All required .project-memory files exist (PASS)
+12-13. PLAN.md and PLAN_REVIEW.yaml not modified (PASS)
+14-15. devices_prod.yaml in .gitignore and .dockerignore (PASS)
+16-17. Docker Hub and ArgoCD in ADR-0002 (PASS)
+18. "locked" in AGENT_STANDARD.txt (PASS)
+19. python3 -m compileall -q . (PASS)
+20. git status --short → only allowed files changed (PASS)
+
+=== Post-Precommit-Review Repair ===
+
+Precondition:
+  git rev-parse --verify HEAD → 04e2377106593a9c3776fab26f8047b9e8a52f90
+  git branch --show-current → 0001-repository-safety-and-memory-bootstrap
+  git status --short → M .dockerignore,  M .gitignore, ?? scripts/
+
+Blocker confirmation:
+  git check-ignore -v .project-memory/AGENT_STANDARD.txt
+    → .gitignore:90:.project-memory/  (BLOCKER - file is ignored)
+  git check-ignore -v .project-memory/pr/0001-repository-safety-and-memory-bootstrap/CODER_REPORT.txt
+    → .gitignore:90:.project-memory/  (BLOCKER - file is ignored)
+
+Fix applied:
+  Removed the .project-memory/ entry from .gitignore (line 90).
+
+Validation after fix:
+  1. git status --short → .project-memory/ files visible as untracked (PASS)
+  2. grep -n '\.project-memory' .gitignore → NO MATCH (PASS)
+  3. grep -n '\.project-memory' .dockerignore → line 47 (PASS - Docker-only)
+  4. git check-ignore -v .project-memory/AGENT_STANDARD.txt → exit 1 (PASS - not ignored)
+  5. git check-ignore -v .project-memory/pr/.../CODER_REPORT.txt → exit 1 (PASS - not ignored)
+  6. git diff --name-only HEAD -- PLAN.md → 0 lines (PASS)
+  7. git diff --name-only HEAD -- PLAN_REVIEW.yaml → 0 lines (PASS)
+  8. grep -q "devices_prod.yaml" .gitignore → PASS
+  9. grep -q "devices_prod.yaml" .dockerignore → PASS
+  10. python3 -m compileall -q . → exit 0 (PASS)
+
+DEVIATIONS FROM PLAN
+====================
+
+Initial implementation: None. All items from PLAN.md Section 7 completed.
+
+Repair: The initial implementation added .project-memory/ to .gitignore as
+specified by PLAN.md Section 2.3 ("Gaps identified: .project-memory/").
+However, this was a design flaw — project-memory files must be tracked by Git.
+The precommit-review correctly blocked this. The repair removes the
+.project-memory/ entry from .gitignore, correcting the design error while
+keeping .project-memory/ excluded from Docker build context via .dockerignore.
+
+BOUNDARY CONFIRMATIONS
+======================
+- Confirmed: implementation followed approved PLAN.md
+- Confirmed: no review artifact written
+- Confirmed: PLAN.md not modified
+- Confirmed: PLAN_REVIEW.yaml not modified
+- Confirmed: ROADMAP.md not modified (created new, not modified existing)
+- Confirmed: post-0100 strategic direction files not modified (do not exist)
+- Confirmed: only PLAN.md-approved implementation/test paths changed
+- Confirmed: validation commands run and recorded
+- Confirmed: no git mutation commands run
+- Confirmed: no Docker commands run
+- Confirmed: no Python runtime code modified
+- Confirmed: no deployment manifests modified
+- Confirmed: no CI workflows modified
+- Confirmed: no Dockerfile or docker-compose.yml modified
+- Confirmed: no secrets, device configs, runtime data, logs, SQLite, CSV, JSONL, or ml_data added
+
+NEXT REQUIRED ACTION
+====================
+Precommit-review agent should re-verify the final diff against PLAN.md
+approved scope and produce an updated PRECOMMIT_REVIEW.yaml. The Git tracking
+blocker has been resolved: all .project-memory/ files are now visible as
+untracked candidates and can be staged for commit.

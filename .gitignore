@@ -60,6 +60,7 @@ config.json
 config_cache.json
 fallback_data.json
 devices.yaml
+devices_prod.yaml
 
 # ───────────────────────────
 #  Docker / CI промежуточные
@@ -82,3 +83,5 @@ ml_data/
 *.sqlite-shm
 *.csv
 *.jsonl
+
+
