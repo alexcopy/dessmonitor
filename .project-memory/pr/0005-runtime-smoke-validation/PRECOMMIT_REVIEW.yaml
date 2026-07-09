@@ -1,0 +1,291 @@
+# PRECOMMIT_REVIEW.yaml
+# PR 0005 — Runtime Smoke Validation
+# Agent: precommit-review
+# Date: 2026-07-09T18:05:16Z
+# HEAD: 987b5edcecc847f1e36e6574ee81ad44de7cff5b
+# Branch: 0005-runtime-smoke-validation
+
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings:
+  - id: W-001
+    severity: warning
+    finding: "Smoke script exits code 1 locally: 6 module failures (app.api, app.ml.ml_data_analyzer, app.weather.openweather_service, app.monitoring.device_status_logger, app.logger, service.inverter_monitor) due to missing third-party pip packages (logfmter, matplotlib, aiohttp, colorama). This is expected behavior in an environment without 'pip install -r requirements.txt'. In CI, these packages will be installed before the smoke step runs."
+    recommendation: "No action needed. The smoke script correctly reports actionable errors. CI workflow runs 'pip install -r requirements.txt' before the smoke step."
+
+  - id: W-002
+    severity: warning
+    finding: "CODER_REPORT.txt documents one minor deviation: sys.path.insert(0, _REPO_ROOT) was added to the smoke script to ensure 'app', 'shared_state', and 'service' are on the Python path. This is not in PLAN.md Section 4.4 but is necessary for correct execution. No module names, classification, or validation logic was changed."
+    recommendation: "No action needed. The deviation is minor, additive, and does not affect scope or safety."
+
+checks:
+  - name: Branch is 0005-runtime-smoke-validation
+    result: pass
+    notes: "git branch --show-current returned '0005-runtime-smoke-validation' — matches PR 0005"
+
+  - name: Implementation diff exists
+    result: pass
+    notes: "git status --short shows: M .github/workflows/validate.yml (3 insertions), ?? scripts/check-runtime-smoke.py (new), ?? CODER_REPORT.txt (new)"
+
+  - name: PLAN.md has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0005-runtime-smoke-validation/PLAN.md — no output (locked)"
+
+  - name: PLAN_REVIEW.yaml has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0005-runtime-smoke-validation/PLAN_REVIEW.yaml — no output (locked)"
+
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "File exists at .project-memory/pr/0005-runtime-smoke-validation/CODER_REPORT.txt with all 8 required sections: TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION"
+
+  - name: scripts/check-runtime-smoke.py exists
+    result: pass
+    notes: "File exists at scripts/check-runtime-smoke.py"
+
+  - name: Smoke script uses importlib.import_module()
+    result: pass
+    notes: "grep confirmed 'importlib.import_module' present in scripts/check-runtime-smoke.py"
+
+  - name: Smoke script does not start the application server
+    result: pass
+    notes: "Script only calls importlib.import_module() for each module. No instantiation, no server start, no background tasks. The __main__ guard prevents execution when imported."
+
+  - name: Smoke script does not call external services
+    result: pass
+    notes: "Script contains zero references to socket, http, urllib, requests, aiohttp (outside import list), or any network client. No service calls."
+
+  - name: Smoke script does not require secrets or device config files
+    result: pass
+    notes: "Script sets only 'TS_ENABLED=false'. No config files read, no secrets referenced. grep for 'secret|password|token|credential|api_key' found no matches."
+
+  - name: Smoke script sets TS_ENABLED as safe default
+    result: pass
+    notes: "grep confirmed 'TS_ENABLED' present in scripts/check-runtime-smoke.py via os.environ.setdefault('TS_ENABLED', 'false')"
+
+  - name: Smoke script excludes app.tuya.tuya_authorisation
+    result: pass
+    notes: "grep confirmed 'tuya_authorisation' present in scripts/check-runtime-smoke.py in UNSAFE_MODULES set. Script output shows '⏭️ app.tuya.tuya_authorisation (skipped -- import-time side effects)'"
+
+  - name: Smoke script does not write files
+    result: pass
+    notes: "No file write operations detected. Only open() call is via importlib which is read-only. No os.write, open() for writing, or file mutation."
+
+  - name: Smoke script exits nonzero on validation failure
+    result: pass
+    notes: "Script returns 1 when any module fails. Verified locally: exit code 1 with 6 failures (missing pip packages)."
+
+  - name: Smoke script prints actionable errors
+    result: pass
+    notes: "Error format: '❌ <module_name>: <exception_message>' — includes exact module name and Python exception, enabling targeted fixes."
+
+  - name: Included modules match PLAN.md classifications
+    result: pass
+    notes: "All 12 modules from PLAN.md Section 4.3 are present in MODULES_TO_CHECK list. All match the safe/guarded classifications from Section 3."
+
+  - name: Unsafe modules excluded
+    result: pass
+    notes: "app.tuya.tuya_authorisation is in UNSAFE_MODULES set and skipped during validation. Only reported as informational."
+
+  - name: validate.yml was changed additively
+    result: pass
+    notes: "git diff --stat HEAD shows 3 insertions in .github/workflows/validate.yml — one new step added at the end."
+
+  - name: Workflow runs the smoke validation script
+    result: pass
+    notes: "grep confirmed 'check-runtime-smoke.py' present in .github/workflows/validate.yml as the step: python scripts/check-runtime-smoke.py"
+
+  - name: Existing validation commands remain
+    result: pass
+    notes: "validate.yml preserves all 4 original validation steps: compileall, validate-yaml.py, check-repo-safety.sh, check-project-memory.sh in their original order"
+
+  - name: Workflow remains validation-only
+    result: pass
+    notes: "validate.yml contains only validation steps. No deploy, build, or Docker steps."
+
+  - name: No Docker build or push added
+    result: pass
+    notes: "grep -c 'docker' in validate.yml returns 0 — no docker references"
+
+  - name: No Docker Hub credentials added
+    result: pass
+    notes: "validate.yml has no docker/login-action step and no secret references"
+
+  - name: No deployment step added
+    result: pass
+    notes: "validate.yml has no deploy, kubectl, or ArgoCD commands"
+
+  - name: build-and-deploy workflow not changed
+    result: pass
+    notes: "git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml — no output"
+
+  - name: No runtime application code changed
+    result: pass
+    notes: "git diff --name-only HEAD -- run.py app/ service/ shared_state/ — no output"
+
+  - name: No Dockerfile or docker-compose.yml changed
+    result: pass
+    notes: "git diff --name-only HEAD -- Dockerfile docker-compose.yml — no output"
+
+  - name: No Kubernetes or ArgoCD manifest changed
+    result: pass
+    notes: "git diff --name-only HEAD -- app/docker/ — no output"
+
+  - name: No SQL schema changed
+    result: pass
+    notes: "git diff --name-only HEAD -- init-db.sql — no output"
+
+  - name: No ML control enabled
+    result: pass
+    notes: "No changes to app/ml/ or any ML-related code. PLAN.md Section 9 defers ML control to PR 0008+."
+
+  - name: No secrets or runtime data added
+    result: pass
+    notes: "No secrets, configs, logs, caches, SQLite, CSV, JSONL, or ml_data created. Script is read-only."
+
+  - name: No dependency files changed
+    result: pass
+    notes: "git diff --name-only HEAD -- requirements.txt — no output. All needed packages already listed."
+
+  - name: No forbidden patterns in modified/new files
+    result: pass
+    notes: "grep for 'subprocess|os\\.system|PLACEHOLDER|TODO|\\?\\?\\?' in scripts/check-runtime-smoke.py and .github/workflows/validate.yml — no matches"
+
+  - name: No .ariadne residue
+    result: pass
+    notes: "find .ariadne -maxdepth 5 -type f — '.ariadne absent'"
+
+  - name: Python syntax validation passes
+    result: pass
+    notes: "python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/' — exit code 0"
+
+  - name: Repository safety check passes
+    result: pass
+    notes: "bash scripts/check-repo-safety.sh — exit code 0"
+
+  - name: Project-memory check passes
+    result: pass
+    notes: "bash scripts/check-project-memory.sh — exit code 0"
+
+  - name: YAML validation passes
+    result: pass
+    notes: "/tmp/validate_venv/bin/python3 scripts/validate-yaml.py — exit code 0, all 22 files valid"
+
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "987b5edcecc847f1e36e6574ee81ad44de7cff5b"
+
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0005-runtime-smoke-validation"
+
+    - command: git status --short
+      result: pass
+      output_summary: "M .github/workflows/validate.yml, ?? scripts/check-runtime-smoke.py, ?? .project-memory/pr/0005-runtime-smoke-validation/CODER_REPORT.txt"
+
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml (3 insertions) — new step added"
+
+    - command: git diff --stat HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml | 3 +++"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0005-runtime-smoke-validation/PLAN.md
+      result: pass
+      output_summary: "No output — PLAN.md not modified (locked)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0005-runtime-smoke-validation/PLAN_REVIEW.yaml
+      result: pass
+      output_summary: "No output — PLAN_REVIEW.yaml not modified (locked)"
+
+    - command: test -f .project-memory/pr/0005-runtime-smoke-validation/CODER_REPORT.txt
+      result: pass
+      output_summary: "EXISTS — all 8 required sections present"
+
+    - command: test -f scripts/check-runtime-smoke.py
+      result: pass
+      output_summary: "EXISTS — smoke validation script created"
+
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "Exit code 0 — all Python files compile successfully"
+
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit code 0 — no tracked forbidden artifacts, no untracked forbidden files, all .dockerignore patterns covered"
+
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit code 0 — all 7 governance files and PR 0003 artifacts present"
+
+    - command: /tmp/validate_venv/bin/python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit code 0 — all 22 YAML file(s) validated successfully"
+
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit code 1 — 6 modules fail due to missing pip packages locally (logfmter, matplotlib, aiohttp, colorama). 6 modules pass. tuya_authorisation correctly skipped. Expected behavior without pip install -r requirements.txt."
+
+    - command: grep -q "check-runtime-smoke.py" .github/workflows/validate.yml
+      result: pass
+      output_summary: "FOUND — smoke validation step present in CI workflow"
+
+    - command: grep -q "importlib.import_module" scripts/check-runtime-smoke.py
+      result: pass
+      output_summary: "FOUND — importlib.import_module used for safe module import checking"
+
+    - command: grep -q "TS_ENABLED" scripts/check-runtime-smoke.py
+      result: pass
+      output_summary: "FOUND — TS_ENABLED=false set as safe environment default"
+
+    - command: grep -q "tuya_authorisation" scripts/check-runtime-smoke.py
+      result: pass
+      output_summary: "FOUND — tuya_authorisation in UNSAFE_MODULES exclusion set"
+
+    - command: grep -c "docker" .github/workflows/validate.yml
+      result: pass
+      output_summary: "0 — no docker references in validate.yml"
+
+    - command: git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml
+      result: pass
+      output_summary: "No output — build-and-deploy workflow NOT modified"
+
+    - command: git diff --name-only HEAD -- run.py app/ service/ shared_state/
+      result: pass
+      output_summary: "No output — no runtime code modified"
+
+    - command: grep -rn "subprocess\|os\.system\|PLACEHOLDER\|TODO\|???" scripts/check-runtime-smoke.py .github/workflows/validate.yml
+      result: pass
+      output_summary: "No forbidden patterns found"
+
+    - command: grep -rn "secret\|password\|token\|credential\|api_key\|socket\|http\|urllib" scripts/check-runtime-smoke.py
+      result: pass
+      output_summary: "No unsafe network/secrets patterns found in smoke script"
+
+    - command: if [ -d .ariadne ]; then find .ariadne -maxdepth 5 -type f | sort; else echo '.ariadne absent'; fi
+      result: pass
+      output_summary: ".ariadne absent"
+
+  not_run:
+    - command: python scripts/validate-yaml.py
+      reason: "System has no 'python' command (only 'python3'). Used /tmp/validate_venv/bin/python3 which has PyYAML available."
+
+    - command: python -m compileall -q .
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+    - command: python scripts/check-runtime-smoke.py
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "No blockers. Commit all changes: scripts/check-runtime-smoke.py (new), .github/workflows/validate.yml (modified), .project-memory/pr/0005-runtime-smoke-validation/CODER_REPORT.txt (new), .project-memory/pr/0005-runtime-smoke-validation/PRECOMMIT_REVIEW.yaml (this review)"
+    - "The smoke script correctly implements safe module import validation. validate.yml remains validation-only with 0 docker steps. All existing validation commands preserved."

@@ -32,3 +32,6 @@ jobs:
 
       - name: 🔍 Project-memory structure check
         run: bash scripts/check-project-memory.sh
+
+      - name: 🔍 Runtime smoke validation
+        run: python scripts/check-runtime-smoke.py
