@@ -1,0 +1,101 @@
+TASK COMPLETE
+
+BLOCKERS
+None.
+
+WARNINGS
+- Runtime smoke validation (`python scripts/check-runtime-smoke.py`) was not run because
+  `pip install -r requirements.txt` has not been executed in this local environment.
+  The required dependencies (matplotlib, aiohttp, colorama, logfmter) are not installed.
+  This is expected — the CI runner will install dependencies before running smoke validation.
+  All other local validation checks pass.
+- The PLAN.md and PLAN_REVIEW.yaml for PR 0007 did not exist under
+  `.project-memory/pr/0007-platform-control-redesign-strategy/` prior to this implementation.
+  The implementation followed the task specification's ALLOWED FILES and SPECIFICATION sections
+  as the approved plan directive.
+
+FILES CHANGED
+1. .project-memory/PLATFORM_CONTROL_REDESIGN.md (new)
+   Strategy document: platform control redesign, pump obsolescence, target architecture,
+   migration roadmap through staged PRs (0008-0015+), inventory of pump-coupled areas
+   with coupling classifications.
+
+2. .project-memory/CURRENT_STATE.md (edited)
+   Added PR 0007 section documenting:
+   - Platform control redesign phase has started
+   - Pump/water pump is no longer a physical device
+   - Pump-specific control logic is obsolete
+   - Generic ON/OFF switchable-load control remains a product requirement
+   - Next step is PR 0008 to disable/isolate pump automation
+
+3. .project-memory/ROADMAP.md (edited)
+   Added Phase 2b: Platform Control Redesign — Staged Backend Refactor
+   with checkboxes for PR 0007 through PR 0015+, policy layer, ML advisory,
+   and ML control (with ADR-0003 gate reference).
+
+4. scripts/check-platform-control-redesign.sh (new)
+   Static validation script that checks .project-memory/PLATFORM_CONTROL_REDESIGN.md
+   exists and contains: pump, water pump, ON/OFF, SwitchableLoad, ControlCommand,
+   0008-disable-pump-automation, ML control, external GitOps.
+
+5. .github/workflows/validate.yml (edited)
+   Added additive step: `🔍 Platform control redesign check` running
+   `bash scripts/check-platform-control-redesign.sh` after the existing
+   image publishing boundary check. No Docker steps, no secrets, no deploy.
+
+6. .project-memory/pr/0007-platform-control-redesign-strategy/CODER_REPORT.txt (this file)
+
+PLAN.md and PLAN_REVIEW.yaml were NOT edited (locked planning artifacts).
+
+No runtime Python code was edited.
+No pump behavior was changed in PR 0007.
+No Docker image publishing behavior was changed.
+No external GitOps or ArgoCD behavior was changed.
+No ML control was enabled.
+
+VALIDATION RUN
+
+Check                                    | Result
+----------------------------------------|-------
+git status --short at start (clean)     | PASS
+python -m compileall -q .               | EXIT 0 (PASS)
+scripts/check-repo-safety.sh            | EXIT 0 (PASS)
+scripts/check-project-memory.sh         | EXIT 0 (PASS)
+python scripts/validate-yaml.py         | EXIT 0 (PASS)
+scripts/check-image-publishing-boundary.sh | EXIT 0 (PASS)
+scripts/check-platform-control-redesign.sh | EXIT 0 (PASS)
+grep "pump" in PLATFORM_CONTROL_REDESIGN.md  | PASS
+grep "water pump" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "ON/OFF" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "SwitchableLoad" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "ControlCommand" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "0008-disable-pump-automation" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "ML control" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "external GitOps" in PLATFORM_CONTROL_REDESIGN.md | PASS
+grep "check-platform-control-redesign.sh" in validate.yml | PASS
+git diff --name-only HEAD -- PLAN.md (no output)  | PASS
+git diff --name-only HEAD -- PLAN_REVIEW.yaml (no output) | PASS
+allowed files only in diff              | PASS
+CODER_REPORT.txt exists                 | PASS
+
+DEVIATIONS FROM PLAN
+None. All implementation matches the task specification.
+
+BOUNDARY CONFIRMATIONS
+- No runtime code changed (run.py, app/, service/, shared_state/ untouched)
+- No pump behavior changed in PR 0007
+- No Docker image publishing behavior changed (build-and-deploy.yml untouched)
+- No external GitOps or ArgoCD behavior changed
+- No ML control enabled
+- No config files edited
+- No secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data added
+- Locked planning artifacts (PLAN.md, PLAN_REVIEW.yaml) not edited
+- validate.yml unchanged except one additive validation step — no Docker, no secrets, no deploy
+
+NEXT REQUIRED ACTION
+Trigger precommit-review agent to review this implementation.
+The precommit-review agent must:
+1. Verify all validation results in CODER_REPORT.txt
+2. Verify locked artifacts are unchanged
+3. Verify no runtime code was modified
+4. Produce .project-memory/pr/0007-platform-control-redesign-strategy/PRECOMMIT_REVIEW.yaml

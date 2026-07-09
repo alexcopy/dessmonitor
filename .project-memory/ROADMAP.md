@@ -25,6 +25,20 @@
 - [ ] Extract ArgoCD Application CRD from deployment manifests
 - [ ] Clean up duplicate or unused manifest files
 
+## Phase 2b: Platform Control Redesign — Staged Backend Refactor (PR 0007+)
+- [x] PR 0007 — Strategy and inventory (documentation only)
+- [ ] PR 0008 — Disable pump automation, preserve manual switch ON/OFF
+- [ ] PR 0009 — Introduce generic control domain types (SwitchableLoad, ControlCommand)
+- [ ] PR 0010 — Backward-compatible adapter from old config to generic load
+- [ ] PR 0011 — Migrate service layer from pump loop to generic control service
+- [ ] PR 0012 — Migrate monitoring labels from PUMP to generic controllable load
+- [ ] PR 0013 — Migrate data collection to generic telemetry fields
+- [ ] PR 0014 — Backend manual ON/OFF API
+- [ ] PR 0015 — UI/UX control panel planning
+- [ ] Later — Policy layer
+- [ ] Later — ML advisory (shadow mode, safety policy required)
+- [ ] Much later — ML control (only after safety-reviewed gates per ADR-0003)
+
 ## Phase 3: Safety-First Adaptive Control (PR 0004+)
 - [ ] Implement safety policy and fallback mechanism for relay control
 - [ ] Implement shadow/advisory mode for ML-based control
