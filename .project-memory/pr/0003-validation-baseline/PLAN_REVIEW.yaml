@@ -1,0 +1,170 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: File found at .project-memory/pr/0003-validation-baseline/PLAN.md
+  - name: Identifies current validation gaps
+    result: pass
+    notes: "Section 2.4 lists four gaps: no Python syntax validation, no project-memory structure check, no YAML validation, no CI-level validation gate"
+  - name: Separates PR 0003 scope from later roadmap work
+    result: pass
+    notes: "Section 7 explicitly defers unit/integration tests (PR 0004+), linting/type-checking (PR 0004+), K8s manifest consolidation (PR 0005+), ML control enablement (PR 0006+)"
+  - name: Preserves GitHub Actions to Docker Hub to ArgoCD deployment model
+    result: pass
+    notes: "Section 2.1 documents the existing pipeline; Section 3.3 explicitly forbids editing build-and-deploy.yml; Section 8 confirms deployment pipeline preserved"
+  - name: No Docker image publishing changes
+    result: pass
+    notes: "validate.yml workflow contains no docker steps, no docker/login-action, no docker/build-push-action; Section 8 confirms no Docker image publishing changes"
+  - name: No ArgoCD behavior changes
+    result: pass
+    notes: "Section 3.3 forbids editing app/docker/* (K8s manifests); Section 8 confirms no K8s/ArgoCD restructuring"
+  - name: No ML control enabled
+    result: pass
+    notes: "Section 3.3 forbids editing app/ml/; Section 7 defers ML control enablement to PR 0006+ blocked by ADR-0003; Section 8 confirms no ML control enabled"
+  - name: Explicit allowed implementation files defined
+    result: pass
+    notes: "Section 3.2 lists exactly 3 files to create: .github/workflows/validate.yml, scripts/validate-yaml.py, scripts/check-project-memory.sh"
+  - name: Explicit forbidden implementation files defined
+    result: pass
+    notes: "Section 3.3 lists forbidden files including run.py, app/, service/, shared_state/, build-and-deploy.yml, Dockerfile, docker-compose.yml, .dockerignore, .gitignore, requirements.txt, app/docker/*, .project-memory standards, PLAN.md, PLAN_REVIEW.yaml"
+  - name: Validation commands defined
+    result: pass
+    notes: "Section 5 lists 9 validation commands covering YAML syntax, Python compileall, project-memory structure, repo safety, git status, diff check, artifact existence"
+  - name: Artifact locking defined
+    result: pass
+    notes: "Sections 3.4, 3.5, and 8 confirm PLAN.md and PLAN_REVIEW.yaml are LOCKED; coder must NOT edit them; coder must NOT edit PLAN_REVIEW.yaml"
+  - name: Python syntax validation included
+    result: pass
+    notes: "Section 4.4 uses python -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/' inline in CI workflow"
+  - name: Repository safety validation included
+    result: pass
+    notes: "Existing scripts/check-repo-safety.sh is included as a CI step in the validate.yml workflow"
+  - name: Project-memory structure validation included
+    result: pass
+    notes: "New scripts/check-project-memory.sh checks existence of AGENT_STANDARD.txt, ORCHESTRATOR_STANDARD.txt, ROADMAP.md, CURRENT_STATE.md, and three ADR files"
+  - name: YAML syntax validation included
+    result: pass
+    notes: "New scripts/validate-yaml.py validates all *.yaml and *.yml files using yaml.safe_load_all() for multi-document support"
+  - name: YAML validation supports multi-document YAML
+    result: pass
+    notes: "Section 4.2 explicitly specifies yaml.safe_load_all() to handle multi-document YAML with --- separators; mentions app/docker/dessmonitor-deploy.yaml has 4 documents"
+  - name: Validation does not require Docker
+    result: pass
+    notes: "All validation steps run locally with Python and bash; no Docker steps in validate.yml; Section 4.1 explicitly states no docker steps"
+  - name: Validation does not require network access
+    result: pass
+    notes: "All steps are deterministic and offline; Section 4.1 states 'Does NOT call external services'; checkout is the only network step"
+  - name: Validation does not require Tuya, DESS, OpenWeather, TimescaleDB, or K8s cluster
+    result: pass
+    notes: "Section 3.1 explicitly states validation must NOT require these external dependencies"
+  - name: Validation does not push Docker images
+    result: pass
+    notes: "validate.yml has no docker/build-push-action step; Section 3.1 states Must NOT build or push Docker images"
+  - name: Validation does not deploy anything
+    result: pass
+    notes: "validate.yml is a pure validation workflow with no deployment steps; Section 8 confirms validation-only"
+  - name: CI workflow is validation-only
+    result: pass
+    notes: "Section 4.1 validate.yml contains only checkout, setup-python, pip install, compileall, validate-yaml, check-repo-safety, check-project-memory"
+  - name: Existing build-and-deploy behavior preserved
+    result: pass
+    notes: "build-and-deploy.yml is listed under 'Must Not Edit' in Section 3.3; no changes to it are planned"
+  - name: Docker Hub credentials not required for validation
+    result: pass
+    notes: "validate.yml has no docker/login-action step and uses no secrets; Section 3.1 explicitly states no Docker Hub credentials"
+  - name: Workflow triggers are appropriate
+    result: pass
+    notes: "validate.yml triggers on pull_request (pre-merge) and push to master (post-merge); build-and-deploy.yml triggers on push to master only — complementary"
+  - name: CI changes are narrow and reversible
+    result: pass
+    notes: "Only one new file added (.github/workflows/validate.yml); no existing workflows modified; easily disabled or removed"
+  - name: Coder forbidden from editing PLAN.md and PLAN_REVIEW.yaml
+    result: pass
+    notes: "Section 3.5 step 3 states 'Must NOT edit PLAN.md or PLAN_REVIEW.yaml'; Section 3.3 explicitly lists them as locked; Section 8 confirms locked artifacts"
+  - name: Coder forbidden from editing runtime application code
+    result: pass
+    notes: "Section 3.3 explicitly forbids run.py, app/, service/, shared_state/; only scripts/ and .github/workflows/ are allowed for creation"
+  - name: Coder forbidden from changing deployment behavior
+    result: pass
+    notes: "Section 3.3 forbids editing build-and-deploy.yml, Dockerfile, docker-compose.yml, app/docker/* (K8s manifests)"
+  - name: Coder forbidden from adding secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data
+    result: pass
+    notes: "Section 3.3 lists all forbidden patterns; coder only creates scripts/ and validate.yml — none of these produce secrets or runtime data"
+  - name: Coder must create CODER_REPORT.txt
+    result: pass
+    notes: "Section 6 requires CODER_REPORT.txt with TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION"
+  - name: Precommit-review must create PRECOMMIT_REVIEW.yaml
+    result: pass
+    notes: "Section 3.5 step 4 specifies precommit-review produces PRECOMMIT_REVIEW.yaml; Section 5 command 9 verifies its existence"
+  - name: GitHub Actions reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'GitHub Actions' present in PLAN.md"
+  - name: Docker Hub reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'Docker Hub' present in PLAN.md"
+  - name: ArgoCD reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'ArgoCD' present in PLAN.md"
+  - name: compileall reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'compileall' present in PLAN.md"
+  - name: YAML reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'YAML' present in PLAN.md"
+  - name: locked reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'locked' present in PLAN.md"
+  - name: CODER_REPORT.txt reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'CODER_REPORT.txt' present in PLAN.md"
+  - name: PRECOMMIT_REVIEW.yaml reference in PLAN.md
+    result: pass
+    notes: "grep confirmed 'PRECOMMIT_REVIEW.yaml' present in PLAN.md"
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "72ef3ab9eeacf66c695c8c25ef70f04ea9854b8d"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0003-validation-baseline"
+    - command: git status --short
+      result: pass
+      output_summary: "Only untracked .project-memory/pr/0003-validation-baseline/ directory present — expected for uncommitted PLAN.md"
+    - command: test -f .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "PLAN.md EXISTS"
+    - command: grep -q 'GitHub Actions' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "GitHub Actions found in PLAN.md"
+    - command: grep -q 'Docker Hub' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "Docker Hub found in PLAN.md"
+    - command: grep -q 'ArgoCD' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "ArgoCD found in PLAN.md"
+    - command: grep -q 'compileall' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "compileall found in PLAN.md"
+    - command: grep -q 'YAML' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "YAML found in PLAN.md"
+    - command: grep -q 'locked' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "locked found in PLAN.md"
+    - command: grep -q 'CODER_REPORT.txt' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "CODER_REPORT.txt found in PLAN.md"
+    - command: grep -q 'PRECOMMIT_REVIEW.yaml' .project-memory/pr/0003-validation-baseline/PLAN.md
+      result: pass
+      output_summary: "PRECOMMIT_REVIEW.yaml found in PLAN.md"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed alongside PLAN.md"
+    - "Branch 0003-validation-baseline must have both PLAN.md and this PLAN_REVIEW.yaml committed before coder proceeds"

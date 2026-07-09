@@ -7,10 +7,10 @@ metadata:
 
 models:
   coder_model:
-    provider: openai
-    model: deepseek-chat
-    base_url: https://api.deepseek.com
-    token_key: DEEPSEEK_API_KEY
+    provider: anthropic
+    model: deepseek-v4-pro
+    base_url: https://api.openmodel.ai
+#     token_key: DEEPSEEK_API_KEY
     max_tokens: 10000
     temperature: 0
 

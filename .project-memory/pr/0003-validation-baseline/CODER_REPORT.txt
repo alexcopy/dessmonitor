@@ -1,0 +1,132 @@
+CODER_REPORT.txt
+================
+PR: 0003-validation-baseline
+Agent: coder
+Date: 2026-07-09T11:59:06Z
+
+TASK COMPLETE
+Yes — the validation baseline implementation is complete. Three new files created,
+all validation commands from PLAN.md Section 5 executed.
+
+BLOCKERS
+None. Implementation proceeded without blockers.
+
+WARNINGS
+1. Pre-existing YAML syntax error detected in app/docker/all_in_one/deployment.yaml
+   (line 17: mapping values not allowed here — semicolons used instead of valid YAML
+   syntax). This file is in the FORBIDDEN FILES list and was NOT edited. The YAML
+   validator correctly reports this as an error (exit code 1). This is a real finding
+   by the new validation baseline, not an implementation defect.
+
+2. The task prompt references scripts/check-project-memory.py and
+   .github/workflows/validation.yml, but PLAN.md specifies
+   scripts/check-project-memory.sh and .github/workflows/validate.yml.
+   Implementation followed PLAN.md as the governing contract. See DEVIATIONS.
+
+FILES CHANGED
+- .github/workflows/validate.yml          [CREATED] Validation-only GitHub Actions workflow
+- scripts/validate-yaml.py                [CREATED] YAML syntax validator with multi-document support
+- scripts/check-project-memory.sh         [CREATED] Project-memory structure checker
+- .project-memory/pr/0003-validation-baseline/CODER_REPORT.txt  [CREATED] This report
+
+VALIDATION RUN
+=================================================================
+Command: bash scripts/check-project-memory.sh
+Exit: 0
+Result: All 7 governance files found. PR 0003 artifact directory and
+PLAN.md/PLAN_REVIEW.yaml found. ✅ PASSED.
+
+Command: bash scripts/check-repo-safety.sh
+Exit: 0
+Result: No tracked forbidden artifacts. No untracked forbidden files.
+All .dockerignore patterns covered. ✅ PASSED.
+
+Command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+Exit: 0
+Result: All Python files compile successfully. ✅ PASSED.
+
+Command: /tmp/validate_venv/bin/python3 scripts/validate-yaml.py
+Exit: 1
+Result: 22 YAML files checked. 1 error found in
+app/docker/all_in_one/deployment.yaml: line 17 (mapping values not allowed here).
+This is a pre-existing syntax error in a forbidden file — the validator is working
+correctly. All other 21 YAML files pass validation.
+
+Command: /tmp/validate_venv/bin/python3 -c "import yaml; yaml.safe_load(open('.github/workflows/validate.yml')); print('validate.yml: OK')"
+Exit: 0
+Result: validate.yml: OK — the new workflow's own YAML syntax is valid.
+
+Command: git status --short
+Result: Only untracked new files (validate.yml, check-project-memory.sh, validate-yaml.py).
+No modified tracked files. Working tree is clean aside from new implementation files.
+
+Command: git diff .github/workflows/build-and-deploy.yml | head -5
+Result: No output — build-and-deploy.yml is unchanged.
+
+Command: test -f .github/workflows/validate.yml && echo "EXISTS"
+Result: EXISTS — validation workflow created.
+
+Command: grep -q "docker" .github/workflows/validate.yml && echo "FOUND" || echo "NOT FOUND"
+Result: NOT FOUND — no Docker build or push behavior in validate.yml.
+
+Command: grep -q "compileall" .github/workflows/validate.yml && echo "FOUND" || echo "NOT FOUND"
+Result: FOUND — compileall is included in validate.yml.
+
+Command: git diff --name-only HEAD -- .project-memory/pr/0003-validation-baseline/PLAN.md
+Result: No output — PLAN.md not modified.
+
+Command: git diff --name-only HEAD -- .project-memory/pr/0003-validation-baseline/PLAN_REVIEW.yaml
+Result: No output — PLAN_REVIEW.yaml not modified.
+
+Command: git diff --name-only HEAD
+Result: No output — no existing files modified. Only new untracked files.
+
+Command: test -f .project-memory/pr/0003-validation-baseline/CODER_REPORT.txt && echo "EXISTS"
+Result: EXISTS — this report file created.
+
+DEVIATIONS FROM PLAN
+None. Implementation follows PLAN.md exactly.
+
+Task prompt-to-PLAN differences noted but not acted on:
+- Task prompt says scripts/check-project-memory.py → PLAN.md says .sh (followed PLAN.md)
+- Task prompt says .github/workflows/validation.yml → PLAN.md says validate.yml (followed PLAN.md)
+- Task prompt says python → python3 used locally (system has no python alias)
+- PyYAML not available in system python; temp venv created for YAML validation commands
+
+BOUNDARY CONFIRMATIONS
+- build-and-deploy.yml: NOT modified
+- Dockerfile: NOT modified
+- docker-compose.yml: NOT modified
+- .dockerignore: NOT modified
+- .gitignore: NOT modified
+- requirements.txt: NOT modified
+- run.py: NOT modified
+- app/**: NOT modified
+- service/**: NOT modified
+- shared_state/**: NOT modified
+- app/docker/**: NOT modified
+- .project-memory/ADR/**: NOT modified
+- .project-memory/AGENT_STANDARD.txt: NOT modified
+- .project-memory/ORCHESTRATOR_STANDARD.txt: NOT modified
+- .project-memory/ROADMAP.md: NOT modified
+- .project-memory/CURRENT_STATE.md: NOT modified
+- PLAN.md: NOT modified (locked)
+- PLAN_REVIEW.yaml: NOT modified (locked)
+- No Docker Hub credentials required in validate.yml
+- No Docker build or push steps in validate.yml
+- No network calls in validation scripts (checkout is only CI network step)
+- No secrets, device configs, logs, caches, SQLite, CSV, JSONL, or ml_data touched
+- No ML control enabled
+- No K8s/ArgoCD behavior changed
+- No deployment behavior changed
+- No new dependency files added
+- No git mutation commands run
+- No Docker commands run
+
+NEXT REQUIRED ACTION
+Precommit-review agent must review the implementation diff and create
+.project-memory/pr/0003-validation-baseline/PRECOMMIT_REVIEW.yaml.
+
+Note: The pre-existing YAML error in app/docker/all_in_one/deployment.yaml
+is a real finding that should be addressed in a future PR (the file uses
+semicolons as field separators instead of valid YAML syntax).
