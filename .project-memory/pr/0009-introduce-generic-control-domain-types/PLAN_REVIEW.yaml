@@ -1,0 +1,157 @@
+# Plan Review Artifact — PR 0009
+# Generated: 2026-07-09T23:48:55Z
+# Agent: plan-review
+# Branch: 0009-introduce-generic-control-domain-types
+
+verdict: approved
+
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: plan_exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0009-introduce-generic-control-domain-types/PLAN.md"
+  - name: states_follows_pr0007_pr0008
+    result: pass
+    notes: "Section 2: 'PR 0007 documented the platform control redesign strategy. PR 0008 disabled active pump automation by default while preserving manual relay/switch ON/OFF control.'"
+  - name: states_pump_automation_disabled_by_pr0008
+    result: pass
+    notes: "Section 2 explicitly states 'PR 0008 disabled active pump automation by default'"
+  - name: introduces_only_domain_types_no_runtime_wiring
+    result: pass
+    notes: "Section 4.2 safety rules: 'passive data definitions only', no runtime imports, no env var reads, no config reads, no network. Section 9: 'No wiring into SmartHomeController, RelayTuyaController, DeviceInitializer, or any runtime component. Zero integration.'"
+  - name: preserves_manual_switch_on_off
+    result: pass
+    notes: "Section 9: 'Manual switch control preserved: All 4 methods on RelayTuyaController + RelayDeviceManager.toggle_device + SmartHomeController._switch_loop unchanged'"
+  - name: leaves_pump_legacy_code_untouched
+    result: pass
+    notes: "Section 4.4 forbids editing app/devices/*, app/tuya/*, app/monitoring/*, app/ml/*, run.py, app/service/*"
+  - name: defines_exact_domain_vocabulary
+    result: pass
+    notes: "Section 4.1 defines all 9 types: SwitchableLoad, DesiredState, ObservedState, ControlState, ControlCommand, CommandSource, CommandResult, TelemetryPoint, PolicyDecision"
+  - name: defines_allowed_implementation_files
+    result: pass
+    notes: "Section 4.3: app/control/__init__.py, app/control/domain.py, scripts/check-generic-control-domain.sh, .github/workflows/validate.yml, CURRENT_STATE.md, ROADMAP.md, CODER_REPORT.txt"
+  - name: defines_forbidden_implementation_files
+    result: pass
+    notes: "Section 4.4: run.py, app/service/*, app/devices/*, app/tuya/*, app/monitoring/*, app/ml/*, app/weather/*, service/*, shared_state/*, Docker/deployment, locked artifacts"
+  - name: defines_validation_commands
+    result: pass
+    notes: "Section 6 lists 9 validation commands covering file existence, Python import, AST-based forbidden import check, static validation script, compileall, all existing validation scripts, locked artifact diff checks, runtime files unchanged check"
+  - name: preserves_docker_image_publishing
+    result: pass
+    notes: "build-and-deploy.yml not in allowed files. Section 9: 'No Docker image publishing change: build-and-deploy.yml untouched'"
+  - name: preserves_external_gitops_argocd
+    result: pass
+    notes: "Section 9: 'No external GitOps/ArgoCD change: Image publishing boundary respected'"
+  - name: does_not_enable_ml_control
+    result: pass
+    notes: "Section 4.2 safety rules item 10: 'Enable automation or ML control' is forbidden. ML_ADVISORY in CommandSource is explicitly documented as 'advisory output, NOT ML control'. Section 9: 'ML control is deferred per ADR-0003'"
+  - name: defines_artifact_locking
+    result: pass
+    notes: "Section 4.5 and 4.6: PLAN.md and PLAN_REVIEW.yaml LOCKED after approval. Coder forbidden from editing them."
+  - name: domain_model_not_pump_specific
+    result: pass
+    notes: "SwitchableLoad has no pump references. Device_type is Optional[str]. No Tuya command keys as required fields. No voltage/temperature/speed fields. Section 5.1: 'Must NOT contain Tuya command keys as required fields'"
+  - name: domain_model_no_tuya_deps
+    result: pass
+    notes: "Section 5.1 code uses only standard library: dataclasses, enum, typing, uuid, time. Section 4.2: forbidden imports include app.tuya.*, app.devices.*, app.service.*, shared_state.*"
+  - name: implementation_scope_allowed_only
+    result: pass
+    notes: "Section 4.3 allows only 7 file groups. Section 4.4 explicitly forbids all runtime integration edits. No runtime wiring in allowed files."
+  - name: static_validation_repo_only
+    result: pass
+    notes: "Section 5.3: checks local static files only, no network, no Docker Hub, no GitHub API, no K8s, no ArgoCD, no Tuya, no DESS, no secrets, no mutations. Verifies domain.py exists, all concept names, forbidden imports absent, exit 0/1."
+  - name: current_state_roadmap_concise
+    result: pass
+    notes: "Sections 5.5 and 5.6: single additive lines only. No broad rewrite. Preserves: pump disabled, manual ON/OFF unchanged, runtime not wired, ML deferred, external GitOps unchanged."
+  - name: future_pr_deferrals_explicit
+    result: pass
+    notes: "Section 8 explicitly defers: adapter mapping (PR 0010), SmartHomeController integration (PR 0011), RelayTuyaController integration (PR 0011), DeviceInitializer migration (PR 0010), monitoring migration (PR 0012), telemetry migration (PR 0013), manual ON/OFF API (PR 0014), UI/UX (PR 0015), policy (Later), ML advisory (Later), ML control (Much later)"
+  - name: safety_requirements_met
+    result: pass
+    notes: "Section 4.2 hard rules confirm: passive data only, no hardware calls, no env var reads, no config reads, no network, no runtime app imports (standard library only), no startup changes, no pump automation changes, no manual switch changes, no automation/ML control"
+  - name: coder_boundary_confirmations
+    result: pass
+    notes: "PLAN.md sections 4.4 and 9 forbid: editing PLAN.md/PLAN_REVIEW.yaml, runtime integration, broad pump deletion, broad rename/refactor, ML cleanup, deployment changes, external GitOps changes, adding secrets/configs/logs/caches/SQLite/CSV/JSONL/ml_data"
+  - name: coder_artifact_requirements
+    result: pass
+    notes: "CODER_REPORT.txt required (Section 7). PRECOMMIT_REVIEW.yaml required (Section 4.6)."
+
+validation:
+  preconditions:
+    - command: "git rev-parse --verify HEAD"
+      result: pass
+      output_summary: "3f069dcb477013f0ccfb23831f0bece8f0b064a0"
+    - command: "git branch --show-current"
+      result: pass
+      output_summary: "0009-introduce-generic-control-domain-types"
+    - command: "git status --short"
+      result: pass
+      output_summary: "?? .project-memory/pr/0009-introduce-generic-control-domain-types/ — expected untracked PLAN.md only"
+    - command: "git diff HEAD"
+      result: pass
+      output_summary: "No output — no committed changes against HEAD"
+    - command: "git diff --cached --name-only"
+      result: pass
+      output_summary: "No output — no staged changes"
+  file_presence:
+    - command: "test -f .project-memory/pr/0009-introduce-generic-control-domain-types/PLAN.md"
+      result: pass
+      output_summary: "File exists"
+  grep_validation:
+    - command: "grep -q 'SwitchableLoad' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ControlCommand' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ObservedState' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'DesiredState' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'CommandResult' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'CommandSource' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'TelemetryPoint' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'PolicyDecision' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ML control' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'external GitOps' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'locked' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'CODER_REPORT.txt' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'PRECOMMIT_REVIEW.yaml' PLAN.md"
+      result: pass
+      output_summary: "Found"
+
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed together with PLAN.md as planning artifacts"
+    - "Coder must exactly follow PLAN.md section 4.3 allowed files list"
+    - "Coder must not edit any file in PLAN.md section 4.4 forbidden files list"
+    - "Domain types must remain passive data definitions only — no runtime wiring"
+    - "Coder must use only Python standard library imports (dataclasses, enum, typing, uuid, time) per Section 4.2"
+    - "Coder must produce CODER_REPORT.txt with all 8 required sections"
+    - "Coder must run all 9 validation command groups from PLAN.md section 6"
