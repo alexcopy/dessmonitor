@@ -1,0 +1,199 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: plan_exists
+    result: pass
+    notes: ".project-memory/pr/0012-energy-policy-domain-types/PLAN.md exists and was read in full."
+  - name: branch_matches_pr
+    result: pass
+    notes: "Branch is 0012-energy-policy-domain-types, matches PR 0012."
+  - name: working_tree_clean
+    result: pass
+    notes: "git status --short shows only untracked .project-memory/pr/0012-energy-policy-domain-types/ directory. No modified tracked files."
+  - name: passive_types_only
+    result: pass
+    notes: "PLAN.md explicitly states types are passive data definitions only, not wired into runtime components."
+  - name: automation_not_enabled
+    result: pass
+    notes: "PLAN.md states no automation enabled. Section 13 confirms no runtime code changed. Section 12 defers automation to PR 0021+."
+  - name: ml_control_not_enabled
+    result: pass
+    notes: "PLAN.md defers ML control to 'Much later'. ML advisory is advice-only. EnergyPolicyDecision is passive vocabulary."
+  - name: no_runtime_wiring
+    result: pass
+    notes: "Section 7 explicitly forbids imports from app.tuya, app.service, app.devices, app.monitoring, app.ml, app.weather. Standard library only."
+  - name: no_evaluators_implemented
+    result: pass
+    notes: "Readiness and health evaluators deferred to PR 0014 and PR 0015 respectively."
+  - name: no_weather_adjustment
+    result: pass
+    notes: "Weather adjustment evaluator deferred to PR 0017."
+  - name: no_scheduler_changes
+    result: pass
+    notes: "Schedule/season profile model deferred to PR 0016."
+  - name: no_config_schema
+    result: pass
+    notes: "Static policy configuration deferred to PR 0013. DeviceEnergyPolicy is a passive dataclass, not a config schema."
+  - name: pump_automation_preserved
+    result: pass
+    notes: "PLAN.md states pump code already gated by PR 0008. No pump behavior changes."
+  - name: manual_switch_preserved
+    result: pass
+    notes: "Section 13 confirms all 4 methods + toggle_device + _switch_loop preserved."
+  - name: external_gitops_unchanged
+    result: pass
+    notes: "Section 13 confirms no external GitOps/ArgoCD changes. build-and-deploy.yml untouched."
+  - name: artifact_locking_enforced
+    result: pass
+    notes: "Section 11 Agent Workflow locks PLAN.md and PLAN_REVIEW.yaml. Section 8 does not list them in coder-allowed files."
+  - name: type_vocabulary_complete
+    result: pass
+    notes: "All 17 required types present: PowerSource, TimeOfDay, Season, WeatherCondition, LoadClass, DevicePriority, VoltageSnapshot, WeatherForecastSignal, BatteryReservePolicy, DeviceEnergyPolicy, ReadinessInput, ReadinessResult, HealthInput, HealthStatus, HealthCheckResult, EnergyPolicyContext, EnergyPolicyDecision."
+  - name: type_vocabulary_not_pump_specific
+    result: pass
+    notes: "No pump-specific types or terminology. Types are generic energy policy domain types."
+  - name: type_vocabulary_no_tuya_keys
+    result: pass
+    notes: "No Tuya command keys as core fields. DeviceEnergyPolicy uses generic fields."
+  - name: type_vocabulary_no_runtime_adapters
+    result: pass
+    notes: "Module uses only Python standard library (dataclasses, enum, typing, time). No runtime adapters."
+  - name: semantics_powersource
+    result: pass
+    notes: "PowerSource values: solar, battery, grid, mains, network, unknown."
+  - name: semantics_timeofday
+    result: pass
+    notes: "TimeOfDay values: morning, day, evening, night, unknown."
+  - name: semantics_season
+    result: pass
+    notes: "Season values: spring, summer, autumn, winter, unknown."
+  - name: semantics_weathercondition
+    result: pass
+    notes: "WeatherCondition values: sunny, cloudy, rainy, snowy, storm, unknown."
+  - name: semantics_loadclass
+    result: pass
+    notes: "LoadClass values: critical, discretionary."
+  - name: semantics_voltage_snapshot
+    result: pass
+    notes: "VoltageSnapshot defined as passive voltage/trend/charging/power_source data."
+  - name: semantics_weather_forecast_signal
+    result: pass
+    notes: "WeatherForecastSignal defined as passive forecast/temperature/solar opportunity data."
+  - name: semantics_battery_reserve
+    result: pass
+    notes: "BatteryReservePolicy has evening_reserve_target default 26.5V."
+  - name: semantics_device_energy_policy
+    result: pass
+    notes: "DeviceEnergyPolicy fields include thresholds, intervals, season/weather behavior, manual override, fail-safe OFF."
+  - name: semantics_readiness
+    result: pass
+    notes: "ReadinessInput and ReadinessResult defined as passive readiness data, not switching."
+  - name: semantics_health
+    result: pass
+    notes: "HealthInput, HealthStatus, HealthCheckResult defined as passive health data."
+  - name: semantics_energy_context
+    result: pass
+    notes: "EnergyPolicyContext defined as combined passive context of voltage/weather/time/season/reserve."
+  - name: semantics_energy_decision
+    result: pass
+    notes: "EnergyPolicyDecision defined as future decision vocabulary (ALLOW_ON, PREFER_OFF, FORCE_OFF, HOLD, NO_ACTION) — not hardware execution."
+  - name: implementation_scope_allowed
+    result: pass
+    notes: "Allowed files match specification: app/control/energy_policy.py, app/control/__init__.py, scripts/check-energy-policy-domain-types.sh, .github/workflows/validate.yml, CURRENT_STATE.md, ROADMAP.md, CODER_REPORT.txt."
+  - name: implementation_scope_forbidden
+    result: pass
+    notes: "Forbidden files correctly listed: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, service/**, shared_state/**, config/data/Docker/deployment files."
+  - name: static_validation_requirements
+    result: pass
+    notes: "PLAN.md Section 10 specifies the validation script checks: local static files only, no network, no Docker Hub, no GitHub API, no Kubernetes, no ArgoCD, no Tuya, no DESS, no secrets, no file mutation, verifies energy_policy.py exists, checks type names, concept phrases, forbidden imports, forbidden action calls, runtime files unchanged."
+  - name: future_pr_boundary
+    result: pass
+    notes: "PLAN.md explicitly defers policy config (0013), readiness evaluator (0014), health evaluator (0015), schedule profile (0016), weather adjustment (0017), deterministic engine (0018), manual control API (0019), command proposal (0020), controlled execution (0021+), ML advisory (later), ML control (much later)."
+  - name: safety_requirements
+    result: pass
+    notes: "PLAN.md Section 7.1 states all 12 safety requirements: passive data only, no hardware calls, no device switching, no env vars, no config files, no network connections, no runtime imports, no startup behavior change, no pump automation change, no manual switch change, no automation/ML control, ML advisory only."
+  - name: implementation_boundary
+    result: pass
+    notes: "Coder forbidden from editing PLAN.md/PLAN_REVIEW.yaml, runtime integration, automation/ML enablement, ML cleanup, deployment changes, external GitOps changes, secrets/configs/logs/caches/data files. Coder must create CODER_REPORT.txt. Precommit-review must create PRECOMMIT_REVIEW.yaml."
+  - name: grep_validation_all_pass
+    result: pass
+    notes: "All 18 required grep validation checks passed: PowerSource, VoltageSnapshot, WeatherForecastSignal, BatteryReservePolicy, DeviceEnergyPolicy, ReadinessInput, ReadinessResult, HealthStatus, HealthCheckResult, EnergyPolicyContext, EnergyPolicyDecision, 26.5, ML advisory, ML control, external GitOps, locked, CODER_REPORT.txt, PRECOMMIT_REVIEW.yaml."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: 8d45a583c2a55c6f37d3211599932f8f9f1db433
+    - command: git branch --show-current
+      result: pass
+      output_summary: 0012-energy-policy-domain-types
+    - command: git status --short
+      result: pass
+      output_summary: "Only untracked .project-memory/pr/0012-energy-policy-domain-types/ directory present. No modified tracked files."
+    - command: git diff HEAD --name-only
+      result: pass
+      output_summary: No modified files (clean working tree)
+    - command: test -f .project-memory/pr/0012-energy-policy-domain-types/PLAN.md
+      result: pass
+      output_summary: PLAN.md exists
+    - command: grep -q "PowerSource" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "VoltageSnapshot" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "WeatherForecastSignal" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "BatteryReservePolicy" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "DeviceEnergyPolicy" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ReadinessInput" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ReadinessResult" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "HealthStatus" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "HealthCheckResult" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "EnergyPolicyContext" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "EnergyPolicyDecision" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "26.5" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ML advisory" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "external GitOps" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "locked" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "CODER_REPORT.txt" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "PRECOMMIT_REVIEW.yaml" PLAN.md
+      result: pass
+      output_summary: Found
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - PLAN_REVIEW.yaml must be written and verified before coder begins
