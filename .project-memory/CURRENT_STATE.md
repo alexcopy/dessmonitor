@@ -62,6 +62,11 @@ in `app/control/domain.py`. These are passive data definitions only — no runti
 control paths are wired yet. Manual relay/switch ON/OFF remains unchanged. Pump
 automation remains disabled by default from PR 0008.
 
+## PR 0010 — Relay-to-SwitchableLoad Mapping Added
+PR 0010 adds a passive adapter mapping relay-channel-shaped objects to SwitchableLoad
+instances. The mapping is not wired into runtime behavior yet. Manual relay/switch ON/OFF
+remains unchanged. Pump automation remains disabled by default from PR 0008.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
