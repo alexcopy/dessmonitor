@@ -67,6 +67,12 @@ PR 0010 adds a passive adapter mapping relay-channel-shaped objects to Switchabl
 instances. The mapping is not wired into runtime behavior yet. Manual relay/switch ON/OFF
 remains unchanged. Pump automation remains disabled by default from PR 0008.
 
+## PR 0011 — Energy-Aware Control Policy Requirements
+PR 0011 documents energy-aware control as the core product policy direction.
+Runtime automation is not enabled by PR 0011. Manual relay/switch ON/OFF remains
+unchanged. Pump automation remains disabled by default from PR 0008. ML control
+remains deferred.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
