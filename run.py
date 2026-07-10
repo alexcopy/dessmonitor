@@ -68,11 +68,19 @@ async def main() -> None:
     inverter_task = asyncio.create_task(inverter_mon.run())
 
     # ─── 5. Бизнес-логика SmartHomeController ─────────────────
+    pump_automation_enabled = os.getenv("PUMP_AUTOMATION_ENABLED", "").lower() in ("true", "1", "yes")
+
     smart_ctrl = SmartHomeController(
         dev_mgr=dev_mgr,
         tuya_ctrl=tuya_ctrl,
         switch_int=180,  # сек между проверками свитчей
         pump_int=120,  # сек между коррекцией насоса
+        pump_automation_enabled=pump_automation_enabled,
+    )
+
+    important_log.info(
+        f"[PUMP] Pump automation: {'ENABLED' if pump_automation_enabled else 'DISABLED'} "
+        f"(set PUMP_AUTOMATION_ENABLED=true to enable)"
     )
     smart_ctrl.start()
 

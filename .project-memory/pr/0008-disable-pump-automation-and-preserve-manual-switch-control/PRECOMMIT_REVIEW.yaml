@@ -1,0 +1,382 @@
+# PRECOMMIT_REVIEW.yaml
+# PR 0008 — Disable Pump Automation and Preserve Manual Switch Control
+# Agent: precommit-review
+# Date: 2026-07-10T07:19:49Z
+# HEAD: 8a55c90017f4b81762beff6aea71e2b2574a6975
+# Branch: 0008-disable-pump-automation-and-preserve-manual-switch-control
+
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: Branch is 0008-disable-pump-automation-and-preserve-manual-switch-control
+    result: pass
+    notes: "git branch --show-current returned '0008-disable-pump-automation-and-preserve-manual-switch-control' — matches PR 0008"
+
+  - name: Implementation diff exists
+    result: pass
+    notes: "git status --short shows: M .github/workflows/validate.yml, M .project-memory/CURRENT_STATE.md, M app/service/smart_home_controller.py, M run.py, ?? CODER_REPORT.txt, ?? scripts/check-pump-automation-disabled.sh"
+
+  - name: PLAN.md has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/PLAN.md — no output (locked)"
+
+  - name: PLAN_REVIEW.yaml has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/PLAN_REVIEW.yaml — no output (locked)"
+
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "File exists with all 8 required sections: TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION"
+
+  - name: All changed files within PR 0008 scope
+    result: pass
+    notes: "Changed: run.py, app/service/smart_home_controller.py, scripts/check-pump-automation-disabled.sh (new), .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md — all match PLAN.md Section 4.4"
+
+  - name: PUMP_AUTOMATION_ENABLED flag exists
+    result: pass
+    notes: "run.py:71 reads os.getenv('PUMP_AUTOMATION_ENABLED', '').lower() in ('true', '1', 'yes'). SmartHomeController.__init__ accepts pump_automation_enabled: bool = False"
+
+  - name: Default is disabled when env var absent
+    result: pass
+    notes: "os.getenv('PUMP_AUTOMATION_ENABLED', '') with default '' means absent env var → False. Verified: grep confirms default-to-empty pattern."
+
+  - name: Only explicit opt-in enables pump automation
+    result: pass
+    notes: "run.py:71: only 'true', '1', 'yes' (case-insensitive) result in pump_automation_enabled=True. Any other value or absence → False."
+
+  - name: SmartHomeController accepts pump automation state
+    result: pass
+    notes: "__init__ signature: pump_automation_enabled: bool = False. Stored as self.pump_automation_enabled. grep shows 3 references in file."
+
+  - name: _pump_loop not started unconditionally
+    result: pass
+    notes: "start() creates _pump_loop task only inside 'if self.pump_automation_enabled:' block (line 63-64). Verified by reading start() method."
+
+  - name: Switch loop still starts as before
+    result: pass
+    notes: "start() unconditionally creates _switch_loop task: self._tasks.append(loop.create_task(self._switch_loop())). Not gated."
+
+  - name: PondPumpController not deleted
+    result: pass
+    notes: "self.pump_logic = PondPumpController() at __init__ line 50 preserved. _pump_loop method body at line 133-173 unchanged."
+
+  - name: pump_power_map not deleted
+    result: pass
+    notes: "from app.devices.pump_power_map import PRESET_DESCR preserved at import line 9. Used in _pump_loop at line 153."
+
+  - name: Voltage-driven target calculation not changed
+    result: pass
+    notes: "Methods deside_speed(), set_numeric(), and _pump_loop's volt/inv_on logic are untouched. Only the decision to start _pump_loop is gated."
+
+  - name: set_numeric behavior not changed
+    result: pass
+    notes: "RelayTuyaController.set_numeric() at line 140 and _send() are untouched. relay_tuya_controller.py was not modified."
+
+  - name: RelayTuyaController.switch_on_device preserved
+    result: pass
+    notes: "Found at app/tuya/relay_tuya_controller.py:44. Verified by grep. No modifications to relay_tuya_controller.py."
+
+  - name: RelayTuyaController.switch_off_device preserved
+    result: pass
+    notes: "Found at app/tuya/relay_tuya_controller.py:51. Verified by grep. No modifications."
+
+  - name: RelayTuyaController.switch_binary preserved
+    result: pass
+    notes: "Found at app/tuya/relay_tuya_controller.py:137. Verified by grep. No modifications."
+
+  - name: RelayTuyaController.switch_device preserved
+    result: pass
+    notes: "Found at app/tuya/relay_tuya_controller.py:146. Verified by grep. No modifications."
+
+  - name: RelayDeviceManager.toggle_device preserved
+    result: pass
+    notes: "Found at app/devices/relay_device_manager.py:71. Verified by grep. No modifications."
+
+  - name: Switch device initialization path preserved
+    result: pass
+    notes: "app/devices/relay_device_manager.py and app/tuya/relay_tuya_controller.py not modified. No changes to switch init path."
+
+  - name: Switch status update behavior preserved
+    result: pass
+    notes: "update_devices_status, switch_all_on_soft, switch_all_off_soft, switch_all_logic — all preserved in relay_tuya_controller.py."
+
+  - name: CURRENT_STATE.md changed only minimally
+    result: pass
+    notes: "git diff --stat shows 3 insertions total. Only the single 'PR 0008 — Pump Automation Disabled by Default' section added. No other sections modified."
+
+  - name: CURRENT_STATE.md states pump automation disabled by default
+    result: pass
+    notes: "Line 56: 'PR 0008 — Pump Automation Disabled by Default'. Line 57: 'PR 0008 disables active pump automation by default. Manual relay/switch ON/OFF control remains available.'"
+
+  - name: CURRENT_STATE.md states manual switch control remains
+    result: pass
+    notes: "Line 57: 'Manual relay/switch ON/OFF control remains available.'"
+
+  - name: CURRENT_STATE.md was not refactored or broadly rewritten (W001 handled)
+    result: pass
+    notes: "Only the PR 0008 section was added (3 lines). All other sections preserved unchanged. Plan-review warning W001 respected."
+
+  - name: Static validation script has clear per-check output and exit code contract (W002 handled)
+    result: pass
+    notes: "check-pump-automation-disabled.sh produces clear OK/MISSING per-check lines, accumulates ERRORS counter, exits 0 on full pass, 1 on any failure. Verified: exit 0 on all pass."
+
+  - name: CODER_REPORT.txt includes full grep output lines (W003 handled)
+    result: pass
+    notes: "VALIDATION RUN section includes full grep output lines for PUMP_AUTOMATION_ENABLED, _pump_loop, switch methods — not just counts. Plan-review warning W003 respected."
+
+  - name: check-pump-automation-disabled.sh exists
+    result: pass
+    notes: "File exists at scripts/check-pump-automation-disabled.sh"
+
+  - name: Static validation script checks static files only
+    result: pass
+    notes: "Script uses only: test -f, grep -q, echo. No network, no Docker, no K8s, no API calls."
+
+  - name: Static script does not use network commands
+    result: pass
+    notes: "grep for 'curl|wget|kubectl|argocd|docker|gh api|socket|http|urllib' — no matches."
+
+  - name: Static script does not require secrets
+    result: pass
+    notes: "No secret, token, credential, or password references. Comment header states 'no secrets required.'"
+
+  - name: Static script does not mutate files
+    result: pass
+    notes: "Read-only commands only: test -f, grep -q, echo. No file writes, mv, rm, sed in-place."
+
+  - name: Static script checks PUMP_AUTOMATION_ENABLED
+    result: pass
+    notes: "Check 1 verifies PUMP_AUTOMATION_ENABLED referenced in run.py. Check 2 verifies default-to-false pattern."
+
+  - name: Static script checks _pump_loop not unconditional
+    result: pass
+    notes: "Check 4 verifies 'if self.pump_automation_enabled' before _pump_loop creation and detects absence of unconditional pattern."
+
+  - name: Static script checks manual switch methods
+    result: pass
+    notes: "Check 6 verifies switch_on_device, switch_off_device, switch_binary, switch_device in relay_tuya_controller.py. Check 7 verifies toggle_device in relay_device_manager.py."
+
+  - name: validate.yml changed additively
+    result: pass
+    notes: "git diff --stat shows validate.yml | 3 +++ — one step added at end."
+
+  - name: validate.yml runs pump automation check
+    result: pass
+    notes: "grep confirmed 'check-pump-automation-disabled.sh' present in validate.yml as step: bash scripts/check-pump-automation-disabled.sh"
+
+  - name: Existing validation steps remain
+    result: pass
+    notes: "validate.yml preserves all 7 existing validation steps: compileall, validate-yaml.py, check-repo-safety.sh, check-project-memory.sh, check-runtime-smoke.py, check-image-publishing-boundary.sh, check-platform-control-redesign.sh"
+
+  - name: Workflow remains validation-only
+    result: pass
+    notes: "grep -c 'docker' in validate.yml returns 0. No deploy, build, or Docker steps."
+
+  - name: No broad pump deletion occurred
+    result: pass
+    notes: "PondPumpController, pump_power_map, pump_int, _pump_loop body, pump_mode handling — all preserved. Only startup gating changed."
+
+  - name: No broad pump-to-SwitchableLoad rename occurred
+    result: pass
+    notes: "No renaming of classes, files, or identifiers. PLAN.md Section 10 defers to PR 0009-0011."
+
+  - name: No app/ml changed
+    result: pass
+    notes: "git diff --name-only HEAD -- app/ml/ — no output. ML code untouched."
+
+  - name: No config files changed
+    result: pass
+    notes: "No changes to requirements.txt, .env, devices.yaml (gitignored), or any config files."
+
+  - name: No runtime data files changed
+    result: pass
+    notes: "No SQLite, CSV, JSONL, or ml_data files added or modified."
+
+  - name: No Dockerfile, docker-compose.yml, build-and-deploy, app/docker, SQL changed
+    result: pass
+    notes: "git diff --name-only HEAD -- Dockerfile docker-compose.yml .github/workflows/build-and-deploy.yml app/docker/ init-db.sql — no output for all."
+
+  - name: No ML control enabled by default
+    result: pass
+    notes: "ML code in app/ml/ untouched. TS_ENABLED defaults to false. ML control remains disabled per ADR-0003."
+
+  - name: No automation enabled by default
+    result: pass
+    notes: "PUMP_AUTOMATION_ENABLED defaults to False when absent. Only explicit env var opt-in enables pump automation."
+
+  - name: Python syntax validation passes
+    result: pass
+    notes: "python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/' — exit code 0"
+
+  - name: Repository safety check passes
+    result: pass
+    notes: "bash scripts/check-repo-safety.sh — exit code 0"
+
+  - name: Project-memory check passes
+    result: pass
+    notes: "bash scripts/check-project-memory.sh — exit code 0"
+
+  - name: YAML validation passes
+    result: pass
+    notes: "/tmp/validate_venv/bin/python3 scripts/validate-yaml.py — exit code 0, all 22 files valid"
+
+  - name: Runtime smoke script exists (deps-related failures expected locally)
+    result: pass
+    notes: "python3 scripts/check-runtime-smoke.py — exit code 1 (6 modules fail due to missing pip packages locally). No import-related code changed in PR 0008. CI will install deps."
+
+  - name: Image publishing boundary check passes
+    result: pass
+    notes: "bash scripts/check-image-publishing-boundary.sh — exit code 0"
+
+  - name: Platform control redesign check passes
+    result: pass
+    notes: "bash scripts/check-platform-control-redesign.sh — exit code 0"
+
+  - name: Pump automation disabled check passes
+    result: pass
+    notes: "bash scripts/check-pump-automation-disabled.sh — exit code 0. All 11 checks pass: PUMP_AUTOMATION_ENABLED referenced, default disabled, pump_automation_enabled in SMC, _pump_loop gated, _switch_loop preserved, all 4 switch methods, toggle_device."
+
+  - name: No forbidden patterns in new/modified files
+    result: pass
+    notes: "grep for 'subprocess|os\\.system|PLACEHOLDER|TODO|\\?\\?\\?' in check-pump-automation-disabled.sh, run.py, smart_home_controller.py — no matches"
+
+  - name: No .ariadne residue
+    result: pass
+    notes: "find .ariadne -maxdepth 5 -type f — '.ariadne absent'"
+
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "8a55c90017f4b81762beff6aea71e2b2574a6975"
+
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0008-disable-pump-automation-and-preserve-manual-switch-control"
+
+    - command: git status --short
+      result: pass
+      output_summary: "M .github/workflows/validate.yml, M .project-memory/CURRENT_STATE.md, M app/service/smart_home_controller.py, M run.py, ?? CODER_REPORT.txt, ?? scripts/check-pump-automation-disabled.sh"
+
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, app/service/smart_home_controller.py, run.py"
+
+    - command: git diff --stat HEAD
+      result: pass
+      output_summary: "validate.yml | 3 +++, CURRENT_STATE.md | 3 +++, smart_home_controller.py | 5 +++-, run.py | 8 ++++++++ (18 insertions, 1 deletion)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/PLAN.md
+      result: pass
+      output_summary: "No output — PLAN.md not modified (locked)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/PLAN_REVIEW.yaml
+      result: pass
+      output_summary: "No output — PLAN_REVIEW.yaml not modified (locked)"
+
+    - command: test -f .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/CODER_REPORT.txt
+      result: pass
+      output_summary: "EXISTS — all 8 required sections present. Full grep output included for auditability (W003 handled)."
+
+    - command: test -f scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "EXISTS — pump automation disabled validation script"
+
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "Exit code 0 — all Python files compile successfully"
+
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit code 0 — no tracked forbidden artifacts, no untracked forbidden files, all .dockerignore patterns covered"
+
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit code 0 — all 7 governance files and PR 0003 artifacts present"
+
+    - command: /tmp/validate_venv/bin/python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit code 0 — all 22 YAML file(s) validated successfully"
+
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit code 1 — 6 modules fail locally (missing pip packages). Expected. No import-related code changed in PR 0008."
+
+    - command: bash scripts/check-image-publishing-boundary.sh
+      result: pass
+      output_summary: "Exit code 0 — all boundary checks passed"
+
+    - command: bash scripts/check-platform-control-redesign.sh
+      result: pass
+      output_summary: "Exit code 0 — all platform control redesign checks passed"
+
+    - command: bash scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "Exit code 0 — all 11 checks pass. Per-check output clear. Verdict: PASSED"
+
+    - command: grep -c "pump_automation_enabled" app/service/smart_home_controller.py
+      result: pass
+      output_summary: "3 — parameter, stored, and conditionally used (≥2 per PLAN.md)"
+
+    - command: grep "create_task.*_pump_loop" app/service/smart_home_controller.py
+      result: pass
+      output_summary: "self._tasks.append(loop.create_task(self._pump_loop())) — line 64, inside 'if self.pump_automation_enabled:' block"
+
+    - command: grep -RIn "PUMP_AUTOMATION_ENABLED" run.py app/service/smart_home_controller.py scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "Found in run.py:71 (env var read), run.py:83 (log message), check-pump-automation-disabled.sh (validation checks)"
+
+    - command: grep -RIn "_pump_loop" run.py app/service/smart_home_controller.py scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "smart_home_controller.py:64 (conditional start), :133 (method definition), check-pump-automation-disabled.sh (validation checks)"
+
+    - command: grep -RIn "switch_on_device\|switch_off_device\|switch_binary\|switch_device\|toggle_device" app/tuya/relay_tuya_controller.py app/devices/relay_device_manager.py
+      result: pass
+      output_summary: "All 5 manual methods confirmed present: switch_on_device:44, switch_off_device:51, switch_binary:137, switch_device:146, toggle_device:71"
+
+    - command: git diff --name-only HEAD -- .github/workflows/build-and-deploy.yml
+      result: pass
+      output_summary: "No output — build-and-deploy.yml NOT modified"
+
+    - command: git diff --name-only HEAD -- app/devices/ app/tuya/ app/ml/ app/monitoring/ app/device_initializer.py Dockerfile docker-compose.yml
+      result: pass
+      output_summary: "No output — all forbidden files unchanged"
+
+    - command: grep -c "docker" .github/workflows/validate.yml
+      result: pass
+      output_summary: "0 — no docker references in validate.yml"
+
+    - command: grep -q "check-pump-automation-disabled.sh" .github/workflows/validate.yml
+      result: pass
+      output_summary: "FOUND — pump automation check step in CI workflow"
+
+    - command: grep -qi "disabled.*default\|default.*disabled" .project-memory/CURRENT_STATE.md
+      result: pass
+      output_summary: "FOUND — 'Pump Automation Disabled by Default' in CURRENT_STATE.md"
+
+    - command: if [ -d .ariadne ]; then find .ariadne -maxdepth 5 -type f | sort; else echo '.ariadne absent'; fi
+      result: pass
+      output_summary: ".ariadne absent"
+
+  not_run:
+    - command: python scripts/validate-yaml.py
+      reason: "System has no 'python' command (only 'python3'). Used /tmp/validate_venv/bin/python3 which has PyYAML available."
+
+    - command: python -m compileall -q .
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+    - command: python scripts/check-runtime-smoke.py
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "No blockers. Commit all changes: run.py (modified), app/service/smart_home_controller.py (modified), scripts/check-pump-automation-disabled.sh (new), .github/workflows/validate.yml (modified), .project-memory/CURRENT_STATE.md (modified), CODER_REPORT.txt (new), PRECOMMIT_REVIEW.yaml (this review)"
+    - "Pump automation is disabled by default (PUMP_AUTOMATION_ENABLED defaults to False). Manual ON/OFF switch control fully preserved. All existing validations intact. Workflow remains validation-only."

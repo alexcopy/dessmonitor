@@ -41,3 +41,6 @@ jobs:
 
       - name: 🔍 Platform control redesign check
         run: bash scripts/check-platform-control-redesign.sh
+
+      - name: 🔍 Pump automation disabled check
+        run: bash scripts/check-pump-automation-disabled.sh

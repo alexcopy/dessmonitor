@@ -53,6 +53,9 @@ PR 0007 starts the platform control redesign phase. It documents strategy only.
 - The next implementation step (PR 0008) will disable/isolate pump automation
   while preserving manual switch control.
 
+## PR 0008 — Pump Automation Disabled by Default
+PR 0008 disables active pump automation by default. Manual relay/switch ON/OFF control remains available.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
