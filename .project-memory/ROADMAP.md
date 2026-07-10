@@ -27,8 +27,8 @@
 
 ## Phase 2b: Platform Control Redesign — Staged Backend Refactor (PR 0007+)
 - [x] PR 0007 — Strategy and inventory (documentation only)
-- [ ] PR 0008 — Disable pump automation, preserve manual switch ON/OFF
-- [ ] PR 0009 — Introduce generic control domain types (SwitchableLoad, ControlCommand)
+- [x] PR 0008 — Disable pump automation, preserve manual switch ON/OFF
+- [x] PR 0009 — Introduce generic control domain types (SwitchableLoad, ControlCommand)
 - [ ] PR 0010 — Backward-compatible adapter from old config to generic load
 - [ ] PR 0011 — Migrate service layer from pump loop to generic control service
 - [ ] PR 0012 — Migrate monitoring labels from PUMP to generic controllable load

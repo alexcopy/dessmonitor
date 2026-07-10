@@ -56,6 +56,12 @@ PR 0007 starts the platform control redesign phase. It documents strategy only.
 ## PR 0008 — Pump Automation Disabled by Default
 PR 0008 disables active pump automation by default. Manual relay/switch ON/OFF control remains available.
 
+## PR 0009 — Generic Control Domain Types Introduced
+PR 0009 introduces generic control domain types (SwitchableLoad, ControlCommand, etc.)
+in `app/control/domain.py`. These are passive data definitions only — no runtime
+control paths are wired yet. Manual relay/switch ON/OFF remains unchanged. Pump
+automation remains disabled by default from PR 0008.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

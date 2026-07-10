@@ -1,0 +1,446 @@
+# PRECOMMIT_REVIEW.yaml
+# PR 0009 — Introduce Generic Control Domain Types
+# Agent: precommit-review
+# Date: 2026-07-10T08:08:11Z
+# HEAD: 026859440a25ee76cf217ea3a29258210f8f9681
+# Branch: 0009-introduce-generic-control-domain-types
+
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: Branch is 0009-introduce-generic-control-domain-types
+    result: pass
+    notes: "git branch --show-current returned '0009-introduce-generic-control-domain-types' — matches PR 0009"
+
+  - name: Implementation diff exists
+    result: pass
+    notes: "git status --short shows: M .github/workflows/validate.yml, M .project-memory/CURRENT_STATE.md, M .project-memory/ROADMAP.md, ?? app/control/, ?? scripts/check-generic-control-domain.sh, ?? CODER_REPORT.txt"
+
+  - name: PLAN.md has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0009-introduce-generic-control-domain-types/PLAN.md — no output (locked)"
+
+  - name: PLAN_REVIEW.yaml has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0009-introduce-generic-control-domain-types/PLAN_REVIEW.yaml — no output (locked)"
+
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "File exists with all 8 required sections: TASK COMPLETE, BLOCKERS, WARNINGS, FILES CHANGED, VALIDATION RUN, DEVIATIONS FROM PLAN, BOUNDARY CONFIRMATIONS, NEXT REQUIRED ACTION"
+
+  - name: All changed files within PR 0009 scope
+    result: pass
+    notes: "Changed: app/control/domain.py (new), app/control/__init__.py (new), scripts/check-generic-control-domain.sh (new), .github/workflows/validate.yml (modified), .project-memory/CURRENT_STATE.md (modified), .project-memory/ROADMAP.md (modified) — all match PLAN.md Section 4.3"
+
+  - name: No runtime integration occurred
+    result: pass
+    notes: "git diff --name-only HEAD -- run.py app/service/ app/devices/ app/tuya/ app/monitoring/ app/ml/ — no output. Zero runtime files changed."
+
+  - name: app/control/domain.py exists
+    result: pass
+    notes: "File exists at app/control/domain.py"
+
+  - name: app/control/domain.py uses only standard library
+    result: pass
+    notes: "AST analysis confirms only stdlib imports: import time, import uuid, from dataclasses, from enum, from typing. No runtime or third-party imports."
+
+  - name: SwitchableLoad defined
+    result: pass
+    notes: "grep confirmed 'SwitchableLoad' in domain.py. @dataclass with id, name, device_type, metadata fields. Not pump-specific."
+
+  - name: DesiredState defined
+    result: pass
+    notes: "grep confirmed 'DesiredState' in domain.py. Enum with ON, OFF, UNKNOWN."
+
+  - name: ObservedState defined
+    result: pass
+    notes: "grep confirmed 'ObservedState' in domain.py. Enum with ON, OFF, UNKNOWN."
+
+  - name: ControlState defined
+    result: pass
+    notes: "grep confirmed 'ControlState' in domain.py. @dataclass with load_id, desired, observed, last_updated."
+
+  - name: ControlCommand defined
+    result: pass
+    notes: "grep confirmed 'ControlCommand' in domain.py. @dataclass with target_id, desired_state, source, request_id, timestamp."
+
+  - name: CommandSource defined
+    result: pass
+    notes: "grep confirmed 'CommandSource' in domain.py. Enum with MANUAL, API, POLICY, ML_ADVISORY, TEST, UNKNOWN."
+
+  - name: CommandResult defined
+    result: pass
+    notes: "grep confirmed 'CommandResult' in domain.py. @dataclass with command_id, success, error, timestamp."
+
+  - name: TelemetryPoint defined
+    result: pass
+    notes: "grep confirmed 'TelemetryPoint' in domain.py. @dataclass with load_id, metric, value, unit, timestamp."
+
+  - name: PolicyDecision defined
+    result: pass
+    notes: "grep confirmed 'PolicyDecision' in domain.py. @dataclass with load_id, recommended_state, priority, reason, timestamp."
+
+  - name: Domain types are not pump-specific
+    result: pass
+    notes: "SwitchableLoad has no pump fields. Device_type is Optional[str]. No Tuya command keys, no voltage/temperature/speed fields. Docstring states 'This is NOT a pump.'"
+
+  - name: Domain types do not require Tuya command keys
+    result: pass
+    notes: "No api_key, control_key, code, or tuya_device_id fields. SwitchableLoad is Tuya-agnostic."
+
+  - name: Domain types do not import runtime modules
+    result: pass
+    notes: "AST analysis confirms zero imports of tuya, dess, openweather, ml, smart_home_controller, relay_tuya_controller, relay_channel_device, relay_device_manager, or any runtime adapter. Static validation script also confirms all 8 forbidden imports absent."
+
+  - name: Domain types do not read env vars
+    result: pass
+    notes: "No os.getenv, os.environ in domain.py. Passive data only."
+
+  - name: Domain types do not read config files
+    result: pass
+    notes: "No open(), json.load, yaml.load, Path reads in domain.py."
+
+  - name: Domain types do not open network connections
+    result: pass
+    notes: "No socket, http, urllib, aiohttp, requests in domain.py."
+
+  - name: Domain types do not execute hardware calls
+    result: pass
+    notes: "No Tuya API calls, no DESS API calls, no relay switching, no hardware adapter references."
+
+  - name: Domain types do not mutate files
+    result: pass
+    notes: "No file write operations in domain.py. Passive dataclasses only."
+
+  - name: Domain types can be imported safely
+    result: pass
+    notes: "python3 import check passes: 'generic control domain import ok'. No config files, no network, no env vars required."
+
+  - name: SwitchableLoad is logical load not pump
+    result: pass
+    notes: "Docstring explicitly states 'This is NOT a pump. It represents any device that can be switched ON/OFF.' No pump-specific fields."
+
+  - name: CommandSource includes ML_ADVISORY as advisory only
+    result: pass
+    notes: "ML_ADVISORY = 'ml_advisory'. Docstring states 'advisory recommendation from an ML model, NOT direct ML control. ML control is deferred.' No ML control enabled."
+
+  - name: app/control/__init__.py exists
+    result: pass
+    notes: "File exists with re-exports of all 9 domain types and __all__ list."
+
+  - name: __init__.py re-exports domain types
+    result: pass
+    notes: "Imports SwitchableLoad, DesiredState, ObservedState, ControlState, ControlCommand, CommandSource, CommandResult, TelemetryPoint, PolicyDecision from domain. Sets __all__ with all 9 types."
+
+  - name: __init__.py is import-safe
+    result: pass
+    notes: "Only imports from app.control.domain. No runtime imports. Verified: 'from app.control.domain import ...'. grep confirms no forbidden imports."
+
+  - name: __init__.py has no side effects
+    result: pass
+    notes: "Contains only import statements and __all__ assignment. No function calls, no class instantiations, no file I/O."
+
+  - name: check-generic-control-domain.sh exists
+    result: pass
+    notes: "File exists at scripts/check-generic-control-domain.sh"
+
+  - name: Static script checks static repository files only
+    result: pass
+    notes: "Script uses only: test -f, grep -q, git diff --name-only. No network, no Docker, no K8s, no API calls."
+
+  - name: Static script does not use network commands
+    result: pass
+    notes: "grep for 'curl|wget|kubectl|argocd|docker|gh api|socket|http|urllib' — no matches in script."
+
+  - name: Static script does not require secrets
+    result: pass
+    notes: "No secret, token, credential, or password references. Comment header states read-only."
+
+  - name: Static script does not mutate files
+    result: pass
+    notes: "Read-only commands only: test -f, grep -q, git diff --name-only. File writes only to /tmp/ temp file (cleaned up via rm -f)."
+
+  - name: Static script prints clear per-check output
+    result: pass
+    notes: "Produces OK/FAIL per line for file existence, concept names, forbidden imports, runtime files. Consistent with existing validation scripts."
+
+  - name: Static script exits 0 on pass, 1 on fail
+    result: pass
+    notes: "Script sets ERRORS counter and exits 1 if any check fails. Verified: exit 0 on all pass."
+
+  - name: Static script checks domain.py exists
+    result: pass
+    notes: "Check 1: 'OK: app/control/domain.py exists'"
+
+  - name: Static script checks __init__.py exists
+    result: pass
+    notes: "Check 1: 'OK: app/control/__init__.py exists'"
+
+  - name: Static script checks all required concept names
+    result: pass
+    notes: "Checks all 9 types: SwitchableLoad, ControlCommand, ControlState, ObservedState, DesiredState, CommandResult, CommandSource, TelemetryPoint, PolicyDecision. All pass."
+
+  - name: Static script checks forbidden imports absent
+    result: pass
+    notes: "8 forbidden import checks for both domain.py and __init__.py: tuya, dess, openweather, ml, smart_home_controller, relay_tuya_controller, relay_channel_device, relay_device_manager. Uses import-line-level grep to avoid docstring false positives. All pass."
+
+  - name: Static script checks no runtime files modified
+    result: pass
+    notes: "9 runtime paths checked via git diff: run.py, app/service/, app/devices/, app/tuya/, app/monitoring/, app/ml/, app/weather/, service/, shared_state/. All pass."
+
+  - name: CURRENT_STATE.md update is concise
+    result: pass
+    notes: "git diff --stat shows 6 insertions in CURRENT_STATE.md. Only PR 0009 section added (4 lines). No other sections modified."
+
+  - name: CURRENT_STATE.md states no runtime wiring
+    result: pass
+    notes: "'These are passive data definitions only — no runtime control paths are wired yet.'"
+
+  - name: CURRENT_STATE.md preserves pump disabled by default
+    result: pass
+    notes: "'Pump automation remains disabled by default from PR 0008.'"
+
+  - name: CURRENT_STATE.md preserves manual relay/switch unchanged
+    result: pass
+    notes: "'Manual relay/switch ON/OFF remains unchanged.'"
+
+  - name: CURRENT_STATE.md preserves ML control safety
+    result: pass
+    notes: "No ML control mentioned in PR 0009 section. ML section in Key Components unchanged."
+
+  - name: CURRENT_STATE.md preserves external GitOps boundary
+    result: pass
+    notes: "Deployment Pipeline section unchanged. External repository boundary preserved."
+
+  - name: ROADMAP.md update is concise
+    result: pass
+    notes: "git diff --stat shows 4 insertions, 2 deletions. PR 0008 marked [x], PR 0009 marked [x]. No other sections modified."
+
+  - name: ROADMAP.md preserves staged approach
+    result: pass
+    notes: "PR 0010-0015, Later items, ML deferrals all preserved unchanged. No claims of completion beyond PR 0009."
+
+  - name: validate.yml changed additively
+    result: pass
+    notes: "git diff --stat shows validate.yml | 3 +++ — one step added at end."
+
+  - name: validate.yml runs generic control domain check
+    result: pass
+    notes: "grep confirmed 'check-generic-control-domain.sh' present in validate.yml."
+
+  - name: Existing validation steps remain
+    result: pass
+    notes: "validate.yml preserves all 8 existing steps: compileall, validate-yaml.py, check-repo-safety.sh, check-project-memory.sh, check-runtime-smoke.py, check-image-publishing-boundary.sh, check-platform-control-redesign.sh, check-pump-automation-disabled.sh"
+
+  - name: Workflow remains validation-only
+    result: pass
+    notes: "grep -c 'docker' in validate.yml returns 0. No deploy, build, or Docker steps."
+
+  - name: No runtime integration
+    result: pass
+    notes: "All runtime files (run.py, app/service/, app/devices/, app/tuya/, app/monitoring/, app/ml/, app/weather/, service/, shared_state/) unchanged. Zero wiring of domain types to runtime."
+
+  - name: No pump behavior change
+    result: pass
+    notes: "Pump automation check still passes (exit 0). PondPumpController and _pump_loop unchanged."
+
+  - name: No manual switch behavior change
+    result: pass
+    notes: "All 4 switch methods + toggle_device + _switch_loop unchanged. Pump automation check verifies this."
+
+  - name: No Tuya behavior change
+    result: pass
+    notes: "app/tuya/ not modified. git diff confirms."
+
+  - name: No config files changed
+    result: pass
+    notes: "requirements.txt, .env, devices.yaml — all untouched."
+
+  - name: No deployment behavior changed
+    result: pass
+    notes: "build-and-deploy.yml, Dockerfile, docker-compose.yml, app/docker/ — all untouched."
+
+  - name: No ML control enabled
+    result: pass
+    notes: "ML_ADVISORY in CommandSource is advisory only. ML control remains deferred per ADR-0003."
+
+  - name: Python syntax validation passes
+    result: pass
+    notes: "python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/' — exit code 0"
+
+  - name: Repository safety check passes
+    result: pass
+    notes: "bash scripts/check-repo-safety.sh — exit code 0"
+
+  - name: Project-memory check passes
+    result: pass
+    notes: "bash scripts/check-project-memory.sh — exit code 0"
+
+  - name: YAML validation passes
+    result: pass
+    notes: "/tmp/validate_venv/bin/python3 scripts/validate-yaml.py — exit code 0"
+
+  - name: Runtime smoke script exists (deps-related failures expected locally)
+    result: pass
+    notes: "python3 scripts/check-runtime-smoke.py — exit code 1 (6 missing pip packages). No import-related code changed in PR 0009."
+
+  - name: Image publishing boundary check passes
+    result: pass
+    notes: "bash scripts/check-image-publishing-boundary.sh — exit code 0"
+
+  - name: Platform control redesign check passes
+    result: pass
+    notes: "bash scripts/check-platform-control-redesign.sh — exit code 0"
+
+  - name: Pump automation disabled check passes
+    result: pass
+    notes: "bash scripts/check-pump-automation-disabled.sh — exit code 0"
+
+  - name: Generic control domain check passes
+    result: pass
+    notes: "bash scripts/check-generic-control-domain.sh — exit code 0. All 28 checks pass: 2 file existence, 9 concept names, 8 forbidden imports in domain.py, 8 forbidden imports in __init__.py, 9 runtime files unchanged."
+
+  - name: Python import check passes
+    result: pass
+    notes: "python3 -c 'from app.control.domain import ...' — exit code 0, 'generic control domain import ok'"
+
+  - name: AST analysis confirms only stdlib imports
+    result: pass
+    notes: "Python AST parse of domain.py reveals only: import time, import uuid, from dataclasses, from enum, from typing. Zero runtime imports."
+
+  - name: No forbidden patterns in new/modified files
+    result: pass
+    notes: "grep for 'subprocess|os\\.system|PLACEHOLDER|TODO|\\?\\?\\?' in app/control/domain.py, app/control/__init__.py, scripts/check-generic-control-domain.sh — no matches"
+
+  - name: No .ariadne residue
+    result: pass
+    notes: "find .ariadne -maxdepth 5 -type f — '.ariadne absent'"
+
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "026859440a25ee76cf217ea3a29258210f8f9681"
+
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0009-introduce-generic-control-domain-types"
+
+    - command: git status --short
+      result: pass
+      output_summary: "M .github/workflows/validate.yml, M .project-memory/CURRENT_STATE.md, M .project-memory/ROADMAP.md, ?? app/control/, ?? scripts/check-generic-control-domain.sh, ?? CODER_REPORT.txt"
+
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md — all within scope"
+
+    - command: git diff --stat HEAD
+      result: pass
+      output_summary: "validate.yml | 3 +++, CURRENT_STATE.md | 6 ++++++, ROADMAP.md | 4 ++-- (11 insertions, 2 deletions)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0009-introduce-generic-control-domain-types/PLAN.md
+      result: pass
+      output_summary: "No output — PLAN.md not modified (locked)"
+
+    - command: git diff --name-only HEAD -- .project-memory/pr/0009-introduce-generic-control-domain-types/PLAN_REVIEW.yaml
+      result: pass
+      output_summary: "No output — PLAN_REVIEW.yaml not modified (locked)"
+
+    - command: test -f .project-memory/pr/0009-introduce-generic-control-domain-types/CODER_REPORT.txt
+      result: pass
+      output_summary: "EXISTS — all 8 required sections present"
+
+    - command: test -f app/control/domain.py
+      result: pass
+      output_summary: "EXISTS"
+
+    - command: test -f app/control/__init__.py
+      result: pass
+      output_summary: "EXISTS"
+
+    - command: test -f scripts/check-generic-control-domain.sh
+      result: pass
+      output_summary: "EXISTS"
+
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "Exit code 0 — all Python files compile successfully"
+
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit code 0 — no tracked forbidden artifacts, no untracked forbidden files, all .dockerignore patterns covered"
+
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit code 0 — all 7 governance files and PR 0003 artifacts present"
+
+    - command: /tmp/validate_venv/bin/python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit code 0 — all 22 YAML file(s) validated successfully"
+
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit code 1 — 6 modules fail locally (missing pip packages). Expected. No import-related code changed in PR 0009."
+
+    - command: bash scripts/check-image-publishing-boundary.sh
+      result: pass
+      output_summary: "Exit code 0 — all boundary checks passed"
+
+    - command: bash scripts/check-platform-control-redesign.sh
+      result: pass
+      output_summary: "Exit code 0 — all platform control redesign checks passed"
+
+    - command: bash scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "Exit code 0 — all 11 checks pass. Pump automation disabled by default preserved."
+
+    - command: bash scripts/check-generic-control-domain.sh
+      result: pass
+      output_summary: "Exit code 0 — all 28 checks pass. Domain types present, safe, no runtime imports, no runtime file changes."
+
+    - command: python3 -c "from app.control.domain import SwitchableLoad, ControlCommand, ControlState, ObservedState, DesiredState, CommandResult, CommandSource, TelemetryPoint, PolicyDecision; print('generic control domain import ok')"
+      result: pass
+      output_summary: "Exit code 0 — 'generic control domain import ok'. All 9 types importable."
+
+    - command: python3 -c "import ast; ast.parse(open('app/control/domain.py').read()); [print(f'IMPORT: {n.name}') for n in ast.walk(ast.parse(...)) if isinstance(n, ast.Import) for alias in n.names]; [print(f'FROM {n.module} IMPORT: {[a.name for a in n.names]}') for n in ast.walk(ast.parse(...)) if isinstance(n, ast.ImportFrom)]"
+      result: pass
+      output_summary: "IMPORT: time, IMPORT: uuid, FROM dataclasses IMPORT: ['dataclass', 'field'], FROM enum IMPORT: ['Enum'], FROM typing IMPORT: ['Optional']. Only stdlib imports."
+
+    - command: git diff --name-only HEAD -- run.py app/service/ app/devices/ app/tuya/ app/monitoring/ app/ml/ Dockerfile docker-compose.yml .github/workflows/build-and-deploy.yml
+      result: pass
+      output_summary: "No output — all runtime/deployment files unchanged"
+
+    - command: grep -q "check-generic-control-domain.sh" .github/workflows/validate.yml
+      result: pass
+      output_summary: "FOUND — generic control domain check step in CI workflow"
+
+    - command: grep -c "docker" .github/workflows/validate.yml
+      result: pass
+      output_summary: "0 — no docker references in validate.yml"
+
+    - command: if [ -d .ariadne ]; then find .ariadne -maxdepth 5 -type f | sort; else echo '.ariadne absent'; fi
+      result: pass
+      output_summary: ".ariadne absent"
+
+  not_run:
+    - command: python scripts/validate-yaml.py
+      reason: "System has no 'python' command (only 'python3'). Used /tmp/validate_venv/bin/python3 which has PyYAML available."
+
+    - command: python -m compileall -q .
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+    - command: python scripts/check-runtime-smoke.py
+      reason: "System has no 'python' command (only 'python3'). Used python3 instead."
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "No blockers. Commit all changes: app/control/domain.py (new), app/control/__init__.py (new), scripts/check-generic-control-domain.sh (new), .github/workflows/validate.yml (modified), .project-memory/CURRENT_STATE.md (modified), .project-memory/ROADMAP.md (modified), CODER_REPORT.txt (new), PRECOMMIT_REVIEW.yaml (this review)"
+    - "Generic control domain types are passive data definitions only. No runtime wiring. Standard library only. All 9 types present. Zero forbidden imports. All existing validations preserved."

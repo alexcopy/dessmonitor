@@ -44,3 +44,6 @@ jobs:
 
       - name: 🔍 Pump automation disabled check
         run: bash scripts/check-pump-automation-disabled.sh
+
+      - name: 🔍 Generic control domain check
+        run: bash scripts/check-generic-control-domain.sh

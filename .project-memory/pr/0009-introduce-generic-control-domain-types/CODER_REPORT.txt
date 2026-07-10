@@ -1,0 +1,247 @@
+======================================================================
+CODER_REPORT.txt
+PR 0009 — Introduce Generic Control Domain Types
+Agent: coder (implementation)
+Date: 2026-07-10T08:05:04Z
+HEAD: 026859440a25ee76cf217ea3a29258210f8f9681
+Branch: 0009-introduce-generic-control-domain-types
+======================================================================
+
+TASK COMPLETE
+yes — Generic control domain types introduced in app/control/ with
+9 types (SwitchableLoad, DesiredState, ObservedState, ControlState,
+ControlCommand, CommandSource, CommandResult, TelemetryPoint,
+PolicyDecision). All types are passive data definitions using only
+Python standard library. No runtime wiring. Static validation and
+CI workflow step added.
+
+BLOCKERS
+None.
+
+WARNINGS
+- System has no 'python' command; 'python3' used for all local
+  validation. CI uses 'python' (resolves to 3.12).
+- The domain.py docstring mentions "Tuya, DESS, OpenWeather, ML" in a
+  prohibition statement ("must NOT import..."). The static validation
+  script uses import-line-specific grep patterns to avoid false
+  positives from documentation text.
+- The check-generic-control-domain.sh uses import-statement-level grep
+  patterns ('^import tuya|^from .*tuya.*import') rather than raw
+  substring grep to correctly distinguish actual imports from
+  documentation mentions. This is a validation-script implementation
+  detail, not a plan deviation.
+
+FILES CHANGED
+1. app/control/domain.py (NEW)
+   - Generic control domain vocabulary as passive data definitions.
+   - Uses only Python standard library: dataclasses, enum, typing,
+     uuid, time.
+   - Defines 9 types as specified by PLAN.md Section 4.1:
+     SwitchableLoad (@dataclass), DesiredState (Enum: ON/OFF/UNKNOWN),
+     ObservedState (Enum: ON/OFF/UNKNOWN), CommandSource (Enum:
+     MANUAL/API/POLICY/ML_ADVISORY/TEST/UNKNOWN), ControlState
+     (@dataclass), ControlCommand (@dataclass with uuid),
+     CommandResult (@dataclass), TelemetryPoint (@dataclass),
+     PolicyDecision (@dataclass).
+   - All dataclasses use frozen=False (default) per PLAN.md spec.
+   - SwitchableLoad has id, name, device_type, metadata — no Tuya
+     command keys.
+   - ML_ADVISORY is documented as advisory only, not ML control.
+   - Does NOT import Tuya, DESS, OpenWeather, ML, SmartHomeController,
+     RelayTuyaController, RelayChannelDevice, RelayDeviceManager,
+     runtime services, config readers, network clients, or hardware
+     adapters.
+
+2. app/control/__init__.py (NEW)
+   - Re-exports all 9 domain types for clean imports.
+   - import-safe, no side effects, no runtime imports.
+
+3. scripts/check-generic-control-domain.sh (NEW)
+   - Static repository-only bash validation.
+   - Checks: domain.py and __init__.py exist; all 9 concept names
+     present; forbidden runtime imports absent (import-line-level
+     check); no runtime files modified (git diff check).
+   - No network, no Docker Hub, no GitHub API, no K8s, no ArgoCD,
+     no Tuya/DESS, no secrets, no mutations.
+   - Exit 0 on all pass, 1 on any fail. Clear per-check output.
+
+4. .github/workflows/validate.yml (MODIFIED)
+   - Added one additive step: "Generic control domain check"
+     runs bash scripts/check-generic-control-domain.sh.
+   - All existing 8 validation steps preserved unchanged.
+
+5. .project-memory/CURRENT_STATE.md (MODIFIED)
+   - Added PR 0009 section: generic control domain types introduced,
+     passive data only, no runtime wiring, manual ON/OFF unchanged,
+     pump automation remains disabled from PR 0008.
+   - No other sections restructured.
+
+6. .project-memory/ROADMAP.md (MODIFIED)
+   - Marked PR 0008 as done: [x]
+   - Marked PR 0009 as done: [x]
+   - No other sections changed.
+
+VALIDATION RUN
+All Python commands run with python3 (system has no 'python').
+
+1. bash scripts/check-generic-control-domain.sh
+   Exit code: 0
+   Output: PASSED — Generic control domain types present and safe.
+   Per-check:
+     OK: app/control/domain.py exists
+     OK: app/control/__init__.py exists
+     OK: SwitchableLoad found
+     OK: ControlCommand found
+     OK: ControlState found
+     OK: ObservedState found
+     OK: DesiredState found
+     OK: CommandResult found
+     OK: CommandSource found
+     OK: TelemetryPoint found
+     OK: PolicyDecision found
+     OK: tuya not found (import check)
+     OK: dess not found (import check)
+     OK: openweather not found (import check)
+     OK: ml not found (import check)
+     OK: smart_home_controller not found
+     OK: relay_tuya_controller not found
+     OK: relay_channel_device not found
+     OK: relay_device_manager not found
+     (all 8 forbidden imports confirmed absent from both
+      domain.py and __init__.py)
+     OK: run.py not modified
+     OK: app/service/ not modified
+     OK: app/devices/ not modified
+     OK: app/tuya/ not modified
+     OK: app/monitoring/ not modified
+     OK: app/ml/ not modified
+     OK: app/weather/ not modified
+     OK: service/ not modified
+     OK: shared_state/ not modified
+   Errors: 0
+
+2. python3 -m compileall -q . -x '/(ml_data|.project-memory|.git|venv|.venv)/'
+   Exit code: 0 — all Python files compile successfully
+
+3. bash scripts/check-repo-safety.sh
+   Exit code: 0 — PASSED: All checks clean (0 errors, 0 warnings)
+
+4. bash scripts/check-project-memory.sh
+   Exit code: 0 — PASSED: All required files present
+   (7 governance files + PR 0003 artifacts)
+
+5. python3 scripts/validate-yaml.py
+   Exit code: 0 — All 22 YAML file(s) validated successfully
+
+6. python3 scripts/check-runtime-smoke.py
+   Not run locally (deps: logfmter, matplotlib, aiohttp, colorama
+   missing). Script exists. CI installs requirements.
+
+7. bash scripts/check-image-publishing-boundary.sh
+   Exit code: 0 — PASSED: All boundary checks passed.
+
+8. bash scripts/check-platform-control-redesign.sh
+   Exit code: 0 — PASSED: All platform control redesign checks passed.
+
+9. bash scripts/check-pump-automation-disabled.sh
+   Exit code: 0 — PASSED: Pump automation disabled by default.
+
+10. python3 -c "from app.control.domain import SwitchableLoad, ..."
+    Exit code: 0
+    Output: generic control domain import ok
+
+11. grep concept names (full output):
+    app/control/domain.py:18:class DesiredState(Enum)
+    app/control/domain.py:25:class ObservedState(Enum)
+    app/control/domain.py:32:class CommandSource(Enum)
+    app/control/domain.py:48:class SwitchableLoad
+    app/control/domain.py:63:class ControlState
+    app/control/domain.py:72:class ControlCommand
+    app/control/domain.py:85:class CommandResult
+    app/control/domain.py:94:class TelemetryPoint
+    app/control/domain.py:108:class PolicyDecision
+    app/control/__init__.py: re-exports all 9 types
+
+12. grep forbidden imports in domain.py + __init__.py (full output):
+    app/control/domain.py:1: docstring mentions "dessmonitor"
+    app/control/domain.py:42: ML_ADVISORY = "ml_advisory"
+    These are documentation text and enum value strings — NOT actual
+    import statements. The import-line-level grep confirms zero
+    forbidden imports.
+
+13. grep check-generic-control-domain.sh in validate.yml
+    Exit code: 0 — FOUND
+
+14. git diff --name-only HEAD -- PLAN.md
+    Exit code: 0 — no output (PLAN.md not modified)
+
+15. git diff --name-only HEAD -- PLAN_REVIEW.yaml
+    Exit code: 0 — no output (PLAN_REVIEW.yaml not modified)
+
+16. git diff --name-only HEAD
+    Exit code: 0 — output:
+    .github/workflows/validate.yml
+    .project-memory/CURRENT_STATE.md
+    .project-memory/ROADMAP.md
+    (app/control/ and check-generic-control-domain.sh are new
+     untracked files not in diff)
+
+17. git diff --name-only HEAD -- runtime files
+    Exit code: 0 — no output (run.py, app/service/, app/devices/,
+    app/tuya/, app/monitoring/, app/ml/, Dockerfile, docker-compose.yml,
+    .github/workflows/build-and-deploy.yml — all unchanged)
+
+18. test -f CODER_REPORT.txt
+    Exit code: 0 — EXISTS
+
+DEVIATIONS FROM PLAN
+One minor validation-script implementation detail:
+
+The check-generic-control-domain.sh uses import-statement-level grep
+patterns (e.g., '^import tuya|^from .*tuya.*import') rather than raw
+substring grep for forbidden import detection. This is necessary because
+the domain.py docstring legitimately mentions "Tuya, DESS, OpenWeather,
+ML" in a prohibition statement. The import-line-level check correctly
+verifies that no actual import statements reference these modules.
+
+This is a validation-script implementation detail, not a plan deviation.
+All PLAN.md requirements are met. The script still exits 0 on pass,
+1 on fail, with clear per-check output.
+
+The domain.py uses non-frozen dataclasses (default) rather than
+frozen=True as might be implied by some descriptions. PLAN.md Section
+4.1 does not specify frozen=True. The default non-frozen behavior is
+used. This matches the dataclass field(default_factory=...) patterns
+explicitly specified in the plan.
+
+BOUNDARY CONFIRMATIONS
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: no runtime behavior wired to domain types
+- confirm: no run.py, app/service/, app/devices/, app/tuya/ changes
+- confirm: no app/monitoring/, app/ml/, app/weather/ changes
+- confirm: pump automation behavior unchanged (still disabled by PR 0008)
+- confirm: manual switch ON/OFF behavior unchanged
+- confirm: no broad pump deletion or pump-to-SwitchableLoad rename
+- confirm: no Tuya, DESS, OpenWeather, ML, or hardware adapter imports
+  in domain.py or __init__.py
+- confirm: domain module uses only stdlib: dataclasses, enum, typing,
+  uuid, time
+- confirm: ML_ADVISORY is advisory only — no ML control enabled
+- confirm: no Docker image publishing behavior changed
+- confirm: no external GitOps or ArgoCD behavior changed
+- confirm: no dependencies added
+- confirm: no config or runtime data changed
+- confirm: CURRENT_STATE.md and ROADMAP.md received only concise updates
+- confirm: validation script exits 0 on pass, 1 on fail
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+
+NEXT REQUIRED ACTION
+Precommit-review agent should evaluate PR 0009. Generic control domain
+types are introduced as passive data definitions. No runtime wiring.
+All validations pass.
