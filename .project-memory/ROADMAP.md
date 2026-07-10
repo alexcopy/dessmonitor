@@ -30,14 +30,19 @@
 - [x] PR 0008 — Disable pump automation, preserve manual switch ON/OFF
 - [x] PR 0009 — Introduce generic control domain types (SwitchableLoad, ControlCommand)
 - [x] PR 0010 — Backward-compatible adapter from old config to generic load
-- [ ] PR 0011 — Migrate service layer from pump loop to generic control service
-- [ ] PR 0012 — Migrate monitoring labels from PUMP to generic controllable load
-- [ ] PR 0013 — Migrate data collection to generic telemetry fields
-- [ ] PR 0014 — Backend manual ON/OFF API
-- [ ] PR 0015 — UI/UX control panel planning
-- [ ] Later — Policy layer
-- [ ] Later — ML advisory (shadow mode, safety policy required)
-- [ ] Much later — ML control (only after safety-reviewed gates per ADR-0003)
+- [x] PR 0011 — Energy-aware control policy requirements documented
+- [ ] PR 0012 — Passive energy policy domain types
+- [ ] PR 0013 — Static policy configuration example without secrets
+- [ ] PR 0014 — Readiness evaluator, pure function only
+- [ ] PR 0015 — Health evaluator, pure function only
+- [ ] PR 0016 — Schedule profile model
+- [ ] PR 0017 — Weather adjustment evaluator
+- [ ] PR 0018 — Deterministic policy decision engine, no hardware execution
+- [ ] PR 0019 — Manual control API or command queue
+- [ ] PR 0020 — Command proposal before automatic execution
+- [ ] Later — Controlled execution with safety gates
+- [ ] Later — ML advisory
+- [ ] Much later — ML control (only after separate safety-reviewed approval)
 
 ## Phase 3: Safety-First Adaptive Control (PR 0004+)
 - [ ] Implement safety policy and fallback mechanism for relay control

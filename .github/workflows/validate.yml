@@ -50,3 +50,6 @@ jobs:
 
       - name: 🔍 Relay-to-SwitchableLoad mapping check
         run: bash scripts/check-relay-switchable-load-mapping.sh
+
+      - name: 🔍 Energy-aware control policy check
+        run: bash scripts/check-energy-aware-control-policy.sh

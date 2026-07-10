@@ -1,0 +1,96 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED
+  .project-memory/ENERGY_AWARE_CONTROL_POLICY.md (created — full policy requirements document, 18 sections)
+  scripts/check-energy-aware-control-policy.sh (created — static validation script, 17 checks)
+  .project-memory/CURRENT_STATE.md (updated — added PR 0011 section)
+  .project-memory/ROADMAP.md (updated — replaced legacy roadmap entries with PR 0011–0020+ staged plan)
+  .github/workflows/validate.yml (updated — added one validation-only step for energy-aware control policy check)
+  .project-memory/pr/0011-energy-aware-control-policy-requirements/CODER_REPORT.txt (created — this report)
+
+VALIDATION RUN
+
+  Command: bash scripts/check-energy-aware-control-policy.sh
+  Exit code: 0
+  Result: ✅ PASSED — all 14 concept phrases found, runtime automation disclaimer OK, runtime behavior disclaimer OK
+
+  Command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+  Exit code: 0
+  Result: All Python files compile cleanly
+
+  Command: bash scripts/check-repo-safety.sh
+  Exit code: 0
+  Result: ✅ PASSED — no tracked forbidden artifacts, no untracked forbidden files, .dockerignore complete
+
+  Command: bash scripts/check-project-memory.sh
+  Exit code: 0
+  Result: ✅ PASSED — all required governance files present
+
+  Command: python3 scripts/validate-yaml.py
+  Exit code: 0
+  Result: ✅ All 22 YAML file(s) validated successfully
+
+  Command: python3 scripts/check-runtime-smoke.py
+  Exit code: 1
+  Result: 6 module(s) failed to import (logfmter, aiohttp, colorama, matplotlib, asyncpg not installed locally). Expected — CI installs requirements.txt.
+
+  Command: bash scripts/check-image-publishing-boundary.sh
+  Exit code: 0
+  Result: ✅ PASSED — all boundary checks passed
+
+  Command: bash scripts/check-platform-control-redesign.sh
+  Exit code: 0
+  Result: ✅ PASSED — all platform control redesign checks passed
+
+  Command: bash scripts/check-pump-automation-disabled.sh
+  Exit code: 0
+  Result: ✅ PASSED — pump automation disabled by default, manual switch control preserved
+
+  Command: bash scripts/check-generic-control-domain.sh
+  Exit code: 0
+  Result: ✅ PASSED — generic control domain types present and safe
+
+  Command: bash scripts/check-relay-switchable-load-mapping.sh
+  Exit code: 0
+  Result: ✅ PASSED — relay-to-SwitchableLoad mapping present and safe
+
+  Command: grep -q "check-energy-aware-control-policy.sh" .github/workflows/validate.yml
+  Exit code: 0
+  Result: FOUND — validation workflow includes energy-aware control policy check step
+
+  Command: git diff --name-only HEAD -- .project-memory/pr/0011-energy-aware-control-policy-requirements/PLAN.md
+  Exit code: 0
+  Result: No output — PLAN.md unchanged (locked)
+
+  Command: git diff --name-only HEAD -- .project-memory/pr/0011-energy-aware-control-policy-requirements/PLAN_REVIEW.yaml
+  Exit code: 0
+  Result: No output — PLAN_REVIEW.yaml unchanged (locked)
+
+  Command: test -f .project-memory/pr/0011-energy-aware-control-policy-requirements/CODER_REPORT.txt
+  Exit code: 0
+  Result: CODER_REPORT.txt exists
+
+DEVIATIONS FROM PLAN
+  Minor fix: policy document used markdown bold markers (**not enabled**) which prevented the
+  grep pattern "not enabled by PR 0011" from matching in the static validation script.
+  Changed to plain text: "Runtime automation is not enabled by PR 0011."
+  No other deviations.
+
+BOUNDARY CONFIRMATIONS
+  - confirm: PLAN.md and PLAN_REVIEW.yaml were not edited
+  - confirm: No runtime Python code changed (run.py, app/service/, app/devices/, app/tuya/, app/monitoring/, app/ml/, app/weather/, service/, shared_state/ all verified unchanged)
+  - confirm: No automation was enabled
+  - confirm: No ML control was enabled
+  - confirm: No pump behavior changed
+  - confirm: No manual switch behavior changed
+  - confirm: No config or runtime data changed
+  - confirm: No Docker image publishing behavior changed (.github/workflows/build-and-deploy.yml untouched)
+  - confirm: No external GitOps or ArgoCD behavior changed
+  - confirm: Only ALLOWED FILES modified (validate.yml, CURRENT_STATE.md, ROADMAP.md, ENERGY_AWARE_CONTROL_POLICY.md, check-energy-aware-control-policy.sh, CODER_REPORT.txt)
+
+NEXT REQUIRED ACTION
+  Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.
