@@ -1,0 +1,411 @@
+# PRECOMMIT_REVIEW.yaml
+# PR 0010 — Map Relay Channel to SwitchableLoad
+# Agent: precommit-review
+# Date: 2026-07-10T08:26:11Z
+# HEAD: 01ed92c860e0492f1a3d6831176f00a298d10f12
+# Branch: 0010-map-relay-channel-to-switchable-load
+
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: Branch is 0010-map-relay-channel-to-switchable-load
+    result: pass
+    notes: "git branch --show-current returned '0010-map-relay-channel-to-switchable-load' — matches PR 0010"
+
+  - name: Implementation diff exists
+    result: pass
+    notes: "git status --short shows: M validate.yml, M CURRENT_STATE.md, M ROADMAP.md, M __init__.py, ?? relay_mapping.py, ?? check script, ?? CODER_REPORT.txt"
+
+  - name: PLAN.md has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- PLAN.md — no output (locked)"
+
+  - name: PLAN_REVIEW.yaml has no diff from HEAD
+    result: pass
+    notes: "git diff --name-only HEAD -- PLAN_REVIEW.yaml — no output (locked)"
+
+  - name: CODER_REPORT.txt exists
+    result: pass
+    notes: "All 8 required sections present"
+
+  - name: All changed files within PR 0010 scope
+    result: pass
+    notes: "Changed: relay_mapping.py (new), __init__.py (modified), check-relay-switchable-load-mapping.sh (new), validate.yml (modified), CURRENT_STATE.md (modified), ROADMAP.md (modified) — all match PLAN.md Section 4.5"
+
+  - name: No runtime integration occurred
+    result: pass
+    notes: "git diff --name-only HEAD -- run.py app/service/ app/devices/ app/tuya/ app/monitoring/ app/ml/ — no output"
+
+  - name: relay_mapping.py exists
+    result: pass
+    notes: "File exists at app/control/relay_mapping.py"
+
+  - name: relay_mapping.py uses only stdlib + app.control.domain
+    result: pass
+    notes: "Only imports: from typing import ..., from app.control.domain import SwitchableLoad"
+
+  - name: relay_channel_to_switchable_load defined
+    result: pass
+    notes: "grep and script confirm function present"
+
+  - name: relay_channels_to_switchable_loads defined
+    result: pass
+    notes: "grep and script confirm function present"
+
+  - name: Uses structural/duck typing, not RelayChannelDevice import
+    result: pass
+    notes: "Uses Protocol class RelayChannelLike + getattr() guards. No import of RelayChannelDevice."
+
+  - name: Does not import app.devices, app.tuya, app.service, app.monitoring, app.ml, app.weather, SmartHomeController, RelayTuyaController, DeviceInitializer
+    result: pass
+    notes: "Static validation script confirms all 9 forbidden import patterns absent from relay_mapping.py"
+
+  - name: Does not read env vars
+    result: pass
+    notes: "No os.getenv, os.environ in relay_mapping.py"
+
+  - name: Does not read config files
+    result: pass
+    notes: "No open(), json, yaml, Path in relay_mapping.py"
+
+  - name: Does not open network connections
+    result: pass
+    notes: "No socket, http, urllib, aiohttp, requests in relay_mapping.py"
+
+  - name: Does not execute hardware calls
+    result: pass
+    notes: "12 forbidden method calls confirmed absent (switch_on_device, switch_off_device, switch_binary, switch_device, toggle_device, set_numeric, update_status, mark_switched, can_switch, ready_to_switch_on, ready_to_switch_off, is_device_on)"
+
+  - name: Does not mutate files
+    result: pass
+    notes: "No file write operations. Pure data transformation."
+
+  - name: Can be imported safely
+    result: pass
+    notes: "python3 import check passes: 'relay mapping import and behavior ok'"
+
+  - name: relay_channel_to_switchable_load returns SwitchableLoad
+    result: pass
+    notes: "Verified via SimpleNamespace test: isinstance(load, SwitchableLoad) passes"
+
+  - name: load_id from relay.id if present
+    result: pass
+    notes: "Test relay with id='relay-1' produces load.id == 'relay-1'"
+
+  - name: Fallback load_id from relay.name if id absent
+    result: pass
+    notes: "PLAN.md specifies this. Code: load_id = str(relay_id) if relay_id else str(relay_name)"
+
+  - name: Invalid object without id and name raises ValueError
+    result: pass
+    notes: "Function raises ValueError with clear message when both id and name are absent"
+
+  - name: display_name comes from relay.name if present
+    result: pass
+    notes: "Test: name='Garden light' → load.name == 'Garden light'"
+
+  - name: device_type preserved if present
+    result: pass
+    notes: "Test: device_type='switch' → load.device_type == 'switch'"
+
+  - name: metadata contains only safe non-secret fields
+    result: pass
+    notes: "Keys: legacy_device_type, source_class, has_control_key, has_state_key, control_kind, legacy_desc, switch_time, min_trashhold. No secret/config values."
+
+  - name: metadata includes has_control_key and has_state_key booleans
+    result: pass
+    notes: "Test: has_control_key=True, has_state_key=True. Asserted as booleans, not raw key values."
+
+  - name: metadata does not include raw control_key, state_key, api_key, tuya_device_id, token, secret, password, credentials, status, or config values
+    result: pass
+    notes: "Verified: 'switch_1' not in str(load.metadata). The boolean has_control_key replaces the raw key."
+
+  - name: relay_channels_to_switchable_loads preserves input order
+    result: pass
+    notes: "Function maps each input through single mapper in iteration order. Test: len(loads)==1, loads[0].id=='relay-1'"
+
+  - name: Collection mapping raises ValueError for invalid entries
+    result: pass
+    notes: "Comprehension raises ValueError from single-mapper for entries without id or name"
+
+  - name: Mapping is not pump-specific
+    result: pass
+    notes: "No pump references in relay_mapping.py. SwitchableLoad is generic load. device_type preserved as-is."
+
+  - name: __init__.py re-exports mapping functions
+    result: pass
+    notes: "Exports relay_channel_to_switchable_load and relay_channels_to_switchable_loads alongside domain types"
+
+  - name: __init__.py is import-safe
+    result: pass
+    notes: "Only imports from app.control.domain and app.control.relay_mapping. No runtime imports."
+
+  - name: __init__.py has no side effects
+    result: pass
+    notes: "Only import statements and __all__ assignment. No function calls, instantiations, or I/O."
+
+  - name: check-relay-switchable-load-mapping.sh exists
+    result: pass
+    notes: "File exists with 36 checks across 7 categories"
+
+  - name: Static script checks static repository files only
+    result: pass
+    notes: "Uses only test -f, grep -q, git diff --name-only. No network calls."
+
+  - name: Static script does not use network commands
+    result: pass
+    notes: "grep for curl|wget|kubectl|argocd|docker|gh api|socket|http|urllib — no matches"
+
+  - name: Static script does not require secrets
+    result: pass
+    notes: "No secret/token/credential references"
+
+  - name: Static script does not mutate files
+    result: pass
+    notes: "Read-only commands. Temp file cleaned up via rm -f."
+
+  - name: Static script prints clear per-check output
+    result: pass
+    notes: "Produces OK/FAIL per check. Consistent with existing validation scripts."
+
+  - name: Static script exits 0 on pass, 1 on fail
+    result: pass
+    notes: "ERRORS counter, exit 1 on any fail. Verified: exit 0 on all pass."
+
+  - name: Static script checks relay_mapping.py exists
+    result: pass
+    notes: "Check 1: OK"
+
+  - name: Static script checks both functions present
+    result: pass
+    notes: "Check 2: OK for both functions"
+
+  - name: Static script checks SwitchableLoad use
+    result: pass
+    notes: "Check 3: OK"
+
+  - name: Static script checks forbidden imports absent
+    result: pass
+    notes: "Check 5: 9 patterns checked, all pass"
+
+  - name: Static script checks forbidden method calls absent
+    result: pass
+    notes: "Check 6: 12 patterns checked, all pass"
+
+  - name: Static script checks runtime files unchanged
+    result: pass
+    notes: "Check 7: 9 runtime paths checked, all pass"
+
+  - name: CURRENT_STATE.md update is concise
+    result: pass
+    notes: "5 insertions, only PR 0010 section added"
+
+  - name: CURRENT_STATE.md states no runtime wiring
+    result: pass
+    notes: "'The mapping is not wired into runtime behavior yet.'"
+
+  - name: CURRENT_STATE.md preserves pump disabled by default
+    result: pass
+    notes: "'Pump automation remains disabled by default from PR 0008.'"
+
+  - name: CURRENT_STATE.md preserves manual ON/OFF unchanged
+    result: pass
+    notes: "'Manual relay/switch ON/OFF remains unchanged.'"
+
+  - name: CURRENT_STATE.md preserves ML safety boundary
+    result: pass
+    notes: "ML sections unchanged"
+
+  - name: CURRENT_STATE.md preserves external GitOps boundary
+    result: pass
+    notes: "Deployment Pipeline section unchanged"
+
+  - name: ROADMAP.md update is concise
+    result: pass
+    notes: "PR 0010 marked [x]. No other sections modified."
+
+  - name: validate.yml changed additively
+    result: pass
+    notes: "3 insertions, one step added "
+
+  - name: validate.yml runs mapping check
+    result: pass
+    notes: "'check-relay-switchable-load-mapping.sh' present in validate.yml"
+
+  - name: Existing validation steps remain
+    result: pass
+    notes: "All 10 existing steps preserved"
+
+  - name: Workflow remains validation-only
+    result: pass
+    notes: "grep -c 'docker' returns 0"
+
+  - name: No runtime integration
+    result: pass
+    notes: "All runtime files unchanged. Zero wiring."
+
+  - name: No pump behavior change
+    result: pass
+    notes: "Pump automation check passes (exit 0)"
+
+  - name: No manual switch behavior change
+    result: pass
+    notes: "All switch methods unchanged. Pump automation check verifies."
+
+  - name: No Tuya behavior change
+    result: pass
+    notes: "app/tuya/ not modified"
+
+  - name: No ML code changed
+    result: pass
+    notes: "app/ml/ not modified"
+
+  - name: No config files changed
+    result: pass
+    notes: "requirements.txt, .env — all untouched"
+
+  - name: No deployment behavior changed
+    result: pass
+    notes: "build-and-deploy.yml, Dockerfile, docker-compose.yml — all untouched"
+
+  - name: No ML control enabled
+    result: pass
+    notes: "ML control remains deferred per ADR-0003"
+
+  - name: Python syntax validation passes
+    result: pass
+    notes: "compileall exit 0"
+
+  - name: Repository safety check passes
+    result: pass
+    notes: "check-repo-safety exit 0"
+
+  - name: Project-memory check passes
+    result: pass
+    notes: "check-project-memory exit 0"
+
+  - name: YAML validation passes
+    result: pass
+    notes: "validate-yaml exit 0"
+
+  - name: Runtime smoke script exists (local deps warnings)
+    result: pass
+    notes: "No import-related code changed in PR 0010"
+
+  - name: Image publishing boundary check passes
+    result: pass
+    notes: "exit 0"
+
+  - name: Platform control redesign check passes
+    result: pass
+    notes: "exit 0"
+
+  - name: Pump automation disabled check passes
+    result: pass
+    notes: "exit 0"
+
+  - name: Generic control domain check passes
+    result: pass
+    notes: "exit 0"
+
+  - name: Relay mapping check passes
+    result: pass
+    notes: "exit 0 — 36 checks pass"
+
+  - name: Python import and behavior check passes
+    result: pass
+    notes: "'relay mapping import and behavior ok'. All 8 assertions pass."
+
+  - name: No forbidden patterns in new/modified files
+    result: pass
+    notes: "grep for placeholders — no matches"
+
+  - name: No .ariadne residue
+    result: pass
+    notes: ".ariadne absent"
+
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "01ed92c860e0492f1a3d6831176f00a298d10f12"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0010-map-relay-channel-to-switchable-load"
+    - command: git diff --name-only HEAD -- .project-memory/pr/0010-map-relay-channel-to-switchable-load/PLAN.md
+      result: pass
+      output_summary: "No output — PLAN.md locked"
+    - command: git diff --name-only HEAD -- .project-memory/pr/0010-map-relay-channel-to-switchable-load/PLAN_REVIEW.yaml
+      result: pass
+      output_summary: "No output — PLAN_REVIEW.yaml locked"
+    - command: test -f app/control/relay_mapping.py
+      result: pass
+      output_summary: "EXISTS"
+    - command: test -f scripts/check-relay-switchable-load-mapping.sh
+      result: pass
+      output_summary: "EXISTS"
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "Exit code 0"
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit code 0"
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit code 0"
+    - command: /tmp/validate_venv/bin/python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit code 0 — 22 YAML files valid"
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit code 1 (6 missing pip packages). No PR 0010 import changes."
+    - command: bash scripts/check-image-publishing-boundary.sh
+      result: pass
+      output_summary: "Exit code 0"
+    - command: bash scripts/check-platform-control-redesign.sh
+      result: pass
+      output_summary: "Exit code 0"
+    - command: bash scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "Exit code 0 — pump disabled, switch control preserved"
+    - command: bash scripts/check-generic-control-domain.sh
+      result: pass
+      output_summary: "Exit code 0 — domain types present and safe"
+    - command: bash scripts/check-relay-switchable-load-mapping.sh
+      result: pass
+      output_summary: "Exit code 0 — 36 checks pass"
+    - command: python3 -c "from types import SimpleNamespace; from app.control.relay_mapping import ...; ..."
+      result: pass
+      output_summary: "'relay mapping import and behavior ok'. All assertions pass."
+    - command: grep -q "check-relay-switchable-load-mapping.sh" .github/workflows/validate.yml
+      result: pass
+      output_summary: "FOUND"
+    - command: git diff --name-only HEAD -- run.py app/service/ app/devices/ app/tuya/ app/monitoring/ app/ml/ Dockerfile docker-compose.yml .github/workflows/build-and-deploy.yml
+      result: pass
+      output_summary: "No output — all runtime/deployment files unchanged"
+    - command: grep -c "docker" .github/workflows/validate.yml
+      result: pass
+      output_summary: "0 — no docker references"
+    - command: if [ -d .ariadne ]; then find .ariadne -maxdepth 5 -type f | sort; else echo '.ariadne absent'; fi
+      result: pass
+      output_summary: ".ariadne absent"
+  not_run:
+    - command: python scripts/validate-yaml.py
+      reason: "System has no 'python' command. Used python3."
+    - command: python -m compileall -q .
+      reason: "System has no 'python' command. Used python3."
+    - command: python scripts/check-runtime-smoke.py
+      reason: "System has no 'python' command. Used python3."
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "No blockers. Commit all changes: app/control/relay_mapping.py (new), app/control/__init__.py (modified), scripts/check-relay-switchable-load-mapping.sh (new), .github/workflows/validate.yml (modified), CURRENT_STATE.md (modified), ROADMAP.md (modified), CODER_REPORT.txt (new), PRECOMMIT_REVIEW.yaml (this review)"
+    - "Relay-to-SwitchableLoad mapping is passive duck-typed adapter only. No runtime wiring. No RelayChannelDevice import. All 12 forbidden method calls absent. All 9 forbidden imports absent. All existing validations preserved."

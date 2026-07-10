@@ -47,3 +47,6 @@ jobs:
 
       - name: 🔍 Generic control domain check
         run: bash scripts/check-generic-control-domain.sh
+
+      - name: 🔍 Relay-to-SwitchableLoad mapping check
+        run: bash scripts/check-relay-switchable-load-mapping.sh

@@ -10,6 +10,11 @@ from app.control.domain import (
     PolicyDecision,
 )
 
+from app.control.relay_mapping import (
+    relay_channel_to_switchable_load,
+    relay_channels_to_switchable_loads,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -20,4 +25,6 @@ __all__ = [
     "CommandResult",
     "TelemetryPoint",
     "PolicyDecision",
+    "relay_channel_to_switchable_load",
+    "relay_channels_to_switchable_loads",
 ]
