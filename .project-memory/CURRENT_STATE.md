@@ -73,6 +73,16 @@ Runtime automation is not enabled by PR 0011. Manual relay/switch ON/OFF remains
 unchanged. Pump automation remains disabled by default from PR 0008. ML control
 remains deferred.
 
+## PR 0012 — Passive Energy Policy Domain Types
+PR 0012 adds passive energy policy domain types (PowerSource, TimeOfDay, Season,
+WeatherCondition, LoadClass, DevicePriority, VoltageSnapshot, WeatherForecastSignal,
+BatteryReservePolicy, DeviceEnergyPolicy, ReadinessInput, ReadinessResult, HealthInput,
+HealthStatus, HealthCheckResult, EnergyPolicyContext, EnergyPolicyDecision) in
+`app/control/energy_policy.py`. These are passive data definitions only — no runtime
+control paths are wired yet. Runtime automation is not enabled. Manual relay/switch
+ON/OFF remains unchanged. Pump automation remains disabled by default from PR 0008.
+ML control remains deferred.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

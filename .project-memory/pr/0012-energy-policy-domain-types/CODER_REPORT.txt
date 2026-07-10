@@ -1,0 +1,154 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED
+  app/control/energy_policy.py (created — 17 passive energy policy domain types: 8 Enums, 9 frozen dataclasses)
+  app/control/__init__.py (updated — re-exports all 17 new type names, preserves existing exports)
+  scripts/check-energy-policy-domain-types.sh (created — static validation script)
+  .github/workflows/validate.yml (updated — added one validation-only step)
+  .project-memory/CURRENT_STATE.md (updated — added PR 0012 section)
+  .project-memory/ROADMAP.md (updated — marked PR 0012 as complete)
+  .project-memory/pr/0012-energy-policy-domain-types/CODER_REPORT.txt (created — this report)
+
+BEHAVIOR IMPLEMENTED
+  - 8 Enums: PowerSource, TimeOfDay, Season, WeatherCondition, LoadClass, DevicePriority,
+    HealthStatus, EnergyPolicyDecision
+  - 9 frozen dataclasses: VoltageSnapshot, WeatherForecastSignal, BatteryReservePolicy,
+    DeviceEnergyPolicy, ReadinessInput, ReadinessResult, HealthInput, HealthCheckResult,
+    EnergyPolicyContext
+  - All types are passive data definitions only — no evaluation logic, no hardware calls,
+    no runtime wiring. BatteryReservePolicy defaults evening_reserve_voltage to 26.5.
+  - Module uses only Python standard library (dataclasses, enum, typing, time, __future__).
+  - No Tuya, DESS, OpenWeather, ML, SmartHomeController, or any runtime adapter imported.
+  - No forbidden hardware calls (switch_on_device, etc.) present.
+  - No runtime automation enabled. No ML control enabled. No pump behavior changed.
+  - No manual switch behavior changed.
+
+TESTS ADDED OR UPDATED
+  - Static validation script scripts/check-energy-policy-domain-types.sh verifies:
+    module existence, all 17 type names, 8 concept phrases, forbidden imports absent,
+    forbidden hardware calls absent, runtime files unchanged.
+  - Python import and behavior test (item 14 in checklist) confirmed all types importable
+    and default values correct (26.5V reserve, LoadClass.DISCRETIONARY, etc.).
+
+VALIDATION RUN
+
+  Command: bash scripts/check-energy-policy-domain-types.sh
+  Exit code: 0
+  Result: ✅ PASSED — all 17 type names found, 8 concept phrases found, no forbidden
+    imports, no forbidden hardware calls, no runtime files modified
+
+  Command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+  Exit code: 0
+  Result: All Python files compile cleanly
+
+  Command: bash scripts/check-repo-safety.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: bash scripts/check-project-memory.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: python3 scripts/validate-yaml.py
+  Exit code: 0
+  Result: ✅ All 22 YAML file(s) validated successfully
+
+  Command: python3 scripts/check-runtime-smoke.py
+  Exit code: 1
+  Result: 6 module(s) failed (logfmter, aiohttp, colorama, matplotlib, asyncpg not installed).
+    Expected — CI installs requirements.txt.
+
+  Command: bash scripts/check-image-publishing-boundary.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: bash scripts/check-platform-control-redesign.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: bash scripts/check-pump-automation-disabled.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: bash scripts/check-generic-control-domain.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: bash scripts/check-relay-switchable-load-mapping.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: bash scripts/check-energy-aware-control-policy.sh
+  Exit code: 0
+  Result: ✅ PASSED
+
+  Command: python -c "from app.control.energy_policy import ..." (import+behavior test)
+  Exit code: 0
+  Result: energy policy domain import and behavior ok
+
+  Command: grep -RIn "PowerSource|...|EnergyPolicyDecision" app/control/energy_policy.py
+    scripts/check-energy-policy-domain-types.sh
+  Result: All 17 type names found in both files (recorded above)
+
+  Command: grep -RIn "26.5|switch ON|switch OFF|readiness|health|weather forecast|ML advisory|ML control"
+    app/control/energy_policy.py scripts/check-energy-policy-domain-types.sh
+  Result: All 8 concept phrases found in both files (recorded above)
+
+  Command: grep -RIn "app.tuya|...|dess" app/control/energy_policy.py || true
+  Result: Only line 1 (module docstring with "dessmonitor") — no actual import lines.
+    Validation script regex check confirms no forbidden imports.
+
+  Command: grep -RIn "switch_on_device|...|is_device_on" app/control/energy_policy.py || true
+  Result: No output — no forbidden hardware calls present.
+
+  Command: grep -q "check-energy-policy-domain-types.sh" .github/workflows/validate.yml
+  Exit code: 0
+  Result: FOUND
+
+  Command: git diff --name-only HEAD -- .project-memory/pr/0012-energy-policy-domain-types/PLAN.md
+  Result: No output — PLAN.md unchanged (locked)
+
+  Command: git diff --name-only HEAD -- .project-memory/pr/0012-energy-policy-domain-types/PLAN_REVIEW.yaml
+  Result: No output — PLAN_REVIEW.yaml unchanged (locked)
+
+  Command: test -f .project-memory/pr/0012-energy-policy-domain-types/CODER_REPORT.txt
+  Result: CODER_REPORT.txt exists
+
+DEVIATIONS FROM PLAN
+  None. Implementation followed the approved PLAN.md exactly. The validation script
+  grep pattern for class names was initially incorrect (wrapped class names in single
+  quotes) and was fixed during development. All 17 types, 8 concept phrases, forbidden
+  import checks, forbidden call checks, and runtime-file checks pass.
+
+BOUNDARY CONFIRMATIONS
+  - confirm: implementation followed approved PLAN.md
+  - confirm: no review artifact written
+  - confirm: PLAN.md not modified
+  - confirm: PLAN_REVIEW.yaml not modified
+  - confirm: ROADMAP.md modified only per PLAN.md allowance
+  - confirm: only PLAN.md-approved implementation/test paths changed
+  - confirm: validation commands run and recorded
+  - confirm: no git mutation commands run
+  - confirm: no Docker commands run
+  - confirm: No runtime Python code changed (run.py, app/service/, app/devices/, app/tuya/,
+    app/monitoring/, app/ml/, app/weather/, service/, shared_state/ all verified unchanged)
+  - confirm: No automation enabled
+  - confirm: No ML control enabled
+  - confirm: No evaluators implemented (readiness, health, weather adjustment all deferred)
+  - confirm: No scheduler changes
+  - confirm: No policy config schema implemented
+  - confirm: No pump behavior changed
+  - confirm: No manual switch behavior changed
+  - confirm: No Tuya, DESS, OpenWeather, ML, service loop, or hardware adapter imports added
+  - confirm: No config or runtime data changed
+  - confirm: No Docker image publishing behavior changed
+  - confirm: No external GitOps or ArgoCD behavior changed
+  - confirm: No dependencies added (standard library only)
+  - confirm: Energy policy module is passive and import-safe
+
+NEXT REQUIRED ACTION
+  Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.
