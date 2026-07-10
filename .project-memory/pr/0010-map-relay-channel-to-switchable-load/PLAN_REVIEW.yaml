@@ -1,0 +1,172 @@
+# Plan Review Artifact — PR 0010
+# Generated: 2026-07-09T23:48:55Z
+# Agent: plan-review
+# Branch: 0010-map-relay-channel-to-switchable-load
+
+verdict: approved
+
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: plan_exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0010-map-relay-channel-to-switchable-load/PLAN.md"
+  - name: states_follows_pr0007_pr0008_pr0009
+    result: pass
+    notes: "Section 2: 'PR 0007 documented the strategy. PR 0008 disabled pump automation by default... PR 0009 introduced passive generic control domain types'"
+  - name: states_pump_automation_disabled_by_pr0008
+    result: pass
+    notes: "Section 2: 'PR 0008 disabled pump automation by default while preserving manual ON/OFF control'"
+  - name: states_domain_types_exist_from_pr0009
+    result: pass
+    notes: "Section 2: 'PR 0009 introduced passive generic control domain types (SwitchableLoad, ControlCommand, etc.)' — confirmed present in app/control/domain.py"
+  - name: introduces_adapter_mapping_only
+    result: pass
+    notes: "Section 4.1: creates app/control/relay_mapping.py with Protocol + mapping functions. No runtime wiring in PR 0010."
+  - name: does_not_wire_into_runtime
+    result: pass
+    notes: "Section 4.4: 'The module exists as a pure transformation library.' Section 4.6: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/** all forbidden."
+  - name: preserves_manual_switch_on_off
+    result: pass
+    notes: "Section 9: 'Manual switch control preserved: All 4 methods on RelayTuyaController + RelayDeviceManager.toggle_device + SmartHomeController._switch_loop unchanged'"
+  - name: leaves_pump_legacy_untouched
+    result: pass
+    notes: "Section 4.6 forbids editing app/devices/*, app/tuya/*, app/monitoring/*, app/ml/*, app/service/smart_home_controller.py. Section 9: 'No pump code changed'"
+  - name: defines_exact_mapping_semantics
+    result: pass
+    notes: "Section 4.1 and 5.1: duck-typed Protocol, relay_channel_to_switchable_load, relay_channels_to_switchable_loads, stable load_id, display_name, safe metadata only, ValueError for invalid input"
+  - name: defines_allowed_implementation_files
+    result: pass
+    notes: "Section 4.5: app/control/relay_mapping.py, app/control/__init__.py, scripts/check-relay-switchable-load-mapping.sh, .github/workflows/validate.yml, CURRENT_STATE.md, ROADMAP.md, CODER_REPORT.txt"
+  - name: defines_forbidden_implementation_files
+    result: pass
+    notes: "Section 4.6: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, service/**, shared_state/**, app/control/domain.py, Docker/deployment, locked artifacts, all existing validation scripts"
+  - name: defines_validation_commands
+    result: pass
+    notes: "Section 6 lists 11 validation command groups: file existence, Python import, mapping output correctness, AST-based forbidden import check, static validation script, compileall, all existing validation scripts, locked artifact diffs, runtime files diff, build-and-deploy diff, coder artifact check"
+  - name: preserves_docker_image_publishing
+    result: pass
+    notes: "build-and-deploy.yml explicitly forbidden (Section 4.6). Section 9: 'No Docker image publishing change'"
+  - name: preserves_external_gitops_argocd
+    result: pass
+    notes: "Section 9: 'No external GitOps/ArgoCD change: Image publishing boundary respected'"
+  - name: does_not_enable_ml_control
+    result: pass
+    notes: "Section 4.4: mapping must not import app.ml.*. Section 8 defers ML advisory/control to later. Section 9: 'No ML control enabled per ADR-0003'"
+  - name: defines_artifact_locking
+    result: pass
+    notes: "Sections 4.7 and 4.8: PLAN.md and PLAN_REVIEW.yaml LOCKED after approval. Coder forbidden from editing them."
+  - name: mapping_not_pump_specific
+    result: pass
+    notes: "SwitchableLoad has no pump references. Device_type is preserved as-is in metadata. No voltage/temperature/speed fields in mapping output."
+  - name: mapping_no_tuya_keys
+    result: pass
+    notes: "Section 4.1 items 9-10: no tuya_device_id, api_key, status, min_volt, max_volt, load_in_wt in metadata. Section 5.1 code: only safe metadata hints."
+  - name: mapping_no_forbidden_imports
+    result: pass
+    notes: "Section 4.4: forbidden to import app.devices, app.tuya, app.service, app.monitoring, app.ml, app.weather, RelayChannelDevice directly. Uses duck-typed Protocol + hasattr."
+  - name: mapping_pure_data_transformation
+    result: pass
+    notes: "Section 4.4 safety requirements: no hardware calls, no switch_on_device/switch_off_device/switch_binary/switch_device/toggle_device/set_numeric/update_status/mark_switched/can_switch/ready_to_switch_on/ready_to_switch_off/is_device_on. No env vars, no configs, no network, no runtime imports, no startup changes, no pump changes, no switch changes, no ML control."
+  - name: implementation_scope_allowed_only
+    result: pass
+    notes: "Section 4.5 allows only 7 file groups. Section 4.6 explicitly forbids all runtime integration edits. No runtime wiring in allowed files."
+  - name: static_validation_repo_only
+    result: pass
+    notes: "Section 5.3: checks local static files only, no network, no Docker Hub, no GitHub API, no K8s, no ArgoCD, no Tuya, no DESS, no secrets, no mutations. Verifies relay_mapping.py exists, both functions exist, SwitchableLoad used, forbidden imports absent, runtime files unchanged. Exit 0/1."
+  - name: current_state_roadmap_concise
+    result: pass
+    notes: "Sections 5.5 and 5.6: single additive lines only. No broad rewrite. Preserves: pump disabled, manual ON/OFF unchanged, runtime not wired, ML deferred, external GitOps unchanged."
+  - name: future_pr_deferrals_explicit
+    result: pass
+    notes: "Section 8 explicitly defers: SmartHomeController integration (PR 0011), RelayTuyaController integration (PR 0011), DeviceInitializer migration (PR 0011), manual ON/OFF API (PR 0014), monitoring migration (PR 0012), telemetry migration (PR 0013), UI/UX (PR 0015), policy (Later), ML advisory (Later), ML control (Much later), config migration (Later)"
+  - name: coder_boundary_confirmations
+    result: pass
+    notes: "PLAN.md sections 4.6 and 9 forbid: editing PLAN.md/PLAN_REVIEW.yaml, runtime integration, broad pump deletion, broad rename/refactor, ML cleanup, deployment changes, external GitOps changes, adding secrets/configs/logs/caches/SQLite/CSV/JSONL/ml_data"
+  - name: coder_artifact_requirements
+    result: pass
+    notes: "CODER_REPORT.txt required (Section 7). PRECOMMIT_REVIEW.yaml required (Section 4.8)."
+
+validation:
+  preconditions:
+    - command: "git rev-parse --verify HEAD"
+      result: pass
+      output_summary: "0c7b00b3cd37d8c924fa4e276c1268cbee551f46"
+    - command: "git branch --show-current"
+      result: pass
+      output_summary: "0010-map-relay-channel-to-switchable-load"
+    - command: "git status --short"
+      result: pass
+      output_summary: "?? .project-memory/pr/0010-map-relay-channel-to-switchable-load/ — expected untracked PLAN.md only"
+    - command: "git diff HEAD"
+      result: pass
+      output_summary: "No output — no committed changes against HEAD"
+    - command: "git diff --cached --name-only"
+      result: pass
+      output_summary: "No output — no staged changes"
+  file_presence:
+    - command: "test -f .project-memory/pr/0010-map-relay-channel-to-switchable-load/PLAN.md"
+      result: pass
+      output_summary: "File exists"
+  prior_pr_presence:
+    - command: "test -f app/control/domain.py"
+      result: pass
+      output_summary: "PR 0009 domain types confirmed present"
+    - command: "test -f app/control/__init__.py"
+      result: pass
+      output_summary: "PR 0009 __init__.py confirmed present"
+    - command: "grep -q 'pump_automation_enabled' app/service/smart_home_controller.py"
+      result: pass
+      output_summary: "PR 0008 pump automation gate confirmed present"
+    - command: "grep -q 'PUMP_AUTOMATION_ENABLED' run.py"
+      result: pass
+      output_summary: "PR 0008 env var check confirmed present in run.py"
+  grep_validation:
+    - command: "grep -q 'SwitchableLoad' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'relay_channel_to_switchable_load' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'relay_channels_to_switchable_loads' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'manual' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ON/OFF' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ML control' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'external GitOps' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'locked' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'CODER_REPORT.txt' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'PRECOMMIT_REVIEW.yaml' PLAN.md"
+      result: pass
+      output_summary: "Found"
+
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed together with PLAN.md as planning artifacts"
+    - "Coder must exactly follow PLAN.md section 4.5 allowed files list"
+    - "Coder must not edit any file in PLAN.md section 4.6 forbidden files list"
+    - "Mapping must remain a passive data transformation — no runtime wiring"
+    - "Mapping must NOT import RelayChannelDevice, Tuya, DESS, OpenWeather, ML, or any runtime module per Section 4.4"
+    - "Mapping must NOT call any hardware or relay methods (switch_on_device, switch_off_device, etc.) per Section 4.4"
+    - "Mapping metadata must NOT include tuya_device_id, api_key, status, min_volt, max_volt, load_in_wt per Section 4.1"
+    - "Coder must produce CODER_REPORT.txt with all 8 required sections"
+    - "Coder must run all 11 validation command groups from PLAN.md section 6"
