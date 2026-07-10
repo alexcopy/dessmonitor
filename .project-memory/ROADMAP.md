@@ -31,7 +31,7 @@
 - [x] PR 0009 — Introduce generic control domain types (SwitchableLoad, ControlCommand)
 - [x] PR 0010 — Backward-compatible adapter from old config to generic load
 - [x] PR 0011 — Energy-aware control policy requirements documented
-- [ ] PR 0012 — Passive energy policy domain types
+- [x] PR 0012 — Passive energy policy domain types
 - [ ] PR 0013 — Static policy configuration example without secrets
 - [ ] PR 0014 — Readiness evaluator, pure function only
 - [ ] PR 0015 — Health evaluator, pure function only
