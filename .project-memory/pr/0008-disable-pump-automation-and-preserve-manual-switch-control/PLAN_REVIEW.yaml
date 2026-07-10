@@ -1,0 +1,159 @@
+# Plan Review Artifact — PR 0008
+# Generated: 2026-07-09T23:48:55Z
+# Agent: plan-review
+# Branch: 0008-disable-pump-automation-and-preserve-manual-switch-control
+
+verdict: approved_with_warnings
+
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings:
+  - id: W001
+    severity: warning
+    finding: "PLAN.md section 4.4 lists '.project-memory/CURRENT_STATE.md' as an editable file but only a single additive line is described. The coder must not refactor or restructure CURRENT_STATE.md beyond the single line addition documented."
+    recommendation: "Coder should strictly limit CURRENT_STATE.md edits to adding the single PR 0008 note line as shown in PLAN.md section 4.1 item 5. No other content in CURRENT_STATE.md should be modified."
+  - id: W002
+    severity: warning
+    finding: "PLAN.md section 4.1 item 3 describes a static validation script scripts/check-pump-automation-disabled.sh but does not specify its exact exit code contract beyond 'Exit 0 if all pass, 1 if any fail'."
+    recommendation: "Coder should ensure the script exits 0 on all pass, 1 on any failure, and produces clear per-check output. The script must be repository-only, no network, no secrets, no mutations as stated."
+  - id: W003
+    severity: warning
+    finding: "PLAN.md section 6 validation command 1 uses 'grep -c' which returns count but not context. Coder should ensure the coder report captures the actual grep output lines, not just the count."
+    recommendation: "Coder should include the full grep match output in CODER_REPORT.txt VALIDATION RUN section for auditability."
+
+checks:
+  - name: plan_exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/PLAN.md"
+  - name: states_physical_pump_gone
+    result: pass
+    notes: "PLAN.md line 15: 'PR 0007 (strategy) documented that the physical pump / water pump no longer exists'"
+  - name: states_active_pump_automation_not_run_by_default
+    result: pass
+    notes: "PLAN.md details PUMP_AUTOMATION_ENABLED=False default in sections 4.1, 5.1, 5.2"
+  - name: preserves_manual_on_off
+    result: pass
+    notes: "Section 4.2 documents all 5 manual control APIs (switch_on_device, switch_off_device, switch_binary, switch_device, toggle_device) and _switch_loop as preserved"
+  - name: is_small_runtime_safety_pr
+    result: pass
+    notes: "Scope: 2 runtime files gated (run.py, smart_home_controller.py), 1 new validation script, 1 CI step addition, 1 doc line updated. No broad deletion/rename."
+  - name: identifies_active_pump_automation_path
+    result: pass
+    notes: "Section 3 audits complete path: run.py line ~68 → SmartHomeController.start() → _pump_loop → PondPumpController.deside_speed() → tuya_ctrl.set_numeric(). Confirmed against actual code."
+  - name: leaves_broad_pump_deletion_to_later
+    result: pass
+    notes: "Section 10 explicitly maps later PRs (PR 0011-0013) for deleting PondPumpController, pump_power_map, pump_int, pump special cases"
+  - name: defines_minimal_safe_runtime_gate
+    result: pass
+    notes: "pump_automation_enabled: bool = False parameter on SmartHomeController.__init__, conditional _pump_loop task creation in start()"
+  - name: defines_safe_disabled_default
+    result: pass
+    notes: "PUMP_AUTOMATION_ENABLED env var defaults to False when absent. os.getenv('PUMP_AUTOMATION_ENABLED', '').lower() in ('true', '1', 'yes')"
+  - name: defines_allowed_implementation_files
+    result: pass
+    notes: "Section 4.4 lists 6 files: run.py, smart_home_controller.py, check-pump-automation-disabled.sh, validate.yml, CURRENT_STATE.md, CODER_REPORT.txt"
+  - name: defines_forbidden_implementation_files
+    result: pass
+    notes: "Section 4.5 explicitly forbids app/devices/*, app/tuya/*, app/monitoring/*, app/ml/*, app/device_initializer.py, Docker/deployment files, all locked artifacts"
+  - name: defines_validation_commands
+    result: pass
+    notes: "Section 6 lists 10 validation commands covering grep checks, static script, compileall, safety, project-memory, yaml, image-publishing, control-redesign, locked artifact diff checks"
+  - name: preserves_docker_image_publishing
+    result: pass
+    notes: "build-and-deploy.yml is in forbidden files list (section 4.3, 4.5). Validation command 8 verifies it is not modified."
+  - name: preserves_external_gitops_argocd
+    result: pass
+    notes: "No ArgoCD, Kubernetes, or external GitOps files are edited. DEPLOYMENT_BOUNDARY.md and ADR-0002 boundaries are respected."
+  - name: does_not_enable_ml_control
+    result: pass
+    notes: "Section 4.3 forbids editing app/ml/*. Section 9 explicitly states ML control remains disabled per ADR-0003."
+  - name: defines_artifact_locking
+    result: pass
+    notes: "Section 4.6 and 4.7 state PLAN.md and PLAN_REVIEW.yaml are LOCKED. Coder forbidden from editing them. AGENT_STANDARD.txt locking rules referenced."
+  - name: active_pump_automation_audit_complete
+    result: pass
+    notes: "All 10 audit points verified against actual code: pump_int(75), SmartHomeController(17,71), PondPumpController(7,50), self.pump_logic(50), _tasks.append(61), _pump_loop(130), pump_mode(82), voltage-driven target(154), set_numeric(162), device_type=='pump'(152)"
+  - name: manual_control_preserved
+    result: pass
+    notes: "All 5 manual methods verified: switch_on_device(44), switch_off_device(51), switch_binary(137), switch_device(146), toggle_device(71). _switch_loop unchanged at lines 60,83."
+  - name: forbidden_edits_not_required
+    result: pass
+    notes: "PLAN.md does not require editing pond_pump_controller.py, pump_power_map.py, relay_channel_device.py, device_initializer.py, relay_tuya_controller.py, status_updater*.py, device_status_logger.py, app/ml/*, config files, data files, Docker/deployment files"
+  - name: validation_static_script_is_repo_only
+    result: pass
+    notes: "check-pump-automation-disabled.sh described as read-only, no network, no secrets, no mutations. Uses grep only on local files."
+  - name: coder_boundary_confirmations
+    result: pass
+    notes: "Coder forbidden from: editing PLAN.md/PLAN_REVIEW.yaml, broad pump deletion, broad rename/refactor, ML cleanup, deployment changes, external GitOps changes, adding secrets/configs/logs/caches"
+  - name: coder_artifact_requirements
+    result: pass
+    notes: "CODER_REPORT.txt required with 8 sections. PRECOMMIT_REVIEW.yaml required from precommit-review agent."
+
+validation:
+  preconditions:
+    - command: "git rev-parse --verify HEAD"
+      result: pass
+      output_summary: "07f1a1b7614cbbf1be61a91acaa4daaeb4e3e9db"
+    - command: "git branch --show-current"
+      result: pass
+      output_summary: "0008-disable-pump-automation-and-preserve-manual-switch-control"
+    - command: "git status --short"
+      result: pass
+      output_summary: "?? .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/ — expected untracked PLAN.md"
+    - command: "git diff HEAD"
+      result: pass
+      output_summary: "No output — no committed changes against HEAD"
+    - command: "git diff --cached"
+      result: pass
+      output_summary: "No output — no staged changes"
+  file_presence:
+    - command: "test -f .project-memory/pr/0008-disable-pump-automation-and-preserve-manual-switch-control/PLAN.md"
+      result: pass
+      output_summary: "File exists"
+  grep_validation:
+    - command: "grep -q 'pump automation' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'PUMP_AUTOMATION_ENABLED' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'manual' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ON/OFF' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'switch_on_device' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'switch_off_device' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ML control' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'external GitOps' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'locked' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'CODER_REPORT.txt' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'PRECOMMIT_REVIEW.yaml' PLAN.md"
+      result: pass
+      output_summary: "Found"
+
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed together with PLAN.md as planning artifacts"
+    - "Coder must exactly follow PLAN.md section 4.4 allowed files list"
+    - "Coder must not edit any file in PLAN.md section 4.5 forbidden files list"
+    - "Coder must produce CODER_REPORT.txt with all 8 required sections"
+    - "Coder must verify PLAN.md and PLAN_REVIEW.yaml remain locked (not modified)"
+    - "Coder must run all 10 validation commands from PLAN.md section 6"

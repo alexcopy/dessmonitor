@@ -33,11 +33,13 @@ class SmartHomeController:
             tuya_ctrl: RelayTuyaController,
             switch_int: int,
             pump_int: int,
+            pump_automation_enabled: bool = False,
     ):
         self.dev_mgr = dev_mgr
         self.ctrl = tuya_ctrl
         self.switch_int = switch_int
         self.pump_int = pump_int
+        self.pump_automation_enabled = pump_automation_enabled
 
         self.log_business = add_file_logger("BusinessDecisions",
                                             self.LOG_BUSINESS_PATH,
@@ -58,7 +60,8 @@ class SmartHomeController:
         loop = asyncio.get_running_loop()
         self._stop.clear()
         self._tasks.append(loop.create_task(self._switch_loop()))
-        self._tasks.append(loop.create_task(self._pump_loop()))
+        if self.pump_automation_enabled:
+            self._tasks.append(loop.create_task(self._pump_loop()))
 
     async def stop(self) -> None:
         self._stop.set()
