@@ -1,0 +1,213 @@
+# Plan Review Artifact — PR 0011
+# Generated: 2026-07-09T23:48:55Z
+# Agent: plan-review
+# Branch: 0011-energy-aware-control-policy-requirements
+
+verdict: approved
+
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+
+warnings: []
+
+checks:
+  - name: plan_exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0011-energy-aware-control-policy-requirements/PLAN.md"
+  - name: captures_energy_aware_control_as_core_purpose
+    result: pass
+    notes: "Section 2: 'energy-aware device control for a pond/home energy system.' Section 3 lists 15 product truths defining energy-aware control philosophy."
+  - name: defines_voltage_based_switching_goals
+    result: pass
+    notes: "Section 5 Signal #1: Battery voltage (V). Section 3 items 2-4: switch ON when high voltage, OFF when low voltage."
+  - name: defines_switch_ON_behavior
+    result: pass
+    notes: "Section 3 items 2, 14: switch ON when favorable conditions (high voltage, solar generation, sunny forecast). Section 7 readiness rules define ON conditions."
+  - name: defines_switch_OFF_behavior
+    result: pass
+    notes: "Section 3 items 3, 5: switch OFF when unfavorable (low voltage, grid/mains, cloudy/rainy). Per-device policy includes voltage_off threshold (Section 6)."
+  - name: includes_grid_mains_conservation
+    result: pass
+    notes: "Section 3 item 5: 'Grid/network/mains operation is a signal to reduce or disable discretionary loads.' Section 14 item 9: 'Grid/mains/network operation should prefer conservation.'"
+  - name: includes_device_readiness_checks
+    result: pass
+    notes: "Section 3 item 6: 'Device readiness must be checked before switching ON.' Section 7 defines full readiness model (5 readiness rules, 7 conditions)."
+  - name: includes_device_health_checks
+    result: pass
+    notes: "Section 3 item 7: 'Device health must be checked after switching and periodically.' Section 8 defines full health model (8 rules, 4 health status levels)."
+  - name: includes_time_of_day_scheduling
+    result: pass
+    notes: "Section 9: Morning (06-12), Day (12-18), Evening (18-22), Night (22-06), dawn/dusk transitions. Configurable intervals with evening sensitivity."
+  - name: includes_seasonal_scheduling
+    result: pass
+    notes: "Section 10: Summer (more permissive), Winter (more conservative), Spring/Autumn (transitional). Configurable, not hardcoded to hemisphere."
+  - name: includes_weather_forecast_adjustment
+    result: pass
+    notes: "Section 11: Sunny (more permissive), Cloudy (conservative), Rainy (most conservative), Mixed/unknown (conservative defaults). Forecast failures fall back conservative."
+  - name: includes_battery_reserve_26_5V
+    result: pass
+    notes: "Section 12: Evening reserve target ~26.5V after sunset. Configurable, advisory, influences readiness."
+  - name: includes_sunny_cloudy_rainy_differences
+    result: pass
+    notes: "Section 11 table: Sunny allows more load, Cloudy reduces, Rainy skips discretionary. Section 3 items 11-12: Sunny more permissive, Cloudy/rainy more conservative."
+  - name: includes_temperature_as_policy_input
+    result: pass
+    notes: "Section 5 Signal #8: Ambient temperature. Section 3 item 13: 'Temperature may influence device policy.'"
+  - name: includes_ML_advisory_not_ML_control
+    result: pass
+    notes: "Section 13: ML predicts, recommends, advises — does NOT directly control hardware. ML runs in advisory/shadow mode. ML control deferred per ADR-0003."
+  - name: states_PR0011_is_requirements_architecture_only
+    result: pass
+    notes: "Section 2: 'PR 0011 captures the actual product purpose... It does NOT implement runtime changes.' Section 15: 'Out of Scope for PR 0011 — Implementation of policy domain types... Any runtime code changes.'"
+  - name: states_PR0011_does_not_enable_automation
+    result: pass
+    notes: "Section 15: 'Any runtime code changes' are out of scope. Section 14: 'Policy decisions must be separate from hardware execution.' Section 21: 'Policy evaluation is not wired into any runtime component.'"
+  - name: states_PR0011_does_not_modify_runtime
+    result: pass
+    notes: "Section 17: 'No runtime edits allowed in PR 0011.' Section 19 validation commands verify no runtime files modified."
+  - name: preserves_external_GitOps_boundary
+    result: pass
+    notes: "Section 21: 'No external GitOps/ArgoCD change: Publishing boundary respected.' Section 18: validation script checks 'external GitOps boundary remains unchanged.'"
+  - name: defines_artifact_locking
+    result: pass
+    notes: "Section 20: PLAN.md and PLAN_REVIEW.yaml LOCKED after approval. Coder forbidden from editing them."
+  - name: policy_signals_comprehensive
+    result: pass
+    notes: "Section 5 lists all 13 signal categories: battery voltage, voltage trend, charging/discharging status, power source, time of day, season, weather forecast, temperature, device readiness, ON/OFF state, priority, critical/discretionary classification, evening reserve."
+  - name: per_device_policy_shape_defined
+    result: pass
+    notes: "Section 6 lists all 16 per-device policy parameters: load_id, priority, critical, discretionary, allowed_time_windows, min_voltage_on, min_voltage_stay_on, voltage_off, cooldown_seconds, readiness_check_interval, health_check_interval, weather_sensitive, season_profile, allow_always_on_when_good, skip_when_cloudy_or_rainy, manual_override, fail_safe_off."
+  - name: per_device_policy_not_implemented_in_PR0011
+    result: pass
+    notes: "Section 6 header: 'Future per-device policy must include these parameters (not yet implemented)'. Section 15 defers implementation."
+  - name: readiness_vs_health_distinguished
+    result: pass
+    notes: "Section 7: Readiness = 'Should this device be switched ON now?' Section 8: Health = 'Is the device behaving as expected?' Both are requirements only in PR 0011."
+  - name: scheduling_model_defined
+    result: pass
+    notes: "Section 9: Morning/Day/Evening/Night slots with intervals. Evening may need more frequent checks. Night checks less frequent. Section 10: Seasonal profiles. Section 9 item 6: 'No scheduler implementation in PR 0011.'"
+  - name: weather_and_reserve_model_defined
+    result: pass
+    notes: "Section 11: Sunny/Cloudy/Rainy/Mixed adjustments. Forecast failures fall back conservative. Section 12: Evening reserve ~26.5V. Configurable, advisory. No weather runtime change in PR 0011."
+  - name: ML_model_defined
+    result: pass
+    notes: "Section 13: ML may predict availability and consumption, recommend thresholds/windows. ML advisory does NOT directly switch devices. ML control deferred. Deterministic fallback must exist before ML control. PR 0011 does not modify ML code."
+  - name: safety_boundaries_defined
+    result: pass
+    notes: "Section 14: All 10 safety boundaries confirmed — policy separate from hardware, readiness does not switch, health does not blindly loop, forecast fail-safe, ML advisory only, manual override remains, critical loads protected, discretionary shed first, grid conservation, pump obsolete/disabled."
+  - name: staged_roadmap_defined
+    result: pass
+    notes: "Section 16: 12-stage roadmap from PR 0011 through ML control. Each stage is incremental and separate: requirements → domain types → config → readiness → health → schedule → weather → policy engine → command API → proposal → controlled execution → ML advisory → ML control."
+  - name: implementation_scope_docs_and_validation_only
+    result: pass
+    notes: "Section 17: Only 6 file groups allowed: ENERGY_AWARE_CONTROL_POLICY.md, CURRENT_STATE.md, ROADMAP.md, check-energy-aware-control-policy.sh, validate.yml, CODER_REPORT.txt. No runtime edits."
+  - name: static_validation_repo_only
+    result: pass
+    notes: "Section 18: Script checks local static files only, no network, no secrets, no mutations. Verifies policy doc exists, 13 concept phrases, runtime automation not enabled, external GitOps boundary unchanged. Exit 0/1."
+  - name: coder_boundary_confirmations
+    result: pass
+    notes: "Section 20 and hard rules confirm: coder forbidden from editing PLAN.md/PLAN_REVIEW.yaml, runtime integration, enabling automation, enabling ML control, ML cleanup/deletion, deployment changes, external GitOps changes, adding secrets/configs/logs/caches. CODER_REPORT.txt required. PRECOMMIT_REVIEW.yaml required."
+
+validation:
+  preconditions:
+    - command: "git rev-parse --verify HEAD"
+      result: pass
+      output_summary: "5563213a205ea3fcb2b38348a73bed29f1eaa502"
+    - command: "git branch --show-current"
+      result: pass
+      output_summary: "0011-energy-aware-control-policy-requirements"
+    - command: "git status --short"
+      result: pass
+      output_summary: "?? .project-memory/pr/0011-energy-aware-control-policy-requirements/ — expected untracked PLAN.md only"
+    - command: "git diff HEAD"
+      result: pass
+      output_summary: "No output — no committed changes against HEAD"
+    - command: "git diff --cached --name-only"
+      result: pass
+      output_summary: "No output — no staged changes"
+  file_presence:
+    - command: "test -f .project-memory/pr/0011-energy-aware-control-policy-requirements/PLAN.md"
+      result: pass
+      output_summary: "File exists"
+  prior_pr_evidence:
+    - command: "test -f app/control/domain.py"
+      result: pass
+      output_summary: "PR 0009 domain types confirmed present"
+    - command: "test -f app/control/relay_mapping.py"
+      result: pass
+      output_summary: "PR 0010 relay mapping confirmed present"
+    - command: "test -f scripts/check-relay-switchable-load-mapping.sh"
+      result: pass
+      output_summary: "PR 0010 validation script confirmed present"
+    - command: "grep -q 'PUMP_AUTOMATION_ENABLED' run.py"
+      result: pass
+      output_summary: "PR 0008 pump automation gate confirmed present"
+    - command: "grep -q 'forecast_hourly' app/weather/openweather_service.py"
+      result: pass
+      output_summary: "Weather forecast capability confirmed present"
+  grep_validation:
+    - command: "grep -q 'energy-aware control' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'voltage' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'switch ON' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'switch OFF' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'readiness' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'health' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'weather forecast' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q '26.5' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'evening reserve' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ML advisory' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'ML control' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'manual override' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'deterministic fallback' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'external GitOps' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'locked' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'CODER_REPORT.txt' PLAN.md"
+      result: pass
+      output_summary: "Found"
+    - command: "grep -q 'PRECOMMIT_REVIEW.yaml' PLAN.md"
+      result: pass
+      output_summary: "Found"
+
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be committed together with PLAN.md as planning artifacts"
+    - "Coder must exactly follow PLAN.md section 17 allowed files list (6 file groups only)"
+    - "Coder must not edit any runtime code — no run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, service/**, shared_state/**, Docker/deployment, or locked artifacts"
+    - "Coder must not enable automation or ML control in PR 0011"
+    - "Coder must produce ENERGY_AWARE_CONTROL_POLICY.md capturing all requirements from PLAN.md sections 5-14"
+    - "Coder must produce scripts/check-energy-aware-control-policy.sh per Section 18 specification"
+    - "Coder must produce CODER_REPORT.txt with all 8 required sections"
+    - "Coder must run all validation command groups from PLAN.md section 19"
