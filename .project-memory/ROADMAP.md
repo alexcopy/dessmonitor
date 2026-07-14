@@ -34,7 +34,7 @@
 - [x] PR 0012 — Passive energy policy domain types
 - [x] PR 0013 — Static policy configuration example without secrets
 - [x] PR 0014 — Readiness evaluator, pure function only
-- [ ] PR 0015 — Health evaluator, pure function only
+- [x] PR 0015 — Health evaluator, pure function only
 - [ ] PR 0016 — Schedule profile model
 - [ ] PR 0017 — Weather adjustment evaluator
 - [ ] PR 0018 — Deterministic policy decision engine, no hardware execution
@@ -44,7 +44,7 @@
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 
-**PR 0014 note:** Pure readiness evaluator follows static policy config example (PR 0013). Future PRs will add health evaluator, schedule profile, weather adjustment, deterministic decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
+**PR 0015 note:** Pure health evaluator follows readiness evaluator (PR 0014). Future PRs will add schedule profile, weather adjustment, deterministic decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
 
 ## Phase 3: Safety-First Adaptive Control (PR 0004+)
 - [ ] Implement safety policy and fallback mechanism for relay control
