@@ -96,6 +96,12 @@ The evaluator is not runtime-wired. It does not switch devices. Runtime automati
 is not enabled. Manual relay/switch ON/OFF remains unchanged. Pump automation remains
 disabled by default from PR 0008. ML control remains disabled.
 
+## PR 0015 — Pure Health Evaluator
+PR 0015 adds a pure deterministic health evaluator in `app/control/health.py`.
+The evaluator is not runtime-wired. It does not switch devices or retry switching.
+Runtime automation is not enabled. Manual relay/switch ON/OFF remains unchanged.
+Pump automation remains disabled by default from PR 0008. ML control remains disabled.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

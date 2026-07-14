@@ -62,3 +62,6 @@ jobs:
 
       - name: 🔍 Readiness evaluator check
         run: bash scripts/check-readiness-evaluator.sh
+
+      - name: 🔍 Health evaluator check
+        run: bash scripts/check-health-evaluator.sh

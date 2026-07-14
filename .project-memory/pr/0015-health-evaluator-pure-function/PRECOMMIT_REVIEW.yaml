@@ -1,0 +1,229 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: "scripts/check-energy-policy-config-example.sh exits 1 because it checks app/ modifications (cross-PR scope conflict)."
+    recommendation: "PR 0013 validation script checks for any app/ changes, but PR 0015 legitimately modifies app/control/health.py and app/control/__init__.py. Not a blocker for PR 0015."
+  - id: W002
+    severity: warning
+    finding: "python scripts/check-runtime-smoke.py exits 1 due to missing local dependencies (logfmter, matplotlib, aiohttp, colorama, asyncpg)."
+    recommendation: "CI installs requirements.txt which includes all dependencies. No runtime code changed in PR 0015. Not a blocker for PR 0015."
+checks:
+  - name: branch_is_for_pr_0015
+    result: pass
+    notes: "branch=0015-health-evaluator-pure-function matches PR 0015"
+  - name: implementation_diff_exists
+    result: pass
+    notes: "git status --short shows modified tracked files and new untracked files"
+  - name: plan_md_locked_no_diff
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0015-health-evaluator-pure-function/PLAN.md produces no output"
+  - name: plan_review_locked_no_diff
+    result: pass
+    notes: "git diff --name-only HEAD -- .project-memory/pr/0015-health-evaluator-pure-function/PLAN_REVIEW.yaml produces no output"
+  - name: coder_report_exists
+    result: pass
+    notes: "test -f .project-memory/pr/0015-health-evaluator-pure-function/CODER_REPORT.txt — pass"
+  - name: changed_files_within_scope
+    result: pass
+    notes: "Changed files: app/control/__init__.py, app/control/health.py, scripts/check-health-evaluator.sh, .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md — all within PR 0015 approved scope"
+  - name: runtime_files_not_changed
+    result: pass
+    notes: "git diff --name-only HEAD -- run.py app/service/ app/devices/ app/tuya/ app/monitoring/ app/ml/ app/weather/ examples/energy_policy.example.yaml service/ shared_state/ — no output"
+  - name: health_evaluator_not_runtime_wired
+    result: pass
+    notes: "Evaluator is a pure function with no runtime integration; CURRENT_STATE.md states not runtime-wired"
+  - name: no_hardware_switching_or_retry
+    result: pass
+    notes: "grep for all forbidden hardware calls returns no matches in health.py"
+  - name: no_config_loader_or_yaml_loading
+    result: pass
+    notes: "No open(), yaml.safe_load, or os.getenv calls in health.py; example YAML not loaded"
+  - name: readiness_behavior_not_changed
+    result: pass
+    notes: "readiness.py module unchanged; check-readiness-evaluator.sh passes with exit 0"
+  - name: no_scheduler_weather_or_decision_engine
+    result: pass
+    notes: "No scheduler, weather adjustment, or decision engine implementation; ROADMAP.md defers these"
+  - name: automation_or_ml_control_not_enabled
+    result: pass
+    notes: "CURRENT_STATE.md and ROADMAP.md both state automation and ML control remain disabled"
+  - name: health_module_exists
+    result: pass
+    notes: "test -f app/control/health.py — pass"
+  - name: evaluate_health_defined
+    result: pass
+    notes: "grep -q \"^def evaluate_health\" app/control/health.py — found"
+  - name: healthinput_used
+    result: pass
+    notes: "grep -q \"HealthInput\" app/control/health.py — found"
+  - name: healthcheckresult_used
+    result: pass
+    notes: "grep -q \"HealthCheckResult\" app/control/health.py — found"
+  - name: healthstatus_used
+    result: pass
+    notes: "grep -q \"HealthStatus\" app/control/health.py — found"
+  - name: reason_healthy_present
+    result: pass
+    notes: "grep -q \"healthy\" app/control/health.py — found"
+  - name: reason_invalid_load_id_present
+    result: pass
+    notes: "grep -q \"invalid-load-id\" app/control/health.py — found"
+  - name: reason_unreachable_present
+    result: pass
+    notes: "grep -q \"unreachable\" app/control/health.py — found"
+  - name: reason_stale_status_present
+    result: pass
+    notes: "grep -q \"stale-status\" app/control/health.py — found"
+  - name: reason_repeated_failures_present
+    result: pass
+    notes: "grep -q \"repeated-failures\" app/control/health.py — found"
+  - name: reason_state_mismatch_present
+    result: pass
+    notes: "grep -q \"state-mismatch\" app/control/health.py — found"
+  - name: reason_unknown_state_present
+    result: pass
+    notes: "grep -q \"unknown-state\" app/control/health.py — found"
+  - name: forbidden_imports_absent
+    result: pass
+    notes: "grep -RIn \"app.tuya|app.service|app.devices|app.monitoring|app.ml|app.weather\" app/control/health.py — only \"dessmonitor\" in docstring (project name, not an import)"
+  - name: forbidden_hardware_calls_absent
+    result: pass
+    notes: "grep -RIn for all 12 forbidden hardware calls — no matches"
+  - name: forbidden_impurity_calls_absent
+    result: pass
+    notes: "grep -RIn \"time.time|datetime.now|open(|yaml.safe_load|os.getenv|requests|aiohttp|subprocess|logging\" — only in docstring negation text"
+  - name: deterministic_pure_function
+    result: pass
+    notes: "No impurity calls in executable code; uses only data from HealthInput; same input produces same output"
+  - name: no_readiness_implementation
+    result: pass
+    notes: "health.py does not implement readiness; does not import from readiness"
+  - name: no_device_switching_or_retry
+    result: pass
+    notes: "Result remains advisory (HealthCheckResult with recommended_follow_up); no switching calls present"
+  - name: init_py_correct
+    result: pass
+    notes: "app/control/__init__.py preserves all existing exports, adds evaluate_health import and __all__ export, no side effects"
+  - name: validation_script_exists
+    result: pass
+    notes: "test -f scripts/check-health-evaluator.sh — pass"
+  - name: validation_script_passes
+    result: pass
+    notes: "scripts/check-health-evaluator.sh — exit 0, all 46 checks pass"
+  - name: ci_health_check_added
+    result: pass
+    notes: "grep -q \"check-health-evaluator.sh\" .github/workflows/validate.yml — found; added after readiness check; all existing steps preserved"
+  - name: current_state_scoped
+    result: pass
+    notes: "CURRENT_STATE.md section is concise, states evaluator not runtime-wired, does not switch devices or retry switching, automation not enabled, pump disabled, ML control disabled"
+  - name: roadmap_scoped
+    result: pass
+    notes: "ROADMAP.md marks PR 0015 [x], updates note to reference pure health evaluator, runtime wiring deferred, ML control deferred"
+  - name: behavioral_test_pass
+    result: pass
+    notes: "Python import/behavior test passes 7 assertions covering all 7 reason strings"
+  - name: compileall_pass
+    result: pass
+    notes: "python3 -m compileall -q . — exit 0"
+  - name: check_repo_safety_pass
+    result: pass
+    notes: "scripts/check-repo-safety.sh — exit 0"
+  - name: check_project_memory_pass
+    result: pass
+    notes: "scripts/check-project-memory.sh — exit 0"
+  - name: validate_yaml_pass
+    result: pass
+    notes: "python3 scripts/validate-yaml.py — exit 0"
+  - name: check_image_publishing_boundary_pass
+    result: pass
+    notes: "scripts/check-image-publishing-boundary.sh — exit 0"
+  - name: check_platform_control_redesign_pass
+    result: pass
+    notes: "scripts/check-platform-control-redesign.sh — exit 0"
+  - name: check_pump_automation_disabled_pass
+    result: pass
+    notes: "scripts/check-pump-automation-disabled.sh — exit 0"
+  - name: check_generic_control_domain_pass
+    result: pass
+    notes: "scripts/check-generic-control-domain.sh — exit 0"
+  - name: check_relay_switchable_mapping_pass
+    result: pass
+    notes: "scripts/check-relay-switchable-load-mapping.sh — exit 0"
+  - name: check_energy_aware_control_policy_pass
+    result: pass
+    notes: "scripts/check-energy-aware-control-policy.sh — exit 0"
+  - name: check_energy_policy_domain_types_pass
+    result: pass
+    notes: "scripts/check-energy-policy-domain-types.sh — exit 0"
+  - name: check_energy_policy_config_example_warning
+    result: fail
+    notes: "scripts/check-energy-policy-config-example.sh — exit 1, app/ flagged as modified. Expected cross-PR scope conflict. Not a blocker for PR 0015."
+  - name: check_readiness_evaluator_pass
+    result: pass
+    notes: "scripts/check-readiness-evaluator.sh — exit 0, PASSED"
+  - name: check_health_evaluator_pass
+    result: pass
+    notes: "scripts/check-health-evaluator.sh — exit 0, PASSED"
+  - name: check_runtime_smoke_warning
+    result: fail
+    notes: "python3 scripts/check-runtime-smoke.py — exit 1 due to missing local dependencies. No runtime code changed in PR 0015."
+validation:
+  commands_run:
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "No output — all files compiled successfully"
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "PASSED: All checks clean"
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "PASSED: All required files present"
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "All 23 YAML file(s) validated successfully"
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit 1: 6 modules failed to import due to missing local deps"
+    - command: bash scripts/check-image-publishing-boundary.sh
+      result: pass
+      output_summary: "PASSED: All boundary checks passed"
+    - command: bash scripts/check-platform-control-redesign.sh
+      result: pass
+      output_summary: "PASSED: All platform control redesign checks passed"
+    - command: bash scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "PASSED: Pump automation is disabled by default"
+    - command: bash scripts/check-generic-control-domain.sh
+      result: pass
+      output_summary: "PASSED: Generic control domain types present and safe"
+    - command: bash scripts/check-relay-switchable-load-mapping.sh
+      result: pass
+      output_summary: "PASSED: Relay-to-SwitchableLoad mapping present and safe"
+    - command: bash scripts/check-energy-aware-control-policy.sh
+      result: pass
+      output_summary: "PASSED: Energy-aware control policy document present and complete"
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "PASSED: Energy policy domain types present and safe"
+    - command: bash scripts/check-energy-policy-config-example.sh
+      result: fail
+      output_summary: "Exit 1: app/ flagged as modified (expected cross-PR scope conflict)"
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "PASSED: Readiness evaluator present, pure, and safe"
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "PASSED: Health evaluator present, pure, and safe"
+    - command: python3 -c '... behavioral test (7 assertions)'
+      result: pass
+      output_summary: "health evaluator import and behavior ok"
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - "No blockers. Two documented warnings: (1) check-energy-policy-config-example.sh cross-PR scope conflict, (2) check-runtime-smoke.py local dependency issue. Neither affects PR 0015 correctness."
