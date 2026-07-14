@@ -35,6 +35,10 @@ from app.control.energy_policy import (
     EnergyPolicyDecision,
 )
 
+from app.control.readiness import (
+    evaluate_readiness,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -64,4 +68,5 @@ __all__ = [
     "HealthCheckResult",
     "EnergyPolicyContext",
     "EnergyPolicyDecision",
+    "evaluate_readiness",
 ]

@@ -59,3 +59,6 @@ jobs:
 
       - name: 🔍 Energy policy config example check
         run: bash scripts/check-energy-policy-config-example.sh
+
+      - name: 🔍 Readiness evaluator check
+        run: bash scripts/check-readiness-evaluator.sh
