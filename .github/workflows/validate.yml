@@ -68,3 +68,6 @@ jobs:
 
       - name: 🔍 Schedule profile model check
         run: bash scripts/check-schedule-profile-model.sh
+
+      - name: 🔍 Weather adjustment evaluator check
+        run: bash scripts/check-weather-adjustment-evaluator.sh

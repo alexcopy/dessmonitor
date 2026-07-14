@@ -1,0 +1,169 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: app/control/weather_adjustment.py exists
+    result: pass
+    notes: "Confirmed: file exists at app/control/weather_adjustment.py (untracked, created by coder)."
+  - name: WeatherAdjustmentResult exists
+    result: pass
+    notes: "class WeatherAdjustmentResult defined in weather_adjustment.py with @dataclass(frozen=True). Fields: decision, adjustment_factor, reason, recommended_follow_up."
+  - name: evaluate_weather_adjustment exists
+    result: pass
+    notes: "def evaluate_weather_adjustment(weather: WeatherForecastSignal | None) -> WeatherAdjustmentResult present."
+  - name: WeatherForecastSignal used
+    result: pass
+    notes: "Imported from app.control.energy_policy; used as function parameter type and in _ADJUSTMENT_MAP."
+  - name: WeatherCondition used
+    result: pass
+    notes: "Imported from app.control.energy_policy; used as mapping key type and for isinstance checks."
+  - name: EnergyPolicyDecision used
+    result: pass
+    notes: "Imported from app.control.energy_policy; used in WeatherAdjustmentResult.decision and _ADJUSTMENT_MAP values."
+  - name: adjustment_factor exists
+    result: pass
+    notes: "float field in WeatherAdjustmentResult; default 1.0; present in all return paths."
+  - name: dataclass is frozen
+    result: pass
+    notes: "@dataclass(frozen=True) on WeatherAdjustmentResult confirmed by grep and script check."
+  - name: reason string sunny-spend exists
+    result: pass
+    notes: "Found: 'sunny-spend' in _ADJUSTMENT_MAP for SUNNY condition."
+  - name: reason string cloudy-conserve exists
+    result: pass
+    notes: "Found: 'cloudy-conserve' in _ADJUSTMENT_MAP for CLOUDY condition."
+  - name: reason string rainy-conserve exists
+    result: pass
+    notes: "Found: 'rainy-conserve' in _ADJUSTMENT_MAP for RAINY condition."
+  - name: reason string storm-protect exists
+    result: pass
+    notes: "Found: 'storm-protect' in _ADJUSTMENT_MAP for STORM condition."
+  - name: reason string snowy-protect exists
+    result: pass
+    notes: "Found: 'snowy-protect' in _ADJUSTMENT_MAP for SNOWY condition."
+  - name: reason string neutral-weather exists
+    result: pass
+    notes: "Found: 'neutral-weather' in the fallback return for unmapped conditions."
+  - name: reason string unknown-weather exists
+    result: pass
+    notes: "Found: 'unknown-weather' in 4 return paths (None input, UNKNOWN enum, unknown string, fallback)."
+  - name: missing weather returns unknown-weather
+    result: pass
+    notes: "Behavior test confirmed: evaluate_weather_adjustment(None) returns decision=NO_ACTION, factor=1.0, reason='unknown-weather'."
+  - name: sunny returns positive adjustment
+    result: pass
+    notes: "Behavior test confirmed: SUNNY returns decision=ALLOW_ON, factor=1.15 (>1.0), reason='sunny-spend'."
+  - name: cloudy/rainy returns conservation adjustment
+    result: pass
+    notes: "Behavior test confirmed: CLOUDY returns factor=0.75 (<1.0), reason='cloudy-conserve'. RAINY via string 'rainy' returns factor=0.60 (<1.0), reason='rainy-conserve'."
+  - name: storm/snow returns protection adjustment
+    result: pass
+    notes: "Verification by code read: STORM → FORCE_OFF, factor 0.30, 'storm-protect'. SNOWY → FORCE_OFF, factor 0.30, 'snowy-protect'."
+  - name: no weather fetch
+    result: pass
+    notes: "No HTTP calls, no OpenWeather API, no network client imports. Module docstring explicitly states no weather fetch."
+  - name: no current time reads
+    result: pass
+    notes: "grep for time.time and datetime.now in weather_adjustment.py returned no executable matches (only docstring text)."
+  - name: no runtime imports
+    result: pass
+    notes: "Only imports: __future__ (annotations), dataclasses, app.control.energy_policy (EnergyPolicyDecision, WeatherCondition, WeatherForecastSignal). No app.tuya, app.service, app.devices, app.monitoring, app.ml, app.weather, app.control.readiness, app.control.health, app.control.schedule_profile."
+  - name: no weather runtime imports
+    result: pass
+    notes: "grep for openweather, weather_client, weather_api returned no matches (script check 18 confirmed)."
+  - name: no hardware calls
+    result: pass
+    notes: "grep for 12 forbidden hardware/switch calls returned no matches."
+  - name: no config loading
+    result: pass
+    notes: "No open(), yaml.safe_load, os.getenv, or file reads found."
+  - name: no file/env/network access
+    result: pass
+    notes: "grep for requests, aiohttp, subprocess, urllib returned only docstring negation text, no executable calls."
+  - name: no readiness behavior change
+    result: pass
+    notes: "readiness.py not modified (git diff confirms). weather_adjustment.py does not import or call readiness."
+  - name: no health behavior change
+    result: pass
+    notes: "health.py not modified (git diff confirms). weather_adjustment.py does not import or call health."
+  - name: no schedule profile behavior change
+    result: pass
+    notes: "schedule_profile.py not modified (git diff confirms). weather_adjustment.py does not import or call schedule_profile."
+  - name: __init__.py preserves existing exports
+    result: pass
+    notes: "All existing __all__ exports preserved. WeatherAdjustmentResult, evaluate_weather_adjustment appended."
+  - name: validate.yml only adds validation-only check
+    result: pass
+    notes: "One step added after schedule profile model check: bash scripts/check-weather-adjustment-evaluator.sh. No other changes to validate.yml."
+  - name: CURRENT_STATE.md and ROADMAP.md updates concise
+    result: pass
+    notes: "CURRENT_STATE.md adds 10-line PR 0017 section. ROADMAP.md marks [x] and updates PR note from 0016 to 0017. No broad rewrites."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "6a5c1da858b061054ec3cfbf4f473689fb88cb80"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0017-weather-adjustment-evaluator"
+    - command: git status --short
+      result: pass
+      output_summary: "4 modified tracked files, 3 untracked files (CODER_REPORT.txt, weather_adjustment.py, check-weather-adjustment-evaluator.sh). All within PR 0017 scope."
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, app/control/__init__.py — all allowed files."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "4 files changed: validate.yml (+3 lines), CURRENT_STATE.md (+10 lines PR 0017 section), ROADMAP.md (2 lines updated), __init__.py (+7 lines weather exports). No runtime files changed."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Exit 0. No syntax errors."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit 0. All required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit 0. All 23 YAML files validated successfully."
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Exit 0. Energy policy domain types present and safe."
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Readiness evaluator present, pure, and safe."
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Health evaluator present, pure, and safe."
+    - command: bash scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Exit 0. Schedule profile model present, passive, and safe (unchanged)."
+    - command: bash scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks pass. Weather adjustment evaluator present, pure, and safe."
+    - command: python3 import/behavior test
+      result: pass
+      output_summary: "weather adjustment evaluator import and behavior ok — verified unknown-weather (None), sunny-spend (factor>1.0), cloudy-conserve (factor<1.0), rainy-conserve (string matching)."
+    - command: grep for types/function/fields
+      result: pass
+      output_summary: "All expected types (WeatherAdjustmentResult, WeatherForecastSignal, WeatherCondition, EnergyPolicyDecision), function (evaluate_weather_adjustment), and field (adjustment_factor) found in weather_adjustment.py, __init__.py, check script."
+    - command: grep for reason strings
+      result: pass
+      output_summary: "All 7 reason strings found: sunny-spend, cloudy-conserve, rainy-conserve, storm-protect, snowy-protect, neutral-weather, unknown-weather."
+    - command: grep for forbidden imports
+      result: pass
+      output_summary: "No matches except 'dessmonitor' in docstring (not an import). All 18 forbidden import patterns absent."
+    - command: grep for forbidden hardware calls
+      result: pass
+      output_summary: "No matches — zero forbidden hardware calls."
+    - command: grep for forbidden impurity calls
+      result: pass
+      output_summary: "No executable matches. 'aiohttp, requests' only in docstring negation. No time.time, datetime.now, open(, yaml.safe_load, os.getenv, subprocess, logging, urllib."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

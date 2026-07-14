@@ -1,0 +1,166 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0017-weather-adjustment-evaluator/PLAN.md -> PASS"
+  - name: WeatherAdjustmentResult type defined
+    result: pass
+    notes: "grep -q 'WeatherAdjustmentResult' PLAN.md -> PASS. Frozen dataclass with decision, adjustment_factor, reason, recommended_follow_up."
+  - name: evaluate_weather_adjustment function defined
+    result: pass
+    notes: "grep -q 'evaluate_weather_adjustment' PLAN.md -> PASS. Pure function accepting WeatherForecastSignal | None, returning WeatherAdjustmentResult."
+  - name: WeatherForecastSignal used
+    result: pass
+    notes: "grep -q 'WeatherForecastSignal' PLAN.md -> PASS. Consumed from app/control/energy_policy.py."
+  - name: WeatherCondition used
+    result: pass
+    notes: "grep -q 'WeatherCondition' PLAN.md -> PASS. Enum used for look-up mapping in evaluator."
+  - name: EnergyPolicyDecision used
+    result: pass
+    notes: "grep -q 'EnergyPolicyDecision' PLAN.md -> PASS. 11 references. Used in WeatherAdjustmentResult.decision and mapping table."
+  - name: adjustment_factor field defined
+    result: pass
+    notes: "grep -c 'adjustment_factor' PLAN.md = 3. float field in WeatherAdjustmentResult with multipliers (1.15, 0.75, 0.60, 0.30, 1.0)."
+  - name: sunny-spend reason string
+    result: pass
+    notes: "grep -q 'sunny-spend' PLAN.md -> PASS. ALLOW_ON, factor 1.15."
+  - name: cloudy-conserve reason string
+    result: pass
+    notes: "grep -q 'cloudy-conserve' PLAN.md -> PASS. PREFER_OFF, factor 0.75."
+  - name: rainy-conserve reason string
+    result: pass
+    notes: "grep -q 'rainy-conserve' PLAN.md -> PASS. PREFER_OFF, factor 0.60."
+  - name: storm-protect reason string
+    result: pass
+    notes: "grep -q 'storm-protect' PLAN.md -> PASS. FORCE_OFF, factor 0.30."
+  - name: snowy-protect reason string
+    result: pass
+    notes: "grep -q 'snowy-protect' PLAN.md -> PASS. FORCE_OFF, factor 0.30."
+  - name: neutral-weather reason string
+    result: pass
+    notes: "grep -q 'neutral-weather' PLAN.md -> PASS. NO_ACTION, factor 1.0."
+  - name: unknown-weather reason string
+    result: pass
+    notes: "grep -q 'unknown-weather' PLAN.md -> PASS. NO_ACTION, factor 1.0."
+  - name: Frozen dataclass
+    result: pass
+    notes: "@dataclass(frozen=True) used for WeatherAdjustmentResult (2 occurrences in PLAN.md)."
+  - name: No weather fetch
+    result: pass
+    notes: "grep -q 'no weather fetch' PLAN.md -> PASS. Section 2: 'does not fetch weather.' Section 7: 'No weather fetching.'"
+  - name: No OpenWeather/weather runtime import
+    result: pass
+    notes: "Section 7: Module must not import 'app.weather', 'openweather', 'dess', or 'aiohttp/requests'. Section 13 forbids editing app/weather/**, including openweather_service.py."
+  - name: No scheduler execution
+    result: pass
+    notes: "Section 7: 'No weather fetching.' Section 19: 'No system clock.' Evaluator is pure data-in/data-out with no scheduling."
+  - name: Not runtime-wired
+    result: pass
+    notes: "grep -q 'not runtime-wired' PLAN.md -> PASS. Section 2: 'does not wire into runtime components.' Section 11: 'must not be read by runtime.'"
+  - name: No current time reads
+    result: pass
+    notes: "Section 10: 'does not call time.time or datetime.now.' Section 11: 'uses only the WeatherForecastSignal input — no system clock.'"
+  - name: No hardware calls
+    result: pass
+    notes: "Section 11: 'must not execute hardware calls. must not switch devices.' Section 10: 'calls no hardware methods.'"
+  - name: No config loading
+    result: pass
+    notes: "Section 11: 'must not read configs.' Section 10: 'reads no files, no env vars.'"
+  - name: No readiness/health/schedule behavior changes
+    result: pass
+    notes: "Section 7: 'No readiness evaluation (PR 0014). No health evaluation (PR 0015). No schedule evaluation (PR 0018).' Section 13 forbids editing readiness.py, health.py, schedule_profile.py."
+  - name: No automation enabled
+    result: pass
+    notes: "Section 11: 'must not enable automation or ML control.' Section 19: 'No automation enabled.'"
+  - name: No ML control enabled
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. Section 11: 'ML advisory remains advice only.' Section 19: 'No ML control enabled.'"
+  - name: No deployment or GitOps changes
+    result: pass
+    notes: "Section 13 forbids Dockerfile, docker-compose.yml, .github/workflows/build-and-deploy.yml. Section 19: 'No Docker image publishing change. No external GitOps/ArgoCD change.'"
+  - name: Existing types verified in energy_policy.py
+    result: pass
+    notes: "Verified: WeatherCondition (SUNNY/CLOUDY/RAINY/SNOWY/STORM/UNKNOWN), WeatherForecastSignal (frozen dataclass with condition/temperature/confidence/solar_opportunity/timestamp/metadata), EnergyPolicyDecision (ALLOW_ON/PREFER_OFF/FORCE_OFF/HOLD/NO_ACTION) all exist in app/control/energy_policy.py and are exported via __init__.py."
+  - name: Allowed implementation files match specification
+    result: pass
+    notes: "Section 12: app/control/weather_adjustment.py (create), app/control/__init__.py (edit), scripts/check-weather-adjustment-evaluator.sh (create), .github/workflows/validate.yml (edit), CURRENT_STATE.md (edit), ROADMAP.md (edit), CODER_REPORT.txt (create)."
+  - name: Forbidden implementation files listed
+    result: pass
+    notes: "Section 13: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, domain.py, relay_mapping.py, energy_policy.py, readiness.py, health.py, schedule_profile.py, examples/energy_policy.example.yaml, Docker/deployment files, etc."
+  - name: Validation script requirements defined
+    result: pass
+    notes: "Section 14 defines 22 requirements: local static files only, no network/Docker Hub/GitHub API/Kubernetes/ArgoCD/Tuya/DESS/secrets, no file mutations, verify module/WeatherAdjustmentResult/evaluate_weather_adjustment/WeatherForecastSignal/WeatherCondition/EnergyPolicyDecision/adjustment_factor/frozen/7 reason strings/forbidden imports/hardware calls/impurity calls/weather API imports/runtime file integrity, clear per-check output, exit 0/1."
+  - name: CURRENT_STATE.md update concise
+    result: pass
+    notes: "Section 15 defines exact wording: 'PR 0017 adds a pure deterministic weather adjustment evaluator... does not fetch weather, import OpenWeather, execute control, or switch devices. It is not runtime-wired.' No broad rewrite."
+  - name: ROADMAP.md update concise
+    result: pass
+    notes: "Section 16 defines exact single line: '- [x] PR 0017 — Weather adjustment evaluator'. Update under Phase 2b. No broad rewrite."
+  - name: Future PR boundaries explicitly deferred
+    result: pass
+    notes: "Section 17 explicitly defers 12 items: decision engine (0018), runtime config loader (0018+), schema enforcement (0018+), schedule evaluation (0018), command proposal (0019), manual control API (0019), wire decisions to proposal (0020), controlled execution (0021+), ML advisory (later), ML control (much later), GitOps (never), runtime wiring (deferred). Readiness/health/schedule changes noted as already done."
+  - name: Agent workflow with locked artifacts
+    result: pass
+    notes: "Section 18 defines 4-agent workflow. PLAN.md and PLAN_REVIEW.yaml locked after approval. Coder must not edit them."
+  - name: No weather API client imports or URLs in module
+    result: pass
+    notes: "Section 14 (script check 18): validation script must verify no 'openweather', 'weathermap', 'api.openweather' in module."
+  - name: Evaluation flow handles None input safely
+    result: pass
+    notes: "Section 8: 'If weather is None → NO_ACTION, 1.0, unknown-weather, check-forecast'. Safe fallback for missing forecast data."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "c1e501c10cf1d43bfe5c9f5ab5ea4774411257cc"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0017-weather-adjustment-evaluator — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0017-weather-adjustment-evaluator/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0017-weather-adjustment-evaluator/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q WeatherAdjustmentResult PLAN.md
+      result: pass
+      output_summary: "WeatherAdjustmentResult type defined"
+    - command: grep -q evaluate_weather_adjustment PLAN.md
+      result: pass
+      output_summary: "evaluate_weather_adjustment function defined"
+    - command: grep -q WeatherForecastSignal PLAN.md
+      result: pass
+      output_summary: "WeatherForecastSignal type consumed from energy_policy.py"
+    - command: grep -q WeatherCondition PLAN.md
+      result: pass
+      output_summary: "WeatherCondition enum used for mapping"
+    - command: grep -q sunny-spend PLAN.md
+      result: pass
+      output_summary: "sunny-spend reason string present"
+    - command: grep -q cloudy-conserve PLAN.md
+      result: pass
+      output_summary: "cloudy-conserve reason string present"
+    - command: grep -q unknown-weather PLAN.md
+      result: pass
+      output_summary: "unknown-weather reason string present"
+    - command: grep -q "not runtime-wired" PLAN.md
+      result: pass
+      output_summary: "Multiple explicit statements: 'does not wire into runtime components', 'must not be read by runtime', 'No runtime wiring'"
+    - command: grep -q "no weather fetch" PLAN.md
+      result: pass
+      output_summary: "Section 2 and 7: 'does not fetch weather', 'No weather fetching'"
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control deferred. Section 11: 'ML advisory remains advice only.'"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"
