@@ -43,6 +43,13 @@ from app.control.health import (
     evaluate_health,
 )
 
+from app.control.schedule_profile import (
+    DEFAULT_CHECK_INTERVAL_SECONDS,
+    LoadScheduleProfile,
+    ScheduleProfile,
+    ScheduleWindow,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -74,4 +81,8 @@ __all__ = [
     "EnergyPolicyDecision",
     "evaluate_readiness",
     "evaluate_health",
+    "DEFAULT_CHECK_INTERVAL_SECONDS",
+    "LoadScheduleProfile",
+    "ScheduleProfile",
+    "ScheduleWindow",
 ]

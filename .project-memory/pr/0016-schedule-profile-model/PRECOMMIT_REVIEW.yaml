@@ -1,0 +1,133 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: app/control/schedule_profile.py exists
+    result: pass
+    notes: "Confirmed: file exists at app/control/schedule_profile.py (untracked, created by coder)."
+  - name: ScheduleWindow exists
+    result: pass
+    notes: "class ScheduleWindow defined in schedule_profile.py with frozen dataclass."
+  - name: ScheduleProfile exists
+    result: pass
+    notes: "class ScheduleProfile defined in schedule_profile.py with frozen dataclass."
+  - name: LoadScheduleProfile exists
+    result: pass
+    notes: "class LoadScheduleProfile defined in schedule_profile.py with frozen dataclass."
+  - name: DEFAULT_CHECK_INTERVAL_SECONDS exists
+    result: pass
+    notes: "DEFAULT_CHECK_INTERVAL_SECONDS: int = 300 at module level."
+  - name: TimeOfDay used
+    result: pass
+    notes: "ScheduleWindow.time_of_day: TimeOfDay. TimeOfDay imported from app.control.energy_policy."
+  - name: Season used
+    result: pass
+    notes: "ScheduleProfile.season: Optional[Season]. Season imported from app.control.energy_policy."
+  - name: days_of_week exists
+    result: pass
+    notes: "ScheduleWindow.days_of_week: Tuple[int, ...] with field(default_factory=tuple)."
+  - name: check_interval_seconds exists
+    result: pass
+    notes: "ScheduleWindow.check_interval_seconds: int, defaults to DEFAULT_CHECK_INTERVAL_SECONDS. LoadScheduleProfile.default_check_interval_seconds also present."
+  - name: dataclasses are frozen
+    result: pass
+    notes: "All three classes use @dataclass(frozen=True)."
+  - name: no scheduler execution
+    result: pass
+    notes: "No loop, scheduler, asyncio, threading, or time evaluation found. Module docstring explicitly states passive data only."
+  - name: no current time reads
+    result: pass
+    notes: "grep for time.time and datetime.now in schedule_profile.py returned no matches."
+  - name: no runtime imports
+    result: pass
+    notes: "Only imports: __future__ (annotations), dataclasses, typing (Optional, Tuple), app.control.energy_policy (Season, TimeOfDay). No app.tuya, app.service, app.devices, app.monitoring, app.ml, app.weather, app.control.readiness, app.control.health."
+  - name: no hardware calls
+    result: pass
+    notes: "grep for 12 forbidden hardware/switch calls returned no matches."
+  - name: no config loading
+    result: pass
+    notes: "No open(), yaml.safe_load, os.getenv, or file reads found."
+  - name: no file/env/network access
+    result: pass
+    notes: "grep for open(, requests, aiohttp, subprocess returned no matches."
+  - name: no readiness behavior change
+    result: pass
+    notes: "readiness.py not modified (git diff confirms). schedule_profile.py does not import or call readiness."
+  - name: no health behavior change
+    result: pass
+    notes: "health.py not modified (git diff confirms). schedule_profile.py does not import or call health."
+  - name: __init__.py preserves existing exports
+    result: pass
+    notes: "All existing __all__ exports preserved. ScheduleWindow, ScheduleProfile, LoadScheduleProfile, DEFAULT_CHECK_INTERVAL_SECONDS appended."
+  - name: validate.yml only adds validation-only check
+    result: pass
+    notes: "One step added after health evaluator check: bash scripts/check-schedule-profile-model.sh. No other changes to validate.yml."
+  - name: CURRENT_STATE.md and ROADMAP.md updates concise
+    result: pass
+    notes: "CURRENT_STATE.md adds 9-line PR 0016 section. ROADMAP.md marks [x] and updates PR note from 0015 to 0016. No broad rewrites."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "4c168701514c7f012b5211d7e1a1cfa52ca8eeca"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0016-schedule-profile-model"
+    - command: git status --short
+      result: pass
+      output_summary: "4 modified tracked files, 4 untracked files including PRECOMMIT_REVIEW.yaml itself. All within PR 0016 scope."
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, app/control/__init__.py — all allowed files."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "4 files changed: validate.yml (+3 lines for schedule profile check step), CURRENT_STATE.md (+9 lines PR 0016 section), ROADMAP.md (2 lines updated), __init__.py (+11 lines schedule profile exports). No runtime files changed."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Exit 0. No syntax errors."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit 0. All required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit 0. All 23 YAML files validated successfully."
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Exit 0. Energy policy domain types present and safe."
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Readiness evaluator present, pure, and safe."
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Health evaluator present, pure, and safe."
+    - command: bash scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Exit 0. All 21 checks pass. Schedule profile model present, passive, and safe."
+    - command: python3 import/construction test
+      result: pass
+      output_summary: "schedule profile model import and construction ok — verified DEFAULT_CHECK_INTERVAL_SECONDS==300, ScheduleWindow/TimeOfDay, ScheduleProfile/Season, LoadScheduleProfile construction."
+    - command: grep for ScheduleWindow/ScheduleProfile/LoadScheduleProfile/DEFAULT_CHECK_INTERVAL_SECONDS/TimeOfDay/Season
+      result: pass
+      output_summary: "All expected types and constants found in schedule_profile.py, __init__.py, and check-schedule-profile-model.sh."
+    - command: grep for days_of_week/check_interval_seconds/enabled
+      result: pass
+      output_summary: "All fields found in schedule_profile.py. Script also validates them."
+    - command: grep for forbidden imports (app.tuya, app.service, app.devices, app.monitoring, app.ml, app.weather, smart_home_controller, relay_tuya_controller, relay_channel_device, relay_device_manager, device_status_logger, openweather, dess)
+      result: pass
+      output_summary: "No matches except 'dessmonitor' in module docstring (not an import)."
+    - command: grep for forbidden hardware calls (switch_on_device, switch_off_device, switch_binary, switch_device, toggle_device, set_numeric, update_status, mark_switched, can_switch, ready_to_switch_on, ready_to_switch_off, is_device_on)
+      result: pass
+      output_summary: "No matches — zero forbidden hardware calls."
+    - command: grep for forbidden impurity calls (time.time, datetime.now, open(, yaml.safe_load, os.getenv, requests, aiohttp, subprocess, logging)
+      result: pass
+      output_summary: "No matches — zero forbidden impurity calls."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []
