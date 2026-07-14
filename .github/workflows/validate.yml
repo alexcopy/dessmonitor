@@ -65,3 +65,6 @@ jobs:
 
       - name: 🔍 Health evaluator check
         run: bash scripts/check-health-evaluator.sh
+
+      - name: 🔍 Schedule profile model check
+        run: bash scripts/check-schedule-profile-model.sh

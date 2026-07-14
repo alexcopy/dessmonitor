@@ -1,0 +1,142 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0016-schedule-profile-model/PLAN.md -> PASS"
+  - name: ScheduleWindow type defined
+    result: pass
+    notes: "grep -q 'ScheduleWindow' PLAN.md -> PASS. Frozen dataclass with time_of_day, check_interval_seconds, enabled."
+  - name: ScheduleProfile type defined
+    result: pass
+    notes: "grep -q 'ScheduleProfile' PLAN.md -> PASS. Frozen dataclass with profile_id, windows, days_of_week, season, enabled."
+  - name: LoadScheduleProfile type defined
+    result: pass
+    notes: "grep -q 'LoadScheduleProfile' PLAN.md -> PASS. Frozen dataclass with load_id and profile_id."
+  - name: TimeOfDay enum used
+    result: pass
+    notes: "grep -q 'TimeOfDay' PLAN.md -> PASS. ScheduleWindow.time_of_day uses TimeOfDay from energy_policy.py."
+  - name: Season enum used
+    result: pass
+    notes: "grep -q 'Season' PLAN.md -> PASS. ScheduleProfile.season uses Season from energy_policy.py."
+  - name: days_of_week field defined
+    result: pass
+    notes: "grep -q 'days_of_week' PLAN.md -> PASS. Tuple[int, ...] in ScheduleProfile."
+  - name: check_interval_seconds field defined
+    result: pass
+    notes: "grep -q 'check_interval_seconds' PLAN.md -> PASS. int field in ScheduleWindow."
+  - name: enabled flags defined
+    result: pass
+    notes: "grep -q 'enabled' PLAN.md -> PASS. Both ScheduleWindow and ScheduleProfile have enabled: bool = True."
+  - name: Frozen dataclasses
+    result: pass
+    notes: "@dataclass(frozen=True) used for all three types: ScheduleWindow, ScheduleProfile, LoadScheduleProfile."
+  - name: No scheduler execution
+    result: pass
+    notes: "grep -q 'no scheduler execution' PLAN.md -> PASS. Section 6: 'no scheduler execution — no loop, no time evaluation, no scheduler.'"
+  - name: Not runtime-wired
+    result: pass
+    notes: "grep -q 'not runtime-wired' PLAN.md -> PASS. Section 2: 'does not wire into runtime components.'"
+  - name: No current time reads
+    result: pass
+    notes: "Section 14: 'The model must not call time.time, datetime.now, or any time-reading function.'"
+  - name: No hardware calls
+    result: pass
+    notes: "Section 14: 'The model must not execute hardware calls.' 'The model must not switch devices.'"
+  - name: No config loading
+    result: pass
+    notes: "Section 14: 'The model must not read configs.' Module requirements: 'No config file reads.'"
+  - name: No readiness/health behavior changes
+    result: pass
+    notes: "Section 7: 'No readiness evaluation (PR 0014).' 'No health evaluation (PR 0015).' Section 9 forbids editing readiness.py and health.py."
+  - name: No automation enabled
+    result: pass
+    notes: "Section 14: 'The model must not enable automation, schedule execution, or ML control.' Section 16: 'No automation enabled.'"
+  - name: No ML control enabled
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. Section 14: 'ML advisory remains advice only.' Section 16: 'No ML control enabled.'"
+  - name: No deployment or GitOps changes
+    result: pass
+    notes: "Section 16: 'No Docker image publishing change: build-and-deploy.yml untouched.' Section 9 forbids Dockerfile, docker-compose.yml, etc."
+  - name: Passive model only — no evaluation logic
+    result: pass
+    notes: "Section 14: 'The model must not implement any evaluation logic — it is data definitions only.' Section 2: 'The model is passive data only. It does not evaluate real-time schedules.'"
+  - name: Module dependencies restricted
+    result: pass
+    notes: "Section 7: Only Python standard library (dataclasses, typing) and app.control.energy_policy types (TimeOfDay, Season). Must not import readiness, health, or any runtime module."
+  - name: Allowed implementation files match specification
+    result: pass
+    notes: "Section 8: app/control/schedule_profile.py (create), app/control/__init__.py (edit), scripts/check-schedule-profile-model.sh (create), .github/workflows/validate.yml (edit), CURRENT_STATE.md (edit), ROADMAP.md (edit), CODER_REPORT.txt (create)."
+  - name: Forbidden implementation files listed
+    result: pass
+    notes: "Section 9: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, domain.py, relay_mapping.py, energy_policy.py, readiness.py, health.py, examples/energy_policy.example.yaml, Docker/deployment files, etc. all forbidden."
+  - name: Validation script requirements defined
+    result: pass
+    notes: "Section 10 defines 21 requirements: local static files only, no network/Docker Hub/GitHub API/Kubernetes/ArgoCD/Tuya/DESS/secrets, no file mutations, verify module/3 types/TimeOfDay/Season/fields/frozen/forbidden imports/hardware calls/impurity calls/runtime file integrity, clear per-check output, exit 0/1."
+  - name: CURRENT_STATE.md update concise
+    result: pass
+    notes: "Section 11 defines exact wording: 'PR 0016 adds a passive schedule profile model... The model is not runtime-wired. No schedule execution is implemented...' No broad rewrite."
+  - name: ROADMAP.md update concise
+    result: pass
+    notes: "Section 12 defines exact single line: '- [x] PR 0016 — Schedule profile model'. Update under Phase 2b. No broad rewrite."
+  - name: Future PR boundaries explicitly deferred
+    result: pass
+    notes: "Section 13 explicitly defers 14 items: schedule evaluation (0018), readiness (already done), health (already done), weather adjustment (0017), decision engine (0018), config loader (0018+), schema enforcement (0018+), command proposal (0019), manual control API (0019), wire to command proposal (0020), controlled execution (0021+), ML advisory (later), ML control (much later), GitOps (never), runtime wiring (deferred)."
+  - name: Agent workflow with locked artifacts
+    result: pass
+    notes: "Section 15 defines 4-agent workflow. PLAN.md and PLAN_REVIEW.yaml locked after approval. Coder must not edit them."
+  - name: Existing TimeOfDay and Season in energy_policy.py
+    result: pass
+    notes: "Verified: app/control/energy_policy.py defines TimeOfDay (MORNING/DAY/EVENING/NIGHT/UNKNOWN) and Season (SPRING/SUMMER/AUTUMN/WINTER/UNKNOWN) enums. Exported via __init__.py."
+  - name: Readiness and health evaluators exist and are frozen
+    result: pass
+    notes: "Verified: app/control/readiness.py and app/control/health.py exist, are implemented, and are listed as forbidden to edit in Section 9."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "5f54fa84ef653523a4d2aab529a9c0ac6f72be82"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0016-schedule-profile-model — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0016-schedule-profile-model/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0016-schedule-profile-model/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q ScheduleWindow PLAN.md
+      result: pass
+      output_summary: "ScheduleWindow type defined"
+    - command: grep -q ScheduleProfile PLAN.md
+      result: pass
+      output_summary: "ScheduleProfile type defined"
+    - command: grep -q LoadScheduleProfile PLAN.md
+      result: pass
+      output_summary: "LoadScheduleProfile type defined"
+    - command: grep -q TimeOfDay PLAN.md
+      result: pass
+      output_summary: "TimeOfDay enum used in ScheduleWindow"
+    - command: grep -q Season PLAN.md
+      result: pass
+      output_summary: "Season enum used in ScheduleProfile"
+    - command: grep -q "no scheduler execution" PLAN.md
+      result: pass
+      output_summary: "Section 6 explicitly states no scheduler execution"
+    - command: grep -q "not runtime-wired" PLAN.md
+      result: pass
+      output_summary: "Multiple explicit statements: 'does not wire into runtime components', 'Not wired into any runtime component', 'No runtime wiring'"
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control deferred. Section 14: 'ML advisory remains advice only.'"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"

@@ -102,6 +102,15 @@ The evaluator is not runtime-wired. It does not switch devices or retry switchin
 Runtime automation is not enabled. Manual relay/switch ON/OFF remains unchanged.
 Pump automation remains disabled by default from PR 0008. ML control remains disabled.
 
+## PR 0016 — Schedule Profile Model
+PR 0016 adds a passive schedule profile model in `app/control/schedule_profile.py`
+with frozen dataclasses (ScheduleWindow, ScheduleProfile, LoadScheduleProfile)
+defining time-of-day windows, day-of-week applicability, seasonal applicability,
+and check interval configuration. The model is not runtime-wired. No schedule
+execution is implemented. Runtime automation is not enabled. Manual relay/switch
+ON/OFF remains unchanged. Pump automation remains disabled by default from
+PR 0008. ML control remains disabled.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
