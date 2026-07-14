@@ -50,6 +50,11 @@ from app.control.schedule_profile import (
     ScheduleWindow,
 )
 
+from app.control.weather_adjustment import (
+    WeatherAdjustmentResult,
+    evaluate_weather_adjustment,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -85,4 +90,6 @@ __all__ = [
     "LoadScheduleProfile",
     "ScheduleProfile",
     "ScheduleWindow",
+    "WeatherAdjustmentResult",
+    "evaluate_weather_adjustment",
 ]

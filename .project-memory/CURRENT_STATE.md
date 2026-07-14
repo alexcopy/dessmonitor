@@ -111,6 +111,16 @@ execution is implemented. Runtime automation is not enabled. Manual relay/switch
 ON/OFF remains unchanged. Pump automation remains disabled by default from
 PR 0008. ML control remains disabled.
 
+## PR 0017 — Weather Adjustment Evaluator
+PR 0017 adds a pure deterministic weather adjustment evaluator in
+`app/control/weather_adjustment.py`. The evaluator translates a passive
+WeatherForecastSignal into an advisory energy adjustment result (decision,
+factor, reason, follow-up). It does not fetch weather, import OpenWeather,
+execute control, or switch devices. It is not runtime-wired. Runtime
+automation is not enabled. Manual relay/switch ON/OFF remains unchanged.
+Pump automation remains disabled by default from PR 0008. ML control
+remains disabled.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

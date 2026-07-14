@@ -36,7 +36,7 @@
 - [x] PR 0014 — Readiness evaluator, pure function only
 - [x] PR 0015 — Health evaluator, pure function only
 - [x] PR 0016 — Schedule profile model
-- [ ] PR 0017 — Weather adjustment evaluator
+- [x] PR 0017 — Weather adjustment evaluator
 - [ ] PR 0018 — Deterministic policy decision engine, no hardware execution
 - [ ] PR 0019 — Manual control API or command queue
 - [ ] PR 0020 — Command proposal before automatic execution
@@ -44,7 +44,7 @@
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 
-**PR 0016 note:** Passive schedule profile model follows health evaluator (PR 0015). Future PRs will add weather adjustment evaluator, deterministic decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
+**PR 0017 note:** Pure weather adjustment evaluator follows schedule profile model (PR 0016). Future PRs will add deterministic policy decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
 
 ## Phase 3: Safety-First Adaptive Control (PR 0004+)
 - [ ] Implement safety policy and fallback mechanism for relay control
