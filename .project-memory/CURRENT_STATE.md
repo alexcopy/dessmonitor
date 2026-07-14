@@ -90,6 +90,12 @@ not runtime-loaded. No config loader, evaluator, or runtime wiring is added.
 Runtime automation is not enabled. Manual relay/switch ON/OFF remains unchanged.
 Pump automation remains disabled by default from PR 0008. ML control remains disabled.
 
+## PR 0014 — Pure Readiness Evaluator
+PR 0014 adds a pure deterministic readiness evaluator in `app/control/readiness.py`.
+The evaluator is not runtime-wired. It does not switch devices. Runtime automation
+is not enabled. Manual relay/switch ON/OFF remains unchanged. Pump automation remains
+disabled by default from PR 0008. ML control remains disabled.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
