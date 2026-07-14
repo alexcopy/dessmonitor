@@ -32,7 +32,7 @@
 - [x] PR 0010 — Backward-compatible adapter from old config to generic load
 - [x] PR 0011 — Energy-aware control policy requirements documented
 - [x] PR 0012 — Passive energy policy domain types
-- [ ] PR 0013 — Static policy configuration example without secrets
+- [x] PR 0013 — Static policy configuration example without secrets
 - [ ] PR 0014 — Readiness evaluator, pure function only
 - [ ] PR 0015 — Health evaluator, pure function only
 - [ ] PR 0016 — Schedule profile model
@@ -43,6 +43,8 @@
 - [ ] Later — Controlled execution with safety gates
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
+
+**PR 0013 note:** Static no-secret energy policy config example follows passive policy domain types (PR 0012). Future PRs will add readiness evaluator, health evaluator, schedule profile, weather adjustment, deterministic decision engine, command proposal, controlled execution, and ML advisory. Runtime config loading is deferred. ML control remains deferred behind safety-reviewed gates.
 
 ## Phase 3: Safety-First Adaptive Control (PR 0004+)
 - [ ] Implement safety policy and fallback mechanism for relay control

@@ -1,0 +1,199 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: plan_exists
+    result: pass
+    notes: ".project-memory/pr/0013-static-energy-policy-config-example/PLAN.md exists and was read in full."
+  - name: branch_matches_pr
+    result: pass
+    notes: "Branch is 0013-static-energy-policy-config-example, matches PR 0013."
+  - name: working_tree_clean
+    result: pass
+    notes: "git status --short shows only untracked .project-memory/pr/0013-static-energy-policy-config-example/ directory. No modified tracked files. git diff HEAD --name-only is empty."
+  - name: follows_pr0011_and_pr0012
+    result: pass
+    notes: "PLAN.md Section 4 explicitly describes relationship to PR 0011 (requirements) and PR 0012 (domain types). Aligns with ENERGY_AWARE_CONTROL_POLICY.md staged roadmap where PR 0013 is 'Static policy configuration example without secrets'."
+  - name: static_example_only
+    result: pass
+    notes: "PLAN.md states 'example is documentation only. It is NOT loaded by any runtime code.' Section 9 lists 10 runtime isolation requirements. Section 16 confirms 'Documentation/example only'."
+  - name: no_real_production_config
+    result: pass
+    notes: "Section 8 explicitly forbids real values from devices.yaml, devices_prod.yaml, config.json. All load IDs use example- prefix. No real device identifiers."
+  - name: no_runtime_loading
+    result: pass
+    notes: "Section 9 states: 'The example YAML is NOT loaded by any runtime code.' Example includes runtime_loaded: false. No config loader is added."
+  - name: no_config_loader
+    result: pass
+    notes: "Section 9 confirms 'No config loader is added.' Section 15 defers runtime config loader to a later PR."
+  - name: no_evaluators_implemented
+    result: pass
+    notes: "Readiness evaluator deferred to PR 0014. Health evaluator deferred to PR 0015. Schedule/weather evaluators also deferred."
+  - name: no_scheduler_changes
+    result: pass
+    notes: "Schedule profiles in Section 7.4 are example-only YAML content, not runtime scheduler changes. Deferred to PR 0016."
+  - name: automation_not_enabled
+    result: pass
+    notes: "Section 9 states 'No automation is enabled.' Section 15 defers automatic execution to PR 0021+."
+  - name: ml_control_not_enabled
+    result: pass
+    notes: "ml_advisory_enabled: false and ml_control_enabled: false in example (Section 7.9). ML control deferred to 'Much later' per ADR-0003."
+  - name: pump_automation_preserved
+    result: pass
+    notes: "Section 16 confirms 'No pump code changed: Pump already gated by PR 0008.'"
+  - name: manual_switch_preserved
+    result: pass
+    notes: "Section 16 confirms 'Manual switch control preserved: All 4 methods + toggle_device + _switch_loop.'"
+  - name: external_gitops_unchanged
+    result: pass
+    notes: "Section 16 confirms 'No external GitOps/ArgoCD change: Publishing boundary respected.' build-and-deploy.yml untouched."
+  - name: artifact_locking_enforced
+    result: pass
+    notes: "Section 14 Agent Workflow locks PLAN.md and PLAN_REVIEW.yaml. Section 10 does not list them in coder-allowed files. Section 11 lists them as forbidden."
+  - name: example_design_energy_policy_yaml
+    result: pass
+    notes: "Section 6 specifies examples/energy_policy.example.yaml as the primary example file."
+  - name: example_design_companion_doc
+    result: pass
+    notes: "Section 6 allows optional .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md as companion documentation."
+  - name: example_design_metadata
+    result: pass
+    notes: "Section 7.1 defines metadata section with energy_aware_policy_version, runtime_loaded: false, example_only: true."
+  - name: example_design_global_policy
+    result: pass
+    notes: "Section 7.2 defines global policy section with default_power_source_behavior, grid_or_mains_conservation, voltage defaults."
+  - name: example_design_battery_reserve
+    result: pass
+    notes: "Section 7.3 defines battery_reserve section with evening_reserve_voltage: 26.5, reserve_priority, enabled."
+  - name: example_design_schedule_profiles
+    result: pass
+    notes: "Section 7.4 defines schedule_profiles with default/summer/winter profiles covering morning/day/evening/night slots."
+  - name: example_design_weather_adjustment
+    result: pass
+    notes: "Section 7.5 defines weather_adjustment section with sunny/cloudy/rainy/unknown entries including voltage_multiplier and allow_additional_loads."
+  - name: example_design_readiness_defaults
+    result: pass
+    notes: "Section 7.6 defines readiness_defaults with default_check_interval_seconds and default_cooldown_seconds."
+  - name: example_design_health_defaults
+    result: pass
+    notes: "Section 7.7 defines health_defaults with check interval, failure limit, stale threshold, auto_force_off."
+  - name: example_design_manual_override
+    result: pass
+    notes: "Section 7.8 defines manual_override section with allowed, prefer_manual, lock_manual flags."
+  - name: example_design_ml_advisory
+    result: pass
+    notes: "Section 7.9 defines ml_advisory section with ml_advisory_enabled: false, ml_control_enabled: false, deterministic_fallback: true."
+  - name: example_design_loads
+    result: pass
+    notes: "Section 7.10 defines three fake loads: example-light, example-filter, example-fan with all required policy fields."
+  - name: example_design_fake_ids_only
+    result: pass
+    notes: "All loads use example- prefix. No real device identifiers."
+  - name: example_design_runtime_loaded_false
+    result: pass
+    notes: "Plan requires runtime_loaded: false in YAML metadata (Section 7.1). Verified present."
+  - name: example_design_example_only_true
+    result: pass
+    notes: "Plan requires example_only: true in YAML metadata (Section 7.1). Verified present."
+  - name: example_not_runtime_loaded
+    result: pass
+    notes: "Plan explicitly states example is not runtime-loaded. Block condition satisfied: not intended for runtime loading in PR 0013."
+  - name: required_yaml_content
+    result: pass
+    notes: "All 24 required YAML entries present in Section 7: energy_aware_policy_version, runtime_loaded: false, example_only: true, evening_reserve_voltage: 26.5, default_power_source_behavior, grid_or_mains_conservation, morning/day/evening/night schedule windows, summer/winter seasonal examples, sunny/cloudy/rainy weather adjustment, readiness/health check interval defaults, manual_override_allowed, deterministic_fallback, ml_advisory_enabled: false, ml_control_enabled: false, load priority, critical/discretionary load class, minimum_voltage_to_switch_on, minimum_voltage_to_stay_on, voltage_to_switch_off, cooldown_after_switch_seconds, allow_always_on_when_good_conditions, skip_when_cloudy_or_rainy, fail_safe_off."
+  - name: no_secret_terms
+    result: pass
+    notes: "Section 8 lists 14 forbidden secret-like terms (api_key, token, secret, password, credential, tuya_device_id, device_id, local_ip, kubeconfig, bearer, private_key, real devices.yaml values, real devices_prod.yaml values, real config.json values)."
+  - name: implementation_scope_allowed
+    result: pass
+    notes: "Allowed files: examples/energy_policy.example.yaml, .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md (optional), scripts/check-energy-policy-config-example.sh, .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, .project-memory/pr/0013-static-energy-policy-config-example/CODER_REPORT.txt."
+  - name: implementation_scope_forbidden
+    result: pass
+    notes: "Forbidden files: run.py, app/**, service/**, shared_state/**, runtime config files (devices.yaml, devices_prod.yaml, config.json, config_cache.json, fallback_data.json, web_fallback_url.txt), runtime data, Docker/deployment files."
+  - name: static_validation_requirements
+    result: pass
+    notes: "Section 12 specifies all 16 validation requirements: local static files only, no network, no Docker Hub, no GitHub API, no Kubernetes, no ArgoCD, no Tuya, no DESS, no secrets, no file mutation, verify example exists, verify required phrases, verify no secret-like terms, verify valid YAML, verify runtime files unchanged, per-check output, exit 0 on pass, exit 1 on fail."
+  - name: current_state_roadmap_updates
+    result: pass
+    notes: "PLAN.md permits only concise updates to CURRENT_STATE.md and ROADMAP.md. Preservation confirmed for: example not runtime-loaded, automation not enabled, control behavior not wired, pump disabled, manual switch unchanged, ML control disabled, external GitOps unchanged."
+  - name: future_pr_boundary
+    result: pass
+    notes: "Section 15 explicitly defers: runtime config loader, config schema enforcement, readiness evaluator (0014), health evaluator (0015), schedule profile evaluator (0016), weather adjustment evaluator (0017), deterministic decision engine (0018), command proposal (0019+), controlled execution (0021+), ML advisory integration (later), ML control (much later), external GitOps changes."
+  - name: safety_requirements
+    result: pass
+    notes: "PLAN.md states all 12 safety requirements: example is documentation/example only, does not execute hardware calls, does not switch devices, is not read by runtime, contains no secrets, contains no real device identifiers, does not change startup behavior, does not change pump automation, does not change manual switch behavior, does not enable automation or ML control, ML advisory remains advice only, external GitOps boundary unchanged."
+  - name: implementation_boundary
+    result: pass
+    notes: "Coder forbidden from editing PLAN.md/PLAN_REVIEW.yaml, runtime integration, enabling automation, enabling ML control, adding runtime config loader, editing real runtime config files, deployment changes, external GitOps changes, adding secrets/real device IDs/logs/caches/SQLite/CSV/JSONL/ml_data. Coder must create CODER_REPORT.txt. Precommit-review must create PRECOMMIT_REVIEW.yaml."
+  - name: grep_validation_all_pass
+    result: pass
+    notes: "All 13 required grep validation checks passed: energy_policy.example.yaml, runtime_loaded: false, example_only: true, evening_reserve_voltage: 26.5, ml_control_enabled: false, no-secret, not runtime-loaded, manual, ON/OFF, external GitOps, locked, CODER_REPORT.txt, PRECOMMIT_REVIEW.yaml."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: 2c83bff624c216dc52f383a9b037c1ccce647e09
+    - command: git branch --show-current
+      result: pass
+      output_summary: 0013-static-energy-policy-config-example
+    - command: git status --short
+      result: pass
+      output_summary: "Only untracked .project-memory/pr/0013-static-energy-policy-config-example/ directory present. No modified tracked files."
+    - command: git diff HEAD --name-only
+      result: pass
+      output_summary: "No modified files (clean working tree)"
+    - command: test -d examples
+      result: pass
+      output_summary: "No examples/ directory yet (will be created by coder)"
+    - command: test -d config
+      result: pass
+      output_summary: "No config/ directory in repository"
+    - command: test -f .project-memory/pr/0013-static-energy-policy-config-example/PLAN.md
+      result: pass
+      output_summary: PLAN.md exists
+    - command: grep -q "energy_policy.example.yaml" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "runtime_loaded: false" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "example_only: true" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "evening_reserve_voltage: 26.5" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ml_control_enabled: false" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "no-secret" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "not runtime-loaded" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "manual" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ON/OFF" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "external GitOps" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "locked" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "CODER_REPORT.txt" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "PRECOMMIT_REVIEW.yaml" PLAN.md
+      result: pass
+      output_summary: Found
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - PLAN_REVIEW.yaml must be written and verified before coder begins

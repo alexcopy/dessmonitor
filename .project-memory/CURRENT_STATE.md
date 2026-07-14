@@ -83,6 +83,13 @@ control paths are wired yet. Runtime automation is not enabled. Manual relay/swi
 ON/OFF remains unchanged. Pump automation remains disabled by default from PR 0008.
 ML control remains deferred.
 
+## PR 0013 — Static No-Secret Energy Policy Config Example
+PR 0013 adds a static no-secret energy policy config example in
+`examples/energy_policy.example.yaml`. The example is documentation-only and is
+not runtime-loaded. No config loader, evaluator, or runtime wiring is added.
+Runtime automation is not enabled. Manual relay/switch ON/OFF remains unchanged.
+Pump automation remains disabled by default from PR 0008. ML control remains disabled.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
