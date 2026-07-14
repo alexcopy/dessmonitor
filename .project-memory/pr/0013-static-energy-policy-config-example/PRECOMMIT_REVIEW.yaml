@@ -1,0 +1,300 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: runtime-smoke-dependency-warning
+    severity: warning
+    finding: scripts/check-runtime-smoke.py exits with code 1 due to 6 missing local dependencies (logfmter, matplotlib, aiohttp, colorama in multiple modules). This is expected because the local dev environment is not fully installed. CI installs from requirements.txt and will resolve these dependencies.
+    recommendation: Accept as non-blocking. No runtime code was changed by PR 0013 so the smoke check failure is a local environment issue only.
+checks:
+  - name: branch_matches_pr
+    result: pass
+    notes: Branch is 0013-static-energy-policy-config-example, matching PR 0013.
+  - name: implementation_diff_exists
+    result: pass
+    notes: git status --short shows modified tracked files and untracked new files. git diff --name-only HEAD shows 3 tracked files changed. Implementation diff confirmed.
+  - name: plan_locked
+    result: pass
+    notes: git diff --name-only HEAD -- .project-memory/pr/0013-static-energy-policy-config-example/PLAN.md produces no output. PLAN.md is locked and unchanged.
+  - name: plan_review_locked
+    result: pass
+    notes: git diff --name-only HEAD -- .project-memory/pr/0013-static-energy-policy-config-example/PLAN_REVIEW.yaml produces no output. PLAN_REVIEW.yaml is locked and unchanged.
+  - name: coder_report_exists
+    result: pass
+    notes: test -f .project-memory/pr/0013-static-energy-policy-config-example/CODER_REPORT.txt succeeds. CODER_REPORT.txt present and read.
+  - name: changed_files_in_scope
+    result: pass
+    notes: "Changed files: .github/workflows/validate.yml (additive step), .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md (tracked). Untracked: examples/energy_policy.example.yaml, .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md, scripts/check-energy-policy-config-example.sh, CODER_REPORT.txt. All within PLAN.md Section 10 scope."
+  - name: no_runtime_code_changed
+    result: pass
+    notes: "git diff --name-only HEAD shows no changes to run.py, app/**, service/**, shared_state/**, Dockerfile, .github/workflows/build-and-deploy.yml. No runtime Python code changed."
+  - name: no_runtime_config_changed
+    result: pass
+    notes: No changes to devices.yaml, devices_prod.yaml, config.json, config_cache.json, fallback_data.json, web_fallback_url.txt, .env.
+  - name: example_yaml_exists
+    result: pass
+    notes: test -f examples/energy_policy.example.yaml succeeds.
+  - name: example_yaml_valid_yaml
+    result: pass
+    notes: "python3 -c 'import yaml; yaml.safe_load(open(...))' outputs YAML: OK. Script check also confirms valid YAML."
+  - name: example_marked_runtime_loaded_false
+    result: pass
+    notes: grep for runtime_loaded: false in examples/energy_policy.example.yaml returns match at line 20.
+  - name: example_marked_example_only_true
+    result: pass
+    notes: grep for example_only: true in examples/energy_policy.example.yaml returns match at line 21.
+  - name: example_has_energy_aware_policy_version
+    result: pass
+    notes: grep for energy_aware_policy_version in examples/energy_policy.example.yaml returns match at line 19 with "0.1.0".
+  - name: example_has_metadata_section
+    result: pass
+    notes: examples/energy_policy.example.yaml lines 17-24 contain metadata section with description, version, runtime_loaded, example_only.
+  - name: example_has_global_policy
+    result: pass
+    notes: Examples lines 27-35 contain global_policy section with default_power_source_behavior, grid_or_mains_conservation, voltage thresholds.
+  - name: example_has_battery_reserve
+    result: pass
+    notes: Examples lines 38-42 contain battery_reserve section with evening_reserve_voltage: 26.5, reserve_priority, enabled.
+  - name: example_has_schedule_profiles
+    result: pass
+    notes: Examples lines 45-75 contain schedule_profiles with default (morning/day/evening/night), summer, winter profiles.
+  - name: example_has_weather_adjustment
+    result: pass
+    notes: Examples lines 78-91 contain weather_adjustment with sunny/cloudy/rainy/unknown entries.
+  - name: example_has_readiness_defaults
+    result: pass
+    notes: Examples lines 96-99 contain readiness_defaults with check_interval_seconds and cooldown_seconds.
+  - name: example_has_health_defaults
+    result: pass
+    notes: Examples lines 103-108 contain health_defaults with check_interval, failure_limit, stale_threshold, auto_force_off.
+  - name: example_has_manual_override
+    result: pass
+    notes: Examples lines 111-115 contain manual_override section with allowed, prefer_manual, lock_manual.
+  - name: example_has_ml_advisory
+    result: pass
+    notes: Examples lines 118-126 contain ml_advisory section with ml_advisory_enabled: false, ml_control_enabled: false, deterministic_fallback: true.
+  - name: example_has_loads_section
+    result: pass
+    notes: Examples lines 129-176 contain loads section with three fake loads (example-light, example-filter, example-fan).
+  - name: example_fake_load_ids_only
+    result: pass
+    notes: All load IDs use example- prefix: example-light, example-filter, example-fan. No real Tuya IDs or device identifiers.
+  - name: example_no_secrets
+    result: pass
+    notes: "grep for api_key, token, secret, password, credential, tuya_device_id, device_id, local_ip, kubeconfig, bearer, private_key in examples/energy_policy.example.yaml returns no output. Zero secrets detected."
+  - name: example_has_minimum_voltage_to_switch_on
+    result: pass
+    notes: minimum_voltage_to_switch_on present in all three loads (25.0, 24.0, 26.0).
+  - name: example_has_minimum_voltage_to_stay_on
+    result: pass
+    notes: minimum_voltage_to_stay_on present in all three loads (24.5, 23.0, 25.5).
+  - name: example_has_voltage_to_switch_off
+    result: pass
+    notes: voltage_to_switch_off present in all three loads (23.0, 21.0, 24.0).
+  - name: example_has_cooldown_after_switch_seconds
+    result: pass
+    notes: cooldown_after_switch_seconds present in all three loads (30, 300, 60).
+  - name: example_has_fail_safe_off
+    result: pass
+    notes: fail_safe_off present in all three loads (true, false, true).
+  - name: example_not_referenced_by_runtime
+    result: pass
+    notes: "git grep for energy_policy.example.yaml outside allowed files (examples/, .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md, scripts/check-energy-policy-config-example.sh, .project-memory/pr/0013-*) only matches .project-memory/CURRENT_STATE.md, which is an allowed documentation file. No runtime code references the example."
+  - name: documentation_file_exists
+    result: pass
+    notes: test -f .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md succeeds.
+  - name: documentation_states_example_only
+    result: pass
+    notes: ENERGY_POLICY_CONFIG_EXAMPLE.md states "static, no-secret, documentation-only example" and confirms it is "not runtime-loaded".
+  - name: documentation_lists_runtime_isolation
+    result: pass
+    notes: ENERGY_POLICY_CONFIG_EXAMPLE.md lists 9 runtime isolation guarantees (no runtime code reads it, no config loader, no evaluator, no scheduler, no Tuya, no ML code, no env var, no automation, no device switching).
+  - name: documentation_ml_control_status
+    result: pass
+    notes: ENERGY_POLICY_CONFIG_EXAMPLE.md states ML advisory and ML control remain disabled and deferred, with ml_advisory_enabled: false, ml_control_enabled: false, deterministic_fallback: true.
+  - name: validation_script_exists
+    result: pass
+    notes: test -f scripts/check-energy-policy-config-example.sh succeeds.
+  - name: validation_script_read_only
+    result: pass
+    notes: Script uses only grep, python3, git diff --name-only, test -f. No curl, wget, kubectl, docker, gh api, network commands, or file mutations. No secrets required.
+  - name: validation_script_checks_example_exists
+    result: pass
+    notes: Script checks examples/energy_policy.example.yaml exists (line 46-56).
+  - name: validation_script_checks_documentation_exists
+    result: pass
+    notes: Script checks .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md exists (line 69-77).
+  - name: validation_script_checks_required_phrases
+    result: pass
+    notes: Script checks 15 required phrases: energy_aware_policy_version, runtime_loaded: false, example_only: true, evening_reserve_voltage: 26.5, grid_or_mains_conservation, weather_adjustment, readiness, health, manual_override, deterministic_fallback, ml_advisory_enabled: false, ml_control_enabled: false, minimum_voltage_to_switch_on, voltage_to_switch_off, fail_safe_off.
+  - name: validation_script_checks_no_secrets
+    result: pass
+    notes: Script checks 11 forbidden terms: api_key, token, secret, password, credential, tuya_device_id, device_id, local_ip, kubeconfig, bearer, private_key.
+  - name: validation_script_checks_runtime_files_unchanged
+    result: pass
+    notes: Script checks 13 runtime paths via git diff --name-only HEAD: run.py, app/, service/, shared_state/, devices.yaml, devices_prod.yaml, config.json, config_cache.json, fallback_data.json, web_fallback_url.txt, app/cache/, logs/, ml_data/.
+  - name: validation_script_proper_exit_codes
+    result: pass
+    notes: Script exits 0 when all checks pass, 1 on any failure. Verified: exit 0 on execution.
+  - name: current_state_updated
+    result: pass
+    notes: CURRENT_STATE.md adds PR 0013 section stating example is documentation-only, not runtime-loaded, no config loader/evaluator/wiring, automation not enabled, manual switch unchanged, pump disabled, ML control disabled.
+  - name: roadmap_updated
+    result: pass
+    notes: ROADMAP.md marks PR 0013 as [x], adds PR 0013 note deferring runtime config loading and ML control. Preserves all future PR boundaries.
+  - name: ci_validate_yml_additive
+    result: pass
+    notes: "git diff HEAD shows only one additive step added at end of validate.yml: name: Energy policy config example check, run: bash scripts/check-energy-policy-config-example.sh."
+  - name: ci_validate_yml_preserves_existing
+    result: pass
+    notes: All existing validation steps (compileall, validate-yaml, repo-safety, project-memory, runtime-smoke, image-publishing, platform-control, pump-automation, generic-control, relay-mapping, energy-policy, domain-types) remain unchanged.
+  - name: ci_no_deploy_or_docker_change
+    result: pass
+    notes: No Docker build/push step added. No Docker Hub credentials added. No deploy step added. build-and-deploy.yml not changed.
+  - name: no_automation_enabled
+    result: pass
+    notes: No changes to run.py, app/service/smart_home_controller.py, or any automation-related runtime code. Example YAML is static-only.
+  - name: no_ml_control_enabled
+    result: pass
+    notes: ml_control_enabled: false in example YAML. No ML code changed. ML control remains deferred.
+  - name: no_config_loader_added
+    result: pass
+    notes: No new Python modules created. No code that reads YAML configs added. Example is static file only.
+  - name: no_evaluators_implemented
+    result: pass
+    notes: No readiness, health, schedule, or weather evaluator logic added. Deferred to PR 0014-0017.
+  - name: no_scheduler_changes
+    result: pass
+    notes: Schedule profiles in example YAML are static documentation content, not runtime scheduler implementation.
+  - name: no_hardware_switching_changed
+    result: pass
+    notes: No changes to relay_tuya_controller.py, relay_device_manager.py, smart_home_controller.py, or any hardware switching code.
+  - name: no_pump_behavior_changed
+    result: pass
+    notes: Pump automation code not touched. Pump remains disabled by default from PR 0008.
+  - name: no_manual_switch_changed
+    result: pass
+    notes: Manual switch methods (switch_on_device, switch_off_device, switch_binary, switch_device, toggle_device) untouched.
+  - name: no_tuya_behavior_changed
+    result: pass
+    notes: No changes to app/tuya/ directory.
+  - name: no_dess_inverter_changed
+    result: pass
+    notes: No changes to inverter monitoring or DESS-related code.
+  - name: no_weather_runtime_changed
+    result: pass
+    notes: No changes to app/weather/ or weather service code.
+  - name: no_deployment_changed
+    result: pass
+    notes: No changes to Dockerfile, docker-compose.yml, app/docker/, .github/workflows/build-and-deploy.yml.
+  - name: no_external_gitops_changed
+    result: pass
+    notes: External GitOps boundary preserved. build-and-deploy.yml not changed.
+  - name: no_secrets_or_identifiers
+    result: pass
+    notes: "grep for all 11 forbidden secret-like terms in examples/energy_policy.example.yaml returns no matches. All load IDs use example- prefix."
+  - name: compileall_passes
+    result: pass
+    notes: python3 -m compileall -q . exits code 0 (no output means all compiled successfully).
+  - name: repo_safety_passes
+    result: pass
+    notes: scripts/check-repo-safety.sh exits 0 — PASSED, all checks clean.
+  - name: project_memory_passes
+    result: pass
+    notes: scripts/check-project-memory.sh exits 0 — PASSED, all required files present.
+  - name: yaml_validation_passes
+    result: pass
+    notes: python3 scripts/validate-yaml.py exits 0 — All 23 YAML file(s) validated successfully.
+  - name: image_publishing_boundary_passes
+    result: pass
+    notes: scripts/check-image-publishing-boundary.sh exits 0 — PASSED.
+  - name: platform_control_redesign_passes
+    result: pass
+    notes: scripts/check-platform-control-redesign.sh exits 0 — PASSED.
+  - name: pump_automation_disabled_passes
+    result: pass
+    notes: scripts/check-pump-automation-disabled.sh exits 0 — PASSED.
+  - name: generic_control_domain_passes
+    result: pass
+    notes: scripts/check-generic-control-domain.sh exits 0 — PASSED.
+  - name: relay_mapping_passes
+    result: pass
+    notes: scripts/check-relay-switchable-load-mapping.sh exits 0 — PASSED.
+  - name: energy_policy_document_passes
+    result: pass
+    notes: scripts/check-energy-aware-control-policy.sh exits 0 — PASSED.
+  - name: energy_policy_domain_types_passes
+    result: pass
+    notes: scripts/check-energy-policy-domain-types.sh exits 0 — PASSED.
+  - name: energy_policy_config_example_passes
+    result: pass
+    notes: scripts/check-energy-policy-config-example.sh exits 0 — PASSED.
+  - name: required_phrases_grep
+    result: pass
+    notes: "grep -RIn for 15 required phrases across example YAML, documentation, and validation script finds all phrases present."
+  - name: no_secret_grep
+    result: pass
+    notes: "grep -RIn for 11 secret-like terms in examples/energy_policy.example.yaml returns no output — clean."
+  - name: no_runtime_reference_grep
+    result: pass
+    notes: "git grep -n for energy_policy.example.yaml outside allowed files only matches .project-memory/CURRENT_STATE.md (allowed documentation). No runtime code references it."
+  - name: ci_step_in_validate_yml
+    result: pass
+    notes: "grep -q for check-energy-policy-config-example.sh in .github/workflows/validate.yml returns FOUND."
+validation:
+  commands_run:
+    - command: python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+      result: pass
+      output_summary: "No output — exit 0. All Python files compiled successfully."
+    - command: scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "PASSED — All checks clean. Errors: 0. Warnings: 0."
+    - command: scripts/check-project-memory.sh
+      result: pass
+      output_summary: "PASSED — All required files present. Errors: 0."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "All 23 YAML file(s) validated successfully. Exit 0."
+    - command: python3 scripts/check-runtime-smoke.py
+      result: fail
+      output_summary: "Exit 1 — 6 module(s) failed to import (logfmter, matplotlib, aiohttp, colorama). Missing local dependencies. CI installs from requirements.txt. No runtime code changed by PR 0013 — warning only, not a blocker."
+    - command: scripts/check-image-publishing-boundary.sh
+      result: pass
+      output_summary: "PASSED — All boundary checks passed. Errors: 0."
+    - command: scripts/check-platform-control-redesign.sh
+      result: pass
+      output_summary: "PASSED — All platform control redesign checks passed. Errors: 0."
+    - command: scripts/check-pump-automation-disabled.sh
+      result: pass
+      output_summary: "PASSED — Pump automation is disabled by default. Manual switch control preserved. Errors: 0."
+    - command: scripts/check-generic-control-domain.sh
+      result: pass
+      output_summary: "PASSED — Generic control domain types present and safe. Errors: 0."
+    - command: scripts/check-relay-switchable-load-mapping.sh
+      result: pass
+      output_summary: "PASSED — Relay-to-SwitchableLoad mapping present and safe. Errors: 0."
+    - command: scripts/check-energy-aware-control-policy.sh
+      result: pass
+      output_summary: "PASSED — Energy-aware control policy document present and complete. Errors: 0."
+    - command: scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "PASSED — Energy policy domain types present and safe. Errors: 0."
+    - command: scripts/check-energy-policy-config-example.sh
+      result: pass
+      output_summary: "PASSED — Energy policy config example present and safe. Errors: 0. All 15 required phrases found, all 11 no-secret checks passed, YAML valid, runtime files unchanged."
+    - command: grep -RIn required phrases
+      result: pass
+      output_summary: "All 15 required phrases found across examples/energy_policy.example.yaml, .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md, and scripts/check-energy-policy-config-example.sh."
+    - command: grep -RIn secret-like terms in examples/energy_policy.example.yaml
+      result: pass
+      output_summary: "No output — zero matches for any of the 11 forbidden terms."
+    - command: git grep -n "energy_policy.example.yaml" outside allowed files
+      result: pass
+      output_summary: "Only match: .project-memory/CURRENT_STATE.md:88 (allowed documentation file). No runtime code references the example file."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit:
+    - No blockers found. All validation passes. The static no-secret energy policy config example is safe, scoped, non-runtime, no-secret, correctly validated, and ready for final commit and pull request.

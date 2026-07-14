@@ -56,3 +56,6 @@ jobs:
 
       - name: 🔍 Energy policy domain types check
         run: bash scripts/check-energy-policy-domain-types.sh
+
+      - name: 🔍 Energy policy config example check
+        run: bash scripts/check-energy-policy-config-example.sh

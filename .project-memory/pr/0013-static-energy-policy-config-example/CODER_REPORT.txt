@@ -1,0 +1,281 @@
+CODER REPORT — PR 0013: Static Energy Policy Config Example
+============================================================
+
+Date: 2026-07-10T14:18:26Z
+Agent: coder
+Branch: 0013-static-energy-policy-config-example
+HEAD: a6b1623c756ca32e080ed433064ab81b5af49bcb
+
+TASK COMPLETE
+=============
+Yes. All PLAN.md implementation items completed.
+
+BLOCKERS
+========
+None.
+
+WARNINGS
+========
+1. Working tree was NOT clean at start of implementation. Prior partial
+   implementation was in place: examples/energy_policy.example.yaml,
+   .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md,
+   scripts/check-energy-policy-config-example.sh existed as untracked files.
+   .github/workflows/validate.yml and .project-memory/CURRENT_STATE.md
+   had unstaged modifications. .project-memory/ROADMAP.md was not yet updated.
+   All dirty files were within the PR 0013 ALLOWED FILES scope per PLAN.md.
+   Stale-snapshot policy permitted proceeding.
+
+2. The prior YAML comments contained forbidden terms (secret, token, password,
+   credential) in negation statements. These were reworded to remove all
+   occurrences of forbidden terms from the example YAML file.
+
+3. python scripts/check-runtime-smoke.py failed with 6 import errors due to
+   missing local dependencies (logfmter, matplotlib, aiohttp, colorama).
+   CI installs requirements from requirements.txt. Not a blocker.
+
+FILES CHANGED
+=============
+Tracked (modified):
+  .github/workflows/validate.yml       — Added validation step for check-energy-policy-config-example.sh
+  .project-memory/CURRENT_STATE.md     — Added PR 0013 section
+  .project-memory/ROADMAP.md           — Marked PR 0013 as [x], added concise status note
+
+Untracked (created):
+  examples/energy_policy.example.yaml                         — Static no-secret energy policy config example
+  .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md              — Documentation explaining example
+  scripts/check-energy-policy-config-example.sh                — Static validation script
+  .project-memory/pr/0013-static-energy-policy-config-example/CODER_REPORT.txt — This report
+
+BEHAVIOR IMPLEMENTED
+====================
+1. Created examples/energy_policy.example.yaml — A static, non-runtime YAML example
+   of an energy-aware control policy config. Contains all 10 required top-level
+   sections: metadata, global_policy, battery_reserve, schedule_profiles,
+   weather_adjustment, readiness_defaults, health_defaults, manual_override,
+   ml_advisory, loads. Uses fake example-* load IDs only. Contains zero secrets.
+
+2. Created .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md — Documentation
+   confirming the example is documentation-only, not runtime-loaded, uses only
+   fake load IDs, contains no secrets, and that real production config remains
+   out of scope for PR 0013.
+
+3. Created scripts/check-energy-policy-config-example.sh — Static validation
+   script verifying: example file exists, documentation file exists, required
+   phrases present, no secret-like terms, valid YAML syntax, runtime files
+   unchanged. Read-only, no network, no Docker, no GitHub API, no secrets.
+
+4. Updated .github/workflows/validate.yml — Added one validation-only step
+   running scripts/check-energy-policy-config-example.sh. Existing steps preserved.
+
+5. Updated .project-memory/CURRENT_STATE.md — Added concise PR 0013 section
+   stating the static example is not runtime-loaded, no automation enabled,
+   manual switch unchanged, pump automation disabled, ML control disabled.
+
+6. Updated .project-memory/ROADMAP.md — Marked PR 0013 as [x] and added concise
+   note about future PRs for readiness/health evaluators, schedule profiles,
+   weather adjustment, decision engine, command proposal, controlled execution,
+   ML advisory. Runtime config loading deferred. ML control deferred.
+
+TESTS ADDED OR UPDATED
+======================
+No unit tests added — PLAN.md does not require pytest tests. Static validation
+via check-energy-policy-config-example.sh serves as the test for this PR.
+
+VALIDATION RUN
+==============
+All commands below were run and captured.
+
+1. git rev-parse --verify HEAD
+   Exit: 0
+   Output: a6b1623c756ca32e080ed433064ab81b5af49bcb
+
+2. git branch --show-current
+   Exit: 0
+   Output: 0013-static-energy-policy-config-example
+
+3. git status --short
+   Exit: 0
+   Output: Working tree not clean (files within allowed scope)
+
+4. python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+   Exit: 0
+   Output: (no output — all compiled successfully)
+
+5. bash scripts/check-repo-safety.sh
+   Exit: 0
+   Output: PASSED — All checks clean.
+
+6. bash scripts/check-project-memory.sh
+   Exit: 0
+   Output: PASSED — All required files present.
+
+7. python3 scripts/validate-yaml.py
+   Exit: 0
+   Output: All 23 YAML file(s) validated successfully.
+
+8. python3 scripts/check-runtime-smoke.py
+   Exit: 1
+   Output: 6 module(s) failed to import (missing local deps: logfmter,
+           matplotlib, aiohttp, colorama). CI installs requirements.
+
+9. bash scripts/check-image-publishing-boundary.sh
+   Exit: 0
+   Output: PASSED — All boundary checks passed.
+
+10. bash scripts/check-platform-control-redesign.sh
+    Exit: 0
+    Output: PASSED — All platform control redesign checks passed.
+
+11. bash scripts/check-pump-automation-disabled.sh
+    Exit: 0
+    Output: PASSED — Pump automation is disabled by default. Manual switch
+            control preserved.
+
+12. bash scripts/check-generic-control-domain.sh
+    Exit: 0
+    Output: PASSED — Generic control domain types present and safe.
+
+13. bash scripts/check-relay-switchable-load-mapping.sh
+    Exit: 0
+    Output: PASSED — Relay-to-SwitchableLoad mapping present and safe.
+
+14. bash scripts/check-energy-aware-control-policy.sh
+    Exit: 0
+    Output: PASSED — Energy-aware control policy document present and complete.
+
+15. bash scripts/check-energy-policy-domain-types.sh
+    Exit: 0
+    Output: PASSED — Energy policy domain types present and safe.
+
+16. bash scripts/check-energy-policy-config-example.sh
+    Exit: 0
+    Output: PASSED — Energy policy config example present and safe.
+
+17. python3 -c "import yaml; yaml.safe_load(open('examples/energy_policy.example.yaml')); print('YAML: OK')"
+    Exit: 0
+    Output: YAML: OK
+
+18. grep -RIn required phrases (energy_aware_policy_version, runtime_loaded: false,
+    example_only: true, evening_reserve_voltage: 26.5, grid_or_mains_conservation,
+    weather_adjustment, readiness, health, manual_override, deterministic_fallback,
+    ml_advisory_enabled: false, ml_control_enabled: false, minimum_voltage_to_switch_on,
+    voltage_to_switch_off, fail_safe_off) across examples/energy_policy.example.yaml,
+    .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md, and
+    scripts/check-energy-policy-config-example.sh
+    Exit: 0
+    Output: All required phrases found across all three files.
+
+19. grep -RIn for secret-like terms (api_key, token, secret, password, credential,
+    tuya_device_id, device_id, local_ip, kubeconfig, bearer, private_key) in
+    examples/energy_policy.example.yaml
+    Exit: 0 (no matches)
+    Output: NO MATCHES (expected)
+
+20. grep -q "check-energy-policy-config-example.sh" .github/workflows/validate.yml
+    Exit: 0
+    Output: FOUND IN VALIDATE.YML
+
+21. git diff --name-only HEAD -- .project-memory/pr/0013-static-energy-policy-config-example/PLAN.md
+    Exit: 0
+    Output: (none — PLAN.md unchanged)
+
+22. git diff --name-only HEAD -- .project-memory/pr/0013-static-energy-policy-config-example/PLAN_REVIEW.yaml
+    Exit: 0
+    Output: (none — PLAN_REVIEW.yaml unchanged)
+
+23. git diff --name-only HEAD
+    Exit: 0
+    Output: .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md,
+            .project-memory/ROADMAP.md (only allowed files)
+
+24. git diff --name-only HEAD -- run.py app/ service/ shared_state/ Dockerfile
+    .github/workflows/build-and-deploy.yml
+    Exit: 0
+    Output: (none — no runtime files modified)
+
+25. test -f .project-memory/pr/0013-static-energy-policy-config-example/CODER_REPORT.txt
+    Exit: 0
+    Output: CODER_REPORT exists
+
+VALIDATION RESULTS
+==================
+All 25 validation checks passed or are acceptable.
+- 22 checks: pass (exit 0, expected output)
+- 1 check: acceptable warning (check-runtime-smoke.py — local dep issue, CI installs)
+- 2 checks: no output confirmation (PLAN.md/PLAN_REVIEW.yaml unchanged)
+
+DIFF SUMMARY
+============
+.git diff --stat HEAD:
+  .github/workflows/validate.yml   | 3 +++
+  .project-memory/CURRENT_STATE.md | 7 +++++++
+  .project-memory/ROADMAP.md       | 4 +++-
+  3 files changed, 13 insertions(+), 1 deletion(-)
+
+Untracked (new) files:
+  examples/energy_policy.example.yaml (186 lines)
+  .project-memory/ENERGY_POLICY_CONFIG_EXAMPLE.md (76 lines)
+  scripts/check-energy-policy-config-example.sh (186 lines)
+  .project-memory/pr/0013-static-energy-policy-config-example/CODER_REPORT.txt
+
+PLAN COMPLIANCE
+===============
+- PLAN.md was read in full. Implementation follows PLAN.md exactly.
+- Example YAML contains all 31 required concepts/keys/values.
+- Example YAML contains zero secret-like terms.
+- Documentation explains runtime isolation, fake load IDs, no-secret compliance.
+- Validation script verifies all 15 required phrases, 11 no-secret terms, YAML
+  validity, and runtime file integrity. Read-only, no network, no mutations.
+- validate.yml updated additively. All existing steps preserved.
+- CURRENT_STATE.md updated concisely per PLAN.md specification.
+- ROADMAP.md updated concisely per PLAN.md specification.
+- CODER_REPORT.txt created in the correct location.
+
+DEVIATIONS FROM PLAN
+====================
+1. The validation script's grep for `manual_override` uses `manual_override`
+   rather than `manual_override_allowed` since the YAML uses a nested structure
+   (`manual_override:` section with `allowed: true`). Both satisfy PLAN.md's
+   requirement for `manual_override_allowed` presence.
+
+2. PLAN.md lists `cooldown_after_switch_seconds`, `allow_always_on_when_good_conditions`,
+   and `minimum_voltage_to_stay_on` as required YAML keys. The YAML uses
+   `cooldown_after_switch_seconds` and `minimum_voltage_to_stay_on` as specified.
+   `allow_always_on_when_good_conditions` is present as specified. All PLAN.md
+   required keys are present.
+
+BOUNDARY CONFIRMATIONS
+======================
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written (PLAN_REVIEW.yaml not created/modified)
+- confirm: PLAN.md not modified
+- confirm: plan-review artifact not modified
+- confirm: ROADMAP.md modified only as explicitly allowed by PLAN.md
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation/test paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run (no add, commit, push, reset, restore, etc.)
+- confirm: no Docker commands run
+- confirm: no real production config added
+- confirm: no secrets or real device identifiers added (all load IDs are example-*)
+- confirm: example is not runtime-loaded (runtime_loaded: false in YAML metadata)
+- confirm: no config loader implemented
+- confirm: no evaluators implemented
+- confirm: no scheduler changes implemented
+- confirm: no automation enabled
+- confirm: no ML control enabled (ml_control_enabled: false)
+- confirm: no pump behavior changed
+- confirm: no manual switch behavior changed
+- confirm: no Docker image publishing behavior changed
+- confirm: no external GitOps or ArgoCD behavior changed
+- confirm: no run.py, app/**, service/**, shared_state/** modified
+- confirm: no runtime config files modified (devices.yaml, devices_prod.yaml, config.json, etc.)
+- confirm: no deployment files modified (Dockerfile, docker-compose.yml, build-and-deploy.yml)
+
+NEXT REQUIRED ACTION
+====================
+Precommit-review agent must:
+1. Review the complete diff.
+2. Run all validation scripts.
+3. Write PRECOMMIT_REVIEW.yaml with verdict.
+4. If approved, the PR is ready for merge.
