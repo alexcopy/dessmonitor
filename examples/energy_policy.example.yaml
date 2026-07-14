@@ -1,0 +1,175 @@
+# =============================================================================
+# dessmonitor — Energy-Aware Device Control Policy (EXAMPLE)
+# =============================================================================
+#
+# This file is a static, documentation-only example.
+# It is NOT loaded by any runtime code. It does NOT contain real device
+# identifiers, production values, or live configuration values.
+#
+# All load IDs use a fake "example-" prefix. No real Tuya device IDs,
+# API keys, access grants, or network addresses are included.
+#
+# Runtime config loading, schema enforcement, and policy evaluation
+# are deferred to future PRs (per ENERGY_AWARE_CONTROL_POLICY.md).
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Metadata — declares this file as an example, not a runtime config
+# ---------------------------------------------------------------------------
+energy_aware_policy_version: "0.1.0"
+runtime_loaded: false
+example_only: true
+description: >-
+  Example energy-aware device control policy configuration.
+  No private data, no real device IDs. Not consumed by any runtime component.
+
+# ---------------------------------------------------------------------------
+# Global policy defaults — applied when a per-load setting is absent
+# ---------------------------------------------------------------------------
+global_policy:
+  default_power_source_behavior: "conserve_on_grid"
+  grid_or_mains_conservation: true
+  default_min_voltage_on: 24.0
+  default_min_voltage_stay_on: 23.5
+  default_voltage_off: 22.0
+
+# ---------------------------------------------------------------------------
+# Battery reserve — protects evening voltage around 26.5V after sunset
+# ---------------------------------------------------------------------------
+battery_reserve:
+  evening_reserve_voltage: 26.5
+  reserve_priority: 10
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Schedule profiles — time-of-day and seasonal intervals
+# ---------------------------------------------------------------------------
+schedule_profiles:
+  default:
+    morning:
+      start: "06:00"
+      end: "12:00"
+      check_interval_seconds: 300
+    day:
+      start: "12:00"
+      end: "18:00"
+      check_interval_seconds: 300
+    evening:
+      start: "18:00"
+      end: "22:00"
+      check_interval_seconds: 60
+    night:
+      start: "22:00"
+      end: "06:00"
+      check_interval_seconds: 600
+  summer:
+    day:
+      start: "06:00"
+      end: "20:00"
+      check_interval_seconds: 180
+  winter:
+    day:
+      start: "09:00"
+      end: "16:00"
+      check_interval_seconds: 600
+
+# ---------------------------------------------------------------------------
+# Weather adjustment — forecast → threshold multipliers
+# ---------------------------------------------------------------------------
+weather_adjustment:
+  sunny:
+    voltage_multiplier: 1.0
+    allow_additional_loads: true
+  cloudy:
+    voltage_multiplier: 0.95
+    allow_additional_loads: false
+  rainy:
+    voltage_multiplier: 0.9
+    skip_discretionary: true
+  unknown:
+    voltage_multiplier: 0.95
+    allow_additional_loads: false
+
+# ---------------------------------------------------------------------------
+# Readiness defaults — how often and under what conditions readiness is checked
+# ---------------------------------------------------------------------------
+readiness_defaults:
+  default_check_interval_seconds: 180
+  default_cooldown_seconds: 120
+
+# ---------------------------------------------------------------------------
+# Health defaults — how often health is checked and failure response
+# ---------------------------------------------------------------------------
+health_defaults:
+  default_check_interval_seconds: 300
+  consecutive_failure_limit: 3
+  stale_status_threshold_seconds: 600
+  auto_force_off_after_failures: true
+
+# ---------------------------------------------------------------------------
+# Manual override — human operator can always override policy
+# ---------------------------------------------------------------------------
+manual_override:
+  allowed: true
+  prefer_manual: false
+  lock_manual: false
+
+# ---------------------------------------------------------------------------
+# ML advisory — explicitly disabled in this example
+# ---------------------------------------------------------------------------
+ml_advisory:
+  ml_advisory_enabled: false
+  ml_control_enabled: false
+  deterministic_fallback: true
+  description: >-
+    ML advisory is not enabled in this example.
+    ML control remains deferred per safety policy (ADR-0003).
+
+# ---------------------------------------------------------------------------
+# Loads — per-device energy policy (fake example load IDs only)
+# ---------------------------------------------------------------------------
+loads:
+
+  - load_id: example-light
+    display_name: "Example Light"
+    load_class: discretionary
+    priority: low
+    allowed_time_windows:
+      - [evening, night]
+    minimum_voltage_to_switch_on: 25.0
+    minimum_voltage_to_stay_on: 24.5
+    voltage_to_switch_off: 23.0
+    cooldown_after_switch_seconds: 30
+    weather_sensitive: false
+    allow_always_on_when_good_conditions: false
+    skip_when_cloudy_or_rainy: false
+    fail_safe_off: true
+
+  - load_id: example-filter
+    display_name: "Example Filter"
+    load_class: critical
+    priority: high
+    allowed_time_windows: []
+    minimum_voltage_to_switch_on: 24.0
+    minimum_voltage_to_stay_on: 23.0
+    voltage_to_switch_off: 21.0
+    cooldown_after_switch_seconds: 300
+    weather_sensitive: false
+    allow_always_on_when_good_conditions: true
+    skip_when_cloudy_or_rainy: false
+    fail_safe_off: false
+
+  - load_id: example-fan
+    display_name: "Example Fan"
+    load_class: discretionary
+    priority: normal
+    allowed_time_windows:
+      - [day, evening]
+    minimum_voltage_to_switch_on: 26.0
+    minimum_voltage_to_stay_on: 25.5
+    voltage_to_switch_off: 24.0
+    cooldown_after_switch_seconds: 60
+    weather_sensitive: true
+    allow_always_on_when_good_conditions: false
+    skip_when_cloudy_or_rainy: true
+    fail_safe_off: true
