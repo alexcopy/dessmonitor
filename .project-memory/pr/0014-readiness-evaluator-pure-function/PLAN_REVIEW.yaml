@@ -1,0 +1,229 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: plan_exists
+    result: pass
+    notes: ".project-memory/pr/0014-readiness-evaluator-pure-function/PLAN.md exists and was read in full."
+  - name: branch_matches_pr
+    result: pass
+    notes: "Branch is 0014-readiness-evaluator-pure-function, matches PR 0014."
+  - name: working_tree_clean
+    result: pass
+    notes: "git status --short shows only untracked .project-memory/pr/0014-readiness-evaluator-pure-function/ directory. No modified tracked files. git diff HEAD --name-only is empty."
+  - name: follows_pr0011_pr0012_pr0013
+    result: pass
+    notes: "PLAN.md Section 5 explicitly describes relationship to PR 0011 (requirements), PR 0012 (domain types), and PR 0013 (config example). Aligns with ENERGY_AWARE_CONTROL_POLICY.md staged roadmap where PR 0014 is 'Readiness evaluator, pure function only'."
+  - name: pure_readiness_evaluator_only
+    result: pass
+    notes: "PLAN.md states 'pure readiness evaluator — a deterministic, side-effect-free function'. Section 2 confirms not wired into runtime, no switching, no runtime calls."
+  - name: defines_readiness_as_allowed_to_switch_on
+    result: pass
+    notes: "Section 3 defines 'Readiness means is this load allowed to be switched ON now?' Section 7 lists 8 blocking conditions and the ready condition."
+  - name: distinguishes_readiness_from_health
+    result: pass
+    notes: "Section 3 states 'Readiness is not health. Readiness is not hardware execution.' ReadinessResult docstring in energy_policy.py confirms 'Readiness is separate from health.'"
+  - name: readiness_does_not_switch_devices
+    result: pass
+    notes: "Section 3 states 'Readiness must not switch devices.' Section 12 states 'The evaluator must not execute hardware calls' and 'must not switch devices.'"
+  - name: readiness_does_not_execute_hardware
+    result: pass
+    notes: "Section 2 states 'It does not call Tuya, DESS, OpenWeather, ML, or any runtime service.' Section 11 confirms no hardware calls."
+  - name: no_runtime_wiring
+    result: pass
+    notes: "Section 2 states 'The evaluator is not wired into runtime behavior.' Section 21 states 'No runtime wiring: Not connected to SmartHomeController, RelayTuyaController, DeviceInitializer, weather service, or ML code.'"
+  - name: no_health_evaluator
+    result: pass
+    notes: "Section 8 states 'No health evaluation (deferred to PR 0015).' Section 13 defers health evaluator to PR 0015."
+  - name: no_scheduler_changes
+    result: pass
+    notes: "No scheduler changes in plan. Schedule/season profile model deferred to PR 0016."
+  - name: no_weather_adjustment_evaluator
+    result: pass
+    notes: "Weather adjustment evaluator deferred to PR 0017."
+  - name: no_config_loader
+    result: pass
+    notes: "Section 12 states 'The evaluator must not read configs.' Section 8 states 'No config file reads.' Runtime config loader deferred."
+  - name: does_not_load_example_yaml
+    result: pass
+    notes: "Section 8 states 'No loading of examples/energy_policy.example.yaml.' Section 12 states 'The evaluator must not load examples/energy_policy.example.yaml.'"
+  - name: automation_not_enabled
+    result: pass
+    notes: "Section 12 states 'The evaluator must not enable automation.' Section 21 states 'No automation enabled.'"
+  - name: ml_control_not_enabled
+    result: pass
+    notes: "Section 21 states 'No ML control enabled: ML advisory is advice-only. ML control deferred per ADR-0003.' Section 12 states 'must not enable ML control.'"
+  - name: pump_automation_preserved
+    result: pass
+    notes: "Section 21 states 'Pump automation remains disabled: Per PR 0008.'"
+  - name: manual_switch_preserved
+    result: pass
+    notes: "Section 21 states 'Manual switch control preserved: _switch_loop, toggle_device, all 4 switch methods unchanged.'"
+  - name: external_gitops_unchanged
+    result: pass
+    notes: "Section 21 states 'No external GitOps/ArgoCD change: Publishing boundary respected.' build-and-deploy.yml untouched."
+  - name: artifact_locking_enforced
+    result: pass
+    notes: "Section 20 Agent Workflow locks PLAN.md and PLAN_REVIEW.yaml. Section 14 does not list them in coder-allowed files. Section 15 forbids editing."
+  - name: function_design_module_path
+    result: pass
+    notes: "Section 8 specifies app/control/readiness.py module location."
+  - name: function_design_evaluate_readiness
+    result: pass
+    notes: "Section 9 defines evaluate_readiness(readiness_input: ReadinessInput) -> ReadinessResult as the public API."
+  - name: function_design_input_type
+    result: pass
+    notes: "Section 9 specifies ReadinessInput as the input type."
+  - name: function_design_output_type
+    result: pass
+    notes: "Section 9 specifies ReadinessResult as the return type."
+  - name: function_design_device_energy_policy
+    result: pass
+    notes: "Section 9.3 states evaluate_readiness uses DeviceEnergyPolicy from ReadinessInput."
+  - name: function_design_energy_policy_context
+    result: pass
+    notes: "Section 9.3 states evaluate_readiness uses EnergyPolicyContext from ReadinessInput."
+  - name: function_design_voltage_snapshot
+    result: pass
+    notes: "Section 9.3 states evaluate_readiness uses VoltageSnapshot from EnergyPolicyContext."
+  - name: function_design_weather_forecast
+    result: pass
+    notes: "Section 9.3 states evaluate_readiness uses WeatherForecastSignal from EnergyPolicyContext."
+  - name: function_design_battery_reserve
+    result: pass
+    notes: "Section 9.3 states evaluate_readiness uses BatteryReservePolicy from EnergyPolicyContext."
+  - name: function_design_energy_policy_decision
+    result: pass
+    notes: "Section 10 specifies EnergyPolicyDecision values (ALLOW_ON, PREFER_OFF, FORCE_OFF, NO_ACTION) paired with each reason string."
+  - name: function_design_deterministic
+    result: pass
+    notes: "Section 11 states 'The evaluator is a pure function' and 'Same input produces same output — always.'"
+  - name: function_design_no_time_now
+    result: pass
+    notes: "Section 11 states 'It does not call time.time or datetime.now.' Section 8 states 'No time.time or datetime.now calls.' Uses context.voltage.timestamp for cooldown."
+  - name: function_design_no_file_reads
+    result: pass
+    notes: "Section 11 states 'It reads no files.' Section 8 confirms no file reads."
+  - name: function_design_no_env_vars
+    result: pass
+    notes: "Section 11 states 'It reads no env vars.' Section 8 confirms no env var reads."
+  - name: function_design_no_network
+    result: pass
+    notes: "Section 11 states 'It makes no network calls.' Section 8 confirms no network connections."
+  - name: function_design_no_hardware
+    result: pass
+    notes: "Section 11 states 'It calls no hardware methods.' Section 9.5 confirms 'Never call hardware.'"
+  - name: function_design_no_runtime_imports
+    result: pass
+    notes: "Section 8.2 states module must not import app.tuya, app.service, app.devices, app.monitoring, app.ml, app.weather or any runtime service."
+  - name: semantics_not_ready_conditions
+    result: pass
+    notes: "Section 7 defines 8 blocking conditions: invalid load id (check 1), fail-safe context missing (check 2), below minimum_voltage_to_switch_on (check 3), grid/mains/network conservation for discretionary loads (check 4), outside allowed_time_windows (check 5), cooldown active (check 6), skip_when_cloudy_or_rainy with cloudy/rainy/storm/snowy (check 7), evening reserve at or below 26.5V for discretionary loads during EVENING/NIGHT (check 8)."
+  - name: semantics_ready_condition
+    result: pass
+    notes: "Section 7 defines ready as 'none of these block and required input is valid.' Section 9 evaluation flow step 9 confirms 'Otherwise → READY, ready, ALLOW_ON.'"
+  - name: reason_strings
+    result: pass
+    notes: "Section 10 defines all 9 required reason strings: ready, invalid-load-id, context-fail-safe, below-switch-on-voltage, grid-or-mains-conservation, outside-allowed-time-window, cooldown-active, weather-skip, evening-reserve-protected."
+  - name: implementation_scope_allowed
+    result: pass
+    notes: "Section 14 lists allowed files: app/control/readiness.py, app/control/__init__.py, scripts/check-readiness-evaluator.sh, .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, .project-memory/pr/0014-readiness-evaluator-pure-function/CODER_REPORT.txt."
+  - name: implementation_scope_forbidden
+    result: pass
+    notes: "Section 15 lists forbidden files: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, app/control/domain.py, app/control/relay_mapping.py, app/control/energy_policy.py, examples/energy_policy.example.yaml, service/**, shared_state/**, config/data/Docker/deployment files."
+  - name: static_validation_requirements
+    result: pass
+    notes: "Section 16 specifies 22 validation requirements: local static files only, no network/Docker/GitHub/K8s/ArgoCD/Tuya/DESS/secrets, no mutations, verify readiness.py exists, verify evaluate_readiness, verify ReadinessInput/ReadinessResult/EnergyPolicyDecision usage, verify 9 reason strings, verify forbidden imports absent, verify forbidden hardware calls absent, verify forbidden impurity calls absent (time.time, datetime.now, open, yaml.safe_load, os.getenv, requests, aiohttp, subprocess), verify runtime files unchanged, per-check output, exit 0/1."
+  - name: current_state_roadmap_updates
+    result: pass
+    notes: "Section 17 provides concise CURRENT_STATE.md update text. Section 18 provides concise ROADMAP.md update. Preservation confirmed for: evaluator not runtime-wired, does not switch devices, automation not enabled, pump disabled, manual switch unchanged, ML control disabled, external GitOps unchanged."
+  - name: future_pr_boundary
+    result: pass
+    notes: "Section 13 explicitly defers: health evaluator (0015), schedule/season profile model (0016), weather adjustment evaluator (0017), deterministic decision engine (0018), runtime config loader (0018+), policy config schema enforcement (0018+), command proposal layer (0019), manual control API (0019), wire policy to command proposal (0020), controlled execution (0021+), ML advisory integration (later), ML control (much later), external GitOps changes (never), runtime wiring (deferred)."
+  - name: safety_requirements
+    result: pass
+    notes: "Section 12 states all 12 safety requirements: evaluator is pure and deterministic, does not execute hardware calls, does not switch devices, is not read by runtime in PR 0014, does not read configs, does not load examples/energy_policy.example.yaml, does not change startup behavior, does not change pump automation, does not change manual switch behavior, does not enable automation or ML control, ML advisory remains advice only, external GitOps boundary unchanged."
+  - name: implementation_boundary
+    result: pass
+    notes: "Coder forbidden from editing PLAN.md/PLAN_REVIEW.yaml, runtime integration, enabling automation/ML control, adding runtime config loader, loading static example config, deployment changes, external GitOps changes, adding secrets/real device IDs/logs/caches/SQLite/CSV/JSONL/ml_data. Coder must create CODER_REPORT.txt. Precommit-review must create PRECOMMIT_REVIEW.yaml."
+  - name: grep_validation_all_pass
+    result: pass
+    notes: "All 16 required grep validation checks passed: evaluate_readiness, ReadinessInput, ReadinessResult, pure function, deterministic, below-switch-on-voltage, grid-or-mains-conservation, cooldown-active, weather-skip, evening-reserve-protected, not runtime-wired, ML control, external GitOps, locked, CODER_REPORT.txt, PRECOMMIT_REVIEW.yaml."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: ec7b70696a6450d4231e1826d966e9b1843dbc33
+    - command: git branch --show-current
+      result: pass
+      output_summary: 0014-readiness-evaluator-pure-function
+    - command: git status --short
+      result: pass
+      output_summary: "Only untracked .project-memory/pr/0014-readiness-evaluator-pure-function/ directory present. No modified tracked files."
+    - command: git diff HEAD --name-only
+      result: pass
+      output_summary: "No modified files (clean working tree)"
+    - command: test -f .project-memory/pr/0014-readiness-evaluator-pure-function/PLAN.md
+      result: pass
+      output_summary: PLAN.md exists
+    - command: test -f app/control/energy_policy.py
+      result: pass
+      output_summary: "energy_policy.py exists with ReadinessInput, ReadinessResult, DeviceEnergyPolicy, EnergyPolicyContext, etc."
+    - command: test -f examples/energy_policy.example.yaml
+      result: pass
+      output_summary: "Example YAML exists from PR 0013"
+    - command: grep -q "evaluate_readiness" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ReadinessInput" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ReadinessResult" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "pure function" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "deterministic" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "below-switch-on-voltage" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "grid-or-mains-conservation" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "cooldown-active" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "weather-skip" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "evening-reserve-protected" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "not runtime-wired" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "external GitOps" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "locked" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "CODER_REPORT.txt" PLAN.md
+      result: pass
+      output_summary: Found
+    - command: grep -q "PRECOMMIT_REVIEW.yaml" PLAN.md
+      result: pass
+      output_summary: Found
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - PLAN_REVIEW.yaml must be written and verified before coder begins
