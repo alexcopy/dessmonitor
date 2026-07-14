@@ -1,0 +1,235 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0015-health-evaluator-pure-function/PLAN.md -> PASS"
+  - name: evaluate_health function defined
+    result: pass
+    notes: "grep -q 'evaluate_health' PLAN.md -> PASS"
+  - name: HealthInput type referenced
+    result: pass
+    notes: "grep -q 'HealthInput' PLAN.md -> PASS"
+  - name: HealthCheckResult type referenced
+    result: pass
+    notes: "grep -q 'HealthCheckResult' PLAN.md -> PASS"
+  - name: HealthStatus enum referenced
+    result: pass
+    notes: "grep -q 'HealthStatus' PLAN.md -> PASS"
+  - name: Pure function requirement stated
+    result: pass
+    notes: "grep -q 'pure function' PLAN.md -> PASS"
+  - name: Deterministic requirement stated
+    result: pass
+    notes: "grep -q 'deterministic' PLAN.md -> PASS"
+  - name: healthy outcome defined
+    result: pass
+    notes: "grep -q 'healthy' PLAN.md -> PASS"
+  - name: invalid-load-id outcome defined
+    result: pass
+    notes: "grep -q 'invalid-load-id' PLAN.md -> PASS"
+  - name: unreachable outcome defined
+    result: pass
+    notes: "grep -q 'unreachable' PLAN.md -> PASS"
+  - name: stale-status outcome defined
+    result: pass
+    notes: "grep -q 'stale-status' PLAN.md -> PASS"
+  - name: repeated-failures outcome defined
+    result: pass
+    notes: "grep -q 'repeated-failures' PLAN.md -> PASS"
+  - name: state-mismatch outcome defined
+    result: pass
+    notes: "grep -q 'state-mismatch' PLAN.md -> PASS"
+  - name: unknown-state outcome defined
+    result: pass
+    notes: "grep -q 'unknown-state' PLAN.md -> PASS"
+  - name: Not runtime-wired
+    result: pass
+    notes: "grep -q 'not runtime-wired' PLAN.md -> PASS. Section 14 explicitly states evaluator not read by runtime in PR 0015."
+  - name: ML control boundary
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. ML control explicitly deferred and disabled."
+  - name: External GitOps boundary
+    result: pass
+    notes: "grep -q 'external GitOps' PLAN.md -> PASS. External GitOps boundary unchanged."
+  - name: Locked artifacts
+    result: pass
+    notes: "grep -q 'locked' PLAN.md -> PASS. PLAN.md and PLAN_REVIEW.yaml locked after approval."
+  - name: CODER_REPORT.txt required
+    result: pass
+    notes: "grep -q 'CODER_REPORT.txt' PLAN.md -> PASS"
+  - name: PRECOMMIT_REVIEW.yaml required
+    result: pass
+    notes: "grep -q 'PRECOMMIT_REVIEW.yaml' PLAN.md -> PASS"
+  - name: No runtime wiring allowed
+    result: pass
+    notes: "PLAN.md Section 2: 'The evaluator is not wired into runtime behavior.' Section 14: 'The evaluator must not be read by runtime.'"
+  - name: No hardware switching allowed
+    result: pass
+    notes: "PLAN.md Section 2: 'It does not switch devices.' Section 14: 'The evaluator must not switch devices.'"
+  - name: No retry switching allowed
+    result: pass
+    notes: "PLAN.md Section 2: 'It does not retry switching.' Section 7: 'must not automatically escalate to switching.'"
+  - name: No config loading allowed
+    result: pass
+    notes: "PLAN.md Section 6: 'No config loading — must not read files, env vars, or network resources.'"
+  - name: No loading of examples/energy_policy.example.yaml
+    result: pass
+    notes: "PLAN.md Section 9.3: 'No loading of examples/energy_policy.example.yaml.'"
+  - name: No readiness evaluator modification
+    result: pass
+    notes: "PLAN.md Section 9.3: 'No readiness evaluation (deferred to PR 0014, already implemented there).' Section 17 forbids editing app/control/readiness.py."
+  - name: No scheduler changes
+    result: pass
+    notes: "PLAN.md Section 9.3: 'No scheduling.' Section 15 defers schedule profile model to PR 0016."
+  - name: No weather adjustment evaluator implementation
+    result: pass
+    notes: "PLAN.md Section 15 defers weather adjustment evaluator to PR 0017."
+  - name: No deterministic policy decision engine implementation
+    result: pass
+    notes: "PLAN.md Section 15 defers deterministic policy decision engine to PR 0018."
+  - name: No automation enabled in PR 0015
+    result: pass
+    notes: "PLAN.md Section 14: 'The evaluator must not enable automation or ML control.' Section 23: 'No automation enabled.'"
+  - name: No ML control enabled in PR 0015
+    result: pass
+    notes: "PLAN.md Section 14: 'ML advisory remains advice only.' Section 23: 'No ML control enabled.'"
+  - name: No pump automation behavior change
+    result: pass
+    notes: "PLAN.md Section 3: 'Pump automation remains obsolete and disabled by default (PR 0008).' Section 23: 'Pump automation remains disabled.'"
+  - name: No manual switch behavior change
+    result: pass
+    notes: "PLAN.md Section 3: 'Manual relay/switch ON/OFF remains available and unchanged.' Section 23: 'Manual switch control preserved.'"
+  - name: No Docker image publishing change
+    result: pass
+    notes: "PLAN.md Section 23: 'No Docker image publishing change: build-and-deploy.yml untouched.'"
+  - name: No external GitOps/ArgoCD change
+    result: pass
+    notes: "PLAN.md Section 23: 'No external GitOps/ArgoCD change: Publishing boundary respected.'"
+  - name: Coder forbidden from editing PLAN.md and PLAN_REVIEW.yaml
+    result: pass
+    notes: "PLAN.md Section 22 table: coder 'Must NOT edit PLAN.md or PLAN_REVIEW.yaml.'"
+  - name: Coder forbidden from runtime integration
+    result: pass
+    notes: "PLAN.md Section 17: Forbidden files include run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**."
+  - name: Coder forbidden from enabling automation
+    result: pass
+    notes: "PLAN.md Section 26: 'Coder is forbidden from enabling automation.'"
+  - name: Coder forbidden from enabling ML control
+    result: pass
+    notes: "PLAN.md Section 26: 'Coder is forbidden from enabling ML control.'"
+  - name: Coder forbidden from adding runtime config loader
+    result: pass
+    notes: "PLAN.md Section 26: 'Coder is forbidden from adding runtime config loader.'"
+  - name: Coder forbidden from loading static example config
+    result: pass
+    notes: "PLAN.md Section 26: 'Coder is forbidden from loading static example config.'"
+  - name: Coder forbidden from deployment changes
+    result: pass
+    notes: "PLAN.md Section 17: Dockerfile, docker-compose.yml, .dockerignore, .github/workflows/build-and-deploy.yml all forbidden."
+  - name: Coder must create CODER_REPORT.txt
+    result: pass
+    notes: "PLAN.md Section 16: '.project-memory/pr/0015-health-evaluator-pure-function/CODER_REPORT.txt — Create.'"
+  - name: Precommit-review must create PRECOMMIT_REVIEW.yaml
+    result: pass
+    notes: "PLAN.md Section 22 table: precommit-review artifact is PRECOMMIT_REVIEW.yaml."
+  - name: Future PR boundaries explicitly deferred
+    result: pass
+    notes: "PLAN.md Section 15 explicitly defers 12 items: schedule profile (0016), weather adjustment (0017), decision engine (0018), config loader (0018+), schema enforcement (0018+), command proposal (0019), manual control API (0019), wire to command proposal (0020), controlled execution (0021+), ML advisory (later), ML control (much later), GitOps (never), runtime wiring (deferred)."
+  - name: Validation script requirements
+    result: pass
+    notes: "PLAN.md Section 18 defines 18 requirements for scripts/check-health-evaluator.sh: local static files only, no network/Docker Hub/GitHub API/Kubernetes/ArgoCD/Tuya/DESS/secrets, no file mutations, verify module/function/types/reason strings/forbidden imports/hardware calls/impurity calls/runtime file integrity, clear per-check output, exit 0/1."
+  - name: CURRENT_STATE.md update concise
+    result: pass
+    notes: "PLAN.md Section 19 defines exact wording: 'PR 0015 adds a pure deterministic health evaluator... not runtime-wired... does not switch devices...'. No broad rewrite."
+  - name: ROADMAP.md update concise
+    result: pass
+    notes: "PLAN.md Section 20 defines exact single line: '- [x] PR 0015 — Health evaluator, pure function only'. No broad rewrite."
+  - name: HealthInput fields match actual implementation
+    result: pass
+    notes: "PLAN.md Section 4.2 shows HealthInput with fields load_id, expected_state (Optional[object]), observed_state (Optional[object]), status_age_seconds (Optional[float]), failure_count (int), metadata — matching actual app/control/energy_policy.py."
+  - name: HealthCheckResult fields match actual implementation
+    result: pass
+    notes: "PLAN.md Section 4.2 shows HealthCheckResult with status (HealthStatus), reason (str), recommended_follow_up (str), metadata — matching actual app/control/energy_policy.py."
+  - name: Evaluation flow order ensures safety
+    result: pass
+    notes: "PLAN.md Section 10: stale-status (step 3) and repeated-failures (step 4) checked before state-mismatch (step 5), so stale/failure conditions are flagged even if observed state matches expected. Prevents unsafe switching on unreliable data."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "f33b7faefa5cd4c858dd38030fbcf1b5c671b4ec"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0015-health-evaluator-pure-function — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0015-health-evaluator-pure-function/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0015-health-evaluator-pure-function/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists (23698 bytes)"
+    - command: grep -q evaluate_health PLAN.md
+      result: pass
+      output_summary: "evaluate_health function signature defined in Section 10"
+    - command: grep -q HealthInput PLAN.md
+      result: pass
+      output_summary: "HealthInput type referenced throughout plan"
+    - command: grep -q HealthCheckResult PLAN.md
+      result: pass
+      output_summary: "HealthCheckResult type referenced"
+    - command: grep -q HealthStatus PLAN.md
+      result: pass
+      output_summary: "HealthStatus enum referenced"
+    - command: grep -q "pure function" PLAN.md
+      result: pass
+      output_summary: "Pure function requirement stated"
+    - command: grep -q deterministic PLAN.md
+      result: pass
+      output_summary: "Deterministic requirement stated in Sections 6, 11, 13"
+    - command: grep healthy PLAN.md && grep invalid-load-id PLAN.md && grep unreachable PLAN.md && grep stale-status PLAN.md && grep repeated-failures PLAN.md && grep state-mismatch PLAN.md && grep unknown-state PLAN.md
+      result: pass
+      output_summary: "All 7 health outcome strings present"
+    - command: grep "not runtime-wired" PLAN.md
+      result: pass
+      output_summary: "Explicit not-runtime-wired statement in CURRENT_STATE.md update template"
+    - command: grep "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control boundary preserved — deferred"
+    - command: grep "external GitOps" PLAN.md
+      result: pass
+      output_summary: "External GitOps boundary unchanged"
+    - command: grep "locked" PLAN.md
+      result: pass
+      output_summary: "Locked artifact policy stated in Section 22"
+    - command: grep "CODER_REPORT.txt" PLAN.md
+      result: pass
+      output_summary: "CODER_REPORT.txt in allowed files and workflow table"
+    - command: grep "PRECOMMIT_REVIEW.yaml" PLAN.md
+      result: pass
+      output_summary: "PRECOMMIT_REVIEW.yaml in workflow table"
+    - command: grep "no runtime wiring\|not wired\|must not be read by runtime" PLAN.md
+      result: pass
+      output_summary: "Multiple explicit statements prohibiting runtime wiring in PR 0015"
+    - command: grep "no hardware\|does not switch\|must not switch\|no switching" PLAN.md
+      result: pass
+      output_summary: "Multiple explicit statements prohibiting hardware switching"
+    - command: grep "no retry\|does not retry" PLAN.md
+      result: pass
+      output_summary: "Multiple explicit statements prohibiting retry switching"
+    - command: grep "no config\|does not read.*config\|no config loading" PLAN.md
+      result: pass
+      output_summary: "Config loading explicitly prohibited"
+    - command: grep "examples/energy_policy.example.yaml" PLAN.md
+      result: pass
+      output_summary: "Loading of example YAML explicitly prohibited in Section 9.3"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"
