@@ -160,6 +160,13 @@ ManualControlQueueResult) and 2 pure functions (enqueue_manual_control_command,
 cancel_manual_control_command). No hardware execution. No command proposal.
 No runtime wiring. No API endpoints. No automation.
 
+## PR 0020 — Command Intent and Proposal Arbitration
+PR 0020 adds pure command intent/proposal arbitration in
+`app/control/command_arbitration.py`. Autonomous operation remains default.
+Operator/web UI input is an override/correction layer. CommandProposal is
+modeled but not executed. No API endpoints. No runtime wiring. No execution.
+No automation. No ML control.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

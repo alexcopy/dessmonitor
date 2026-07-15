@@ -79,6 +79,16 @@ from app.control.manual_control_queue import (
     cancel_manual_control_command,
 )
 
+from app.control.command_arbitration import (
+    CommandIntentSource,
+    CommandProposalStatus,
+    CommandIntent,
+    CommandProposal,
+    CommandArbitrationInput,
+    CommandArbitrationResult,
+    arbitrate_command_intent,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -131,4 +141,11 @@ __all__ = [
     "ManualControlQueueResult",
     "enqueue_manual_control_command",
     "cancel_manual_control_command",
+    "CommandIntentSource",
+    "CommandProposalStatus",
+    "CommandIntent",
+    "CommandProposal",
+    "CommandArbitrationInput",
+    "CommandArbitrationResult",
+    "arbitrate_command_intent",
 ]
