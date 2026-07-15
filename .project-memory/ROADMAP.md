@@ -43,7 +43,8 @@
 - [x] PR 0018D — Scenario matrix and regression tests
 - [x] PR 0019 — Manual control queue boundary
 - [x] PR 0020 — Command intent and proposal arbitration
-- [ ] Later — Controlled execution with safety gates
+- [x] PR 0021 — Command safety gate model
+- [ ] Controlled execution (hardware dispatch with safety gates)
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 

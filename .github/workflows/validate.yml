@@ -89,3 +89,6 @@ jobs:
 
       - name: 🔍 Command arbitration check
         run: bash scripts/check-command-arbitration.sh
+
+      - name: 🔍 Command safety gate check
+        run: bash scripts/check-command-safety-gate.sh

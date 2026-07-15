@@ -167,6 +167,15 @@ Operator/web UI input is an override/correction layer. CommandProposal is
 modeled but not executed. No API endpoints. No runtime wiring. No execution.
 No automation. No ML control.
 
+## PR 0021 — Command Safety Gate Model
+PR 0021 adds a pure command safety gate model in
+`app/control/command_safety_gate.py` with 5 types (SafetyGateStatus,
+SafetyGateCheck, CommandSafetyContext, CommandSafetyGateInput,
+CommandSafetyGateResult) and the pure function
+`evaluate_command_safety_gate()`. Documents safety gate architecture in
+`.project-memory/COMMAND_SAFETY_GATES.md`. No executor. No runtime wiring.
+No API endpoints. No hardware execution.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
