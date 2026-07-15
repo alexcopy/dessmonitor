@@ -65,6 +65,10 @@ from app.control.policy_models import (
     PondSafetyContext,
 )
 
+from app.control.policy_decision import (
+    evaluate_policy_decision,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -109,4 +113,5 @@ __all__ = [
     "PolicyDecisionInput",
     "PolicyDecisionResult",
     "PondSafetyContext",
+    "evaluate_policy_decision",
 ]

@@ -138,6 +138,14 @@ No evaluate_policy_decision implementation. No command proposal. No runtime wiri
 No automation enabled. Pond aeration life-support term recorded. Battery/inverter
 boundaries recorded.
 
+## PR 0018C — Pure Deterministic Policy Decision Engine
+PR 0018C implements `evaluate_policy_decision()` in `app/control/policy_decision.py`.
+The engine combines battery window, energy budget, load wattage, readiness, health,
+schedule, weather adjustment, forecast strategy, and pond life-support context into
+a single advisory PolicyDecisionResult. The engine is pure, deterministic, and
+side-effect-free. It does not execute commands, propose actions, or wire into runtime.
+No automation enabled. No ML control.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

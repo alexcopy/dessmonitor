@@ -1,0 +1,181 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0018c-pure-deterministic-policy-decision-engine/PLAN.md -> PASS"
+  - name: policy_decision.py target file
+    result: pass
+    notes: "grep -q 'policy_decision.py' PLAN.md -> PASS. Module to be created at app/control/policy_decision.py"
+  - name: evaluate_policy_decision function
+    result: pass
+    notes: "grep -q 'evaluate_policy_decision' PLAN.md -> PASS. Pure function: evaluate_policy_decision(policy_input: PolicyDecisionInput) -> PolicyDecisionResult"
+  - name: PolicyDecisionInput usage
+    result: pass
+    notes: "grep -q 'PolicyDecisionInput' PLAN.md -> PASS. Consumed from app/control/policy_models.py (PR 0018B)."
+  - name: PolicyDecisionResult usage
+    result: pass
+    notes: "grep -q 'PolicyDecisionResult' PLAN.md -> PASS. Produced by evaluate_policy_decision."
+  - name: configured_load_watts usage
+    result: pass
+    notes: "grep -q 'configured_load_watts' PLAN.md -> PASS. Used in LoadCandidate for projected_total_load_watts calculations. Section 9: 'Use configured_load_watts for projected_total_load_watts calculations.'"
+  - name: projected_total_load_watts usage
+    result: pass
+    notes: "grep -q 'projected_total_load_watts' PLAN.md -> PASS. Used in PolicyDecisionResult and inverter cap checks."
+  - name: max_total_load_watts protection
+    result: pass
+    notes: "grep -q 'max_total_load_watts' PLAN.md -> PASS. Section 7.3: inverter max load protection. Section 9: 'Never allow ON if projected_total_load_watts > max_total_load_watts.'"
+  - name: Battery fallback protection
+    result: pass
+    notes: "grep -q 'battery-fallback-protection' PLAN.md -> PASS. Section 7.2: battery at/below grid_fallback_voltage → shed non-life-support discretionary loads."
+  - name: Inverter max load protection
+    result: pass
+    notes: "grep -q 'inverter-load-cap-protection' PLAN.md -> PASS. Section 7.3: current_total >= max_total → shed lowest-priority non-life-support discretionary."
+  - name: Pond/fish/aeration life-support priority
+    result: pass
+    notes: "grep -q 'pond-life-support-aeration' PLAN.md -> PASS. Section 7.4: life-support conditions active → ALLOW_ON healthy aeration load if budget fits."
+  - name: Discretionary shedding before aeration
+    result: pass
+    notes: "grep -q 'shed-discretionary-for-aeration' PLAN.md -> PASS. Section 7.4: if budget full, shed lower-priority discretionary before aeration."
+  - name: Morning minimum forecast strategy
+    result: pass
+    notes: "grep -q 'morning-minimum-hold-for-sun' PLAN.md -> PASS. Section 7.5: morning_strategy_active + forecast_improves_later + voltage at morning minimum → avoid new discretionary loads."
+  - name: Bad all-day forecast conservation
+    result: pass
+    notes: "grep -q 'bad-forecast-conserve' PLAN.md -> PASS. Section 7.6: bad_forecast_all_day → PREFER_OFF discretionary loads."
+  - name: High-voltage spend behavior
+    result: pass
+    notes: "grep -q 'high-voltage-spend' PLAN.md -> PASS. Section 7.7: voltage >= high_voltage_spend_threshold → ALLOW_ON healthy/ready loads within budget."
+  - name: Weather adjustment integration
+    result: pass
+    notes: "grep -q 'weather-conserve' PLAN.md -> PASS and 'weather-spend' PLAN.md -> PASS. Section 7.8: weather_adjustment.decision mapped to weather-conserve/weather-spend."
+  - name: Deterministic ordering
+    result: pass
+    notes: "Section 10.6: 'Must use deterministic ordering only (no random, no unstable sort).'"
+  - name: No command proposal
+    result: pass
+    notes: "Section 2: 'does not create command proposals.' Section 6.6: 'No command proposal or command queue.' Section 18: 'No command proposal: Deferred to 0020.' Script check 9 verifies no CommandProposal/CommandQueue."
+  - name: No command queue
+    result: pass
+    notes: "Section 6.6: 'No command proposal or command queue.' Grep confirms CommandQueue absent from module."
+  - name: No hardware execution
+    result: pass
+    notes: "Section 18: 'Does not call any switch/device/Tuya method.' Section 6: 'No hardware calls.' Section 8: reason strings are advisory only."
+  - name: No runtime wiring
+    result: pass
+    notes: "Section 18: 'Not connected to any runtime component.' Section 2: 'does not wire into runtime.'"
+  - name: No weather fetch
+    result: pass
+    notes: "Section 6: Module must not import app.weather, openweather, requests, aiohttp. Section 12 forbids editing app/weather/**. All inputs are function arguments."
+  - name: No ML calls/control
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. Section 18: 'ML advisory is advice-only; ML control deferred per ADR-0003.'"
+  - name: No automation enabled
+    result: pass
+    notes: "Section 18: 'No automation enabled: Pump automation disabled per PR 0008.'"
+  - name: 11 required reason strings
+    result: pass
+    notes: "All 11 reason strings present: no-loads, battery-fallback-protection, inverter-load-cap-protection, pond-life-support-aeration, shed-discretionary-for-aeration, morning-minimum-hold-for-sun, bad-forecast-conserve, high-voltage-spend, weather-conserve, weather-spend, neutral-no-action."
+  - name: Robustness requirements
+    result: pass
+    notes: "Section 10: Must tolerate None context, missing voltage fields, multiple voltage field names (battery_voltage/voltage/value/battery_voltage_v), enum and string values, not require all enum members, use deterministic ordering."
+  - name: Evaluation priority order
+    result: pass
+    notes: "Section 7 defines 9 priority-ordered checks: (1) no loads, (2) battery fallback, (3) inverter cap, (4) pond life-support, (5) morning minimum, (6) bad forecast, (7) high-voltage spend, (8) weather adjustment, (9) default neutral."
+  - name: Pond life-support do-not-blindly-rely rule
+    result: pass
+    notes: "Section 7.4: 'Do not blindly rely on unhealthy/stale/unreachable aeration loads.' Section 9: 'Do not blindly rely on unhealthy/stale/unreachable aeration devices.'"
+  - name: Do not turn off life-support as first shed
+    result: pass
+    notes: "Section 9.6: 'Do not turn off life-support loads as the first shed target.' Section 7.2: 'Never pick a life-support aeration load as the first shed target.'"
+  - name: Allowed files match specification
+    result: pass
+    notes: "Section 11: app/control/policy_decision.py (create), app/control/__init__.py (edit), scripts/check-policy-decision-engine.sh (create), .github/workflows/validate.yml (edit), CURRENT_STATE.md (edit), ROADMAP.md (edit), CODER_REPORT.txt (create)."
+  - name: Forbidden files include all frozen modules
+    result: pass
+    notes: "Section 12: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, domain.py, relay_mapping.py, energy_policy.py, readiness.py, health.py, schedule_profile.py, weather_adjustment.py, policy_models.py, examples/energy_policy.example.yaml, service/**, shared_state/**, config/data files, Docker/deployment files, build-and-deploy.yml."
+  - name: Module dependencies restricted
+    result: pass
+    notes: "Section 6.3: Only stdlib (typing) + energy_policy types + policy_models types + weather_adjustment types. Must not import app.tuya, app.service, app.devices, app.monitoring, app.ml, app.weather, or individual evaluator modules."
+  - name: Validation script requirements defined
+    result: pass
+    notes: "Section 13 defines 17 requirements: verify module/function/input-output types/model types/EnergyPolicyDecision/wattage fields/11 reason strings/no CommandProposal/forbidden imports/hardware calls/impurity calls/__init__ exports/runtime integrity, clear output, exit 0/1."
+  - name: Additive validate.yml step
+    result: pass
+    notes: "Section 13: adds one step after existing policy engine models check. Does not modify existing steps."
+  - name: Concise CURRENT_STATE.md update
+    result: pass
+    notes: "Section 14 defines exact wording: 'PR 0018C implements evaluate_policy_decision()... pure, deterministic, and side-effect-free... does not execute commands, propose actions, or wire into runtime. No automation enabled. No ML control.' No broad rewrite."
+  - name: Concise ROADMAP.md update
+    result: pass
+    notes: "Section 15 defines exact single line: '- [x] PR 0018C — Pure deterministic policy decision engine'. Update under Phase 2b."
+  - name: Future PR boundaries deferred
+    result: pass
+    notes: "Section 16: scenario tests → 0018D, command proposal → 0020, command queue → 0019, wire decisions → 0020, controlled execution → 0021+, ML advisory → later, ML control → much later, runtime wiring → deferred."
+  - name: No deployment or GitOps changes
+    result: pass
+    notes: "Section 12 forbids Dockerfile, docker-compose.yml, .github/workflows/build-and-deploy.yml. Section 18: 'Docker/GitOps: build-and-deploy.yml untouched; external GitOps boundary respected.'"
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "2ef2692618134cc7fa9a50bf3fe98c98bd8e1724"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0018c-pure-deterministic-policy-decision-engine — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0018c-pure-deterministic-policy-decision-engine/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0018c-pure-deterministic-policy-decision-engine/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q policy_decision.py PLAN.md
+      result: pass
+      output_summary: "Target module referenced"
+    - command: grep -q evaluate_policy_decision PLAN.md
+      result: pass
+      output_summary: "evaluate_policy_decision function defined"
+    - command: grep -q PolicyDecisionInput PLAN.md
+      result: pass
+      output_summary: "PolicyDecisionInput consumed from policy_models.py"
+    - command: grep -q PolicyDecisionResult PLAN.md
+      result: pass
+      output_summary: "PolicyDecisionResult produced"
+    - command: grep -q configured_load_watts PLAN.md
+      result: pass
+      output_summary: "configured_load_watts in LoadCandidate"
+    - command: grep -q projected_total_load_watts PLAN.md
+      result: pass
+      output_summary: "projected_total_load_watts in calculations"
+    - command: grep -q max_total_load_watts PLAN.md
+      result: pass
+      output_summary: "max_total_load_watts inverter cap protection"
+    - command: grep -q battery-fallback-protection PLAN.md
+      result: pass
+      output_summary: "Battery fallback reason string present"
+    - command: grep -q pond-life-support-aeration PLAN.md
+      result: pass
+      output_summary: "Pond life-support reason string present"
+    - command: grep -q shed-discretionary-for-aeration PLAN.md
+      result: pass
+      output_summary: "Shed discretionary for aeration reason string present"
+    - command: grep -q high-voltage-spend PLAN.md
+      result: pass
+      output_summary: "High-voltage spend reason string present"
+    - command: grep -qi "no command proposal\|not.*command.proposal" PLAN.md
+      result: pass
+      output_summary: "Section 2: 'does not create command proposals.' Section 18: 'No command proposal: Deferred to 0020.'"
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control deferred. Section 18: 'ML advisory is advice-only; ML control deferred per ADR-0003.'"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"

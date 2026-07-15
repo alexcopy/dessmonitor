@@ -77,3 +77,6 @@ jobs:
 
       - name: 🔍 Policy engine models check
         run: bash scripts/check-policy-engine-models.sh
+
+      - name: 🔍 Policy decision engine check
+        run: bash scripts/check-policy-decision-engine.sh
