@@ -37,7 +37,10 @@
 - [x] PR 0015 — Health evaluator, pure function only
 - [x] PR 0016 — Schedule profile model
 - [x] PR 0017 — Weather adjustment evaluator
-- [ ] PR 0018 — Deterministic policy decision engine, no hardware execution
+- [x] PR 0018A — Policy engine operating boundaries (documentation only)
+- [ ] PR 0018B — Passive policy engine models
+- [ ] PR 0018C — Pure deterministic policy decision engine
+- [ ] PR 0018D — Scenario matrix and regression tests
 - [ ] PR 0019 — Manual control API or command queue
 - [ ] PR 0020 — Command proposal before automatic execution
 - [ ] Later — Controlled execution with safety gates
@@ -45,6 +48,8 @@
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 
 **PR 0017 note:** Pure weather adjustment evaluator follows schedule profile model (PR 0016). Future PRs will add deterministic policy decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
+
+**PR 0018A note:** Policy engine operating boundaries documented. 0018 split into 0018A (boundaries docs), 0018B (passive models), 0018C (pure engine), 0018D (scenario tests). 0019 (manual control API), 0020 (command proposal before automatic execution). Controlled execution, ML advisory, and ML control all remain later milestones.
 
 ## Phase 3: Safety-First Adaptive Control (PR 0004+)
 - [ ] Implement safety policy and fallback mechanism for relay control

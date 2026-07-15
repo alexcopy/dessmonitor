@@ -1,0 +1,151 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: .project-memory/POLICY_DECISION_ENGINE.md exists
+    result: pass
+    notes: "Confirmed: file exists at .project-memory/POLICY_DECISION_ENGINE.md (untracked, created by coder)."
+  - name: scripts/check-policy-engine-operating-boundaries.sh exists
+    result: pass
+    notes: "Confirmed: file exists at scripts/check-policy-engine-operating-boundaries.sh (untracked, created by coder)."
+  - name: validate.yml only adds validation-only check
+    result: pass
+    notes: "One step added after weather adjustment evaluator check: bash scripts/check-policy-engine-operating-boundaries.sh. No other changes to validate.yml."
+  - name: CURRENT_STATE.md update is concise
+    result: pass
+    notes: "8 lines added for PR 0018A section. No broad rewrites. Matches PLAN.md §12 template."
+  - name: ROADMAP.md update is concise
+    result: pass
+    notes: "PR 0018 split into 0018A/0018B/0018C/0018D. 0019, 0020 remain. Note added for 0018A. No broad rewrites."
+  - name: battery_grid_fallback_voltage is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Battery Operating Extrema. Typical range 24.0-24.5V, configurable."
+  - name: battery_morning_minimum_voltage is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Battery Operating Extrema. Configurable voltage floor for morning hours."
+  - name: battery_evening_reserve_voltage is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Battery Operating Extrema. Typical 26.5V, configurable."
+  - name: battery_high_voltage_spend_threshold is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Battery Operating Extrema. Typical 28.5-29.0V, configurable."
+  - name: battery_full_voltage is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Battery Operating Extrema. Typical 29.5V, hardware limit."
+  - name: max_total_load_watts is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Inverter Max Load Protection. Typical 2500W, configurable."
+  - name: pond_hot_water_temperature_c is documented
+    result: pass
+    notes: "Found in POLICY_DECISION_ENGINE.md §Summer and High Water Temperature Rule. Configurable, typical 25-26°C."
+  - name: Numeric values 24.0, 24.5, 26.5, 28.5, 29.0, 29.5, 2500, 25, 26 present
+    result: pass
+    notes: "All 9 numeric values confirmed present in POLICY_DECISION_ENGINE.md via grep."
+  - name: Pond/fish/aeration/life-support invariant documented
+    result: pass
+    notes: "§Pond/Fish/Aeration Life-Support Invariant: 'Pond aeration is life-support, not ordinary discretionary load.' 6 invariant bullets present."
+  - name: Discretionary load shedding before aeration documented
+    result: pass
+    notes: "§Pond/Fish/Aeration Life-Support Invariant bullet 5: 'Discretionary loads should be shed before life-support aeration.' Also in §Load Classification, §Summer Rule, multiple scenarios."
+  - name: Morning cloudy + sunny forecast scenario documented
+    result: pass
+    notes: "§Scenario Matrix scenario 1: 'Cloudy morning, sunny forecast in 2 hours'. Also §Morning Minimum Strategy."
+  - name: Bad all-day forecast conserve scenario documented
+    result: pass
+    notes: "§Scenario Matrix scenario 2: 'Cloudy morning, bad forecast all day'. Also §Morning Minimum Strategy."
+  - name: High-voltage spend scenario documented
+    result: pass
+    notes: "§Scenario Matrix scenario 3: 'Sunny day, battery rising toward 29.5V'. Also §Daytime High-Voltage Spend Strategy."
+  - name: Inverter max load scenario documented
+    result: pass
+    notes: "§Scenario Matrix scenario 4: 'Sunny day, active load near 2500W'. Also §Inverter Max Load Protection."
+  - name: 0018A/0018B/0018C/0018D split documented
+    result: pass
+    notes: "§Why 0018 Is Split and §Future Implementation Sequence both document the four sub-PRs with scope descriptions."
+  - name: 0019 and 0020 remain in roadmap
+    result: pass
+    notes: "ROADMAP.md shows [ ] PR 0019, [ ] PR 0020. POLICY_DECISION_ENGINE.md §Future Implementation Sequence lists both."
+  - name: Command proposal before automatic execution remains deferred
+    result: pass
+    notes: "ROADMAP.md shows 0020 as deferred. POLICY_DECISION_ENGINE.md: 'All engine output is advisory/proposal - execution is deferred to later PRs (0019+).'"
+  - name: No execution implemented
+    result: pass
+    notes: "PR is documentation-only. No Python code in POLICY_DECISION_ENGINE.md. CODER_REPORT confirms no engine implementation."
+  - name: No runtime wiring added
+    result: pass
+    notes: "git diff shows only validate.yml, CURRENT_STATE.md, ROADMAP.md modified. No app/control/, app/service/, or runtime files changed."
+  - name: No app/control files changed
+    result: pass
+    notes: "git diff --name-only HEAD shows no app/control files. Script check confirms 'app/control/' not modified."
+  - name: No automation or ML control enabled
+    result: pass
+    notes: "POLICY_DECISION_ENGINE.md §What the Engine Must Not Execute: 'Enable automation. Enable ML control. Send commands.' ROADMAP maintains ML control as 'Much later' milestone."
+  - name: PLAN.md and PLAN_REVIEW.yaml locked
+    result: pass
+    notes: "PLAN.md and PLAN_REVIEW.yaml not in git diff. No modifications detected. CODER_REPORT confirms both untouched."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "28b38c9b7a381ce5cfd474a8120f67d545602f6a"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0018a-policy-engine-operating-boundaries"
+    - command: git status --short
+      result: pass
+      output_summary: "3 modified tracked files, 2 untracked files (POLICY_DECISION_ENGINE.md, check-*.sh), 1 untracked PR directory. All within PR 0018A scope."
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md — all allowed files. No app/control/, no runtime files."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "3 files changed: validate.yml (+3 lines for policy engine boundaries check), CURRENT_STATE.md (+8 lines PR 0018A section), ROADMAP.md (PR 0018 split to 4 sub-PRs, +note). No Python implementation files changed."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Exit 0. No syntax errors."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit 0. All required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit 0. All 23 YAML files validated successfully."
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Exit 0. Energy policy domain types present and safe."
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Readiness evaluator present, pure, and safe."
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Health evaluator present, pure, and safe."
+    - command: bash scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Exit 0. Schedule profile model present, passive, and safe."
+    - command: bash scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Weather adjustment evaluator present, pure, and safe."
+    - command: bash scripts/check-policy-engine-operating-boundaries.sh
+      result: pass
+      output_summary: "Exit 0. All checks pass. Policy engine operating boundaries document present and complete."
+    - command: grep for 7 battery/pond parameters
+      result: pass
+      output_summary: "All 7 parameters (battery_grid_fallback_voltage, battery_morning_minimum_voltage, battery_evening_reserve_voltage, battery_high_voltage_spend_threshold, battery_full_voltage, max_total_load_watts, pond_hot_water_temperature_c) found in document and script."
+    - command: grep for 9 numeric values
+      result: pass
+      output_summary: "All 9 values (24.0, 24.5, 26.5, 28.5, 29.0, 29.5, 2500, 25, 26) found in document."
+    - command: grep for pond/fish/aeration/life-support/discretionary load shedding
+      result: pass
+      output_summary: "All required terms found across document and script."
+    - command: grep for 0018A/0018B/0018C/0018D/0019/0020/command proposal/ML control
+      result: pass
+      output_summary: "All required PR references and boundaries found in POLICY_DECISION_ENGINE.md, ROADMAP.md, and script."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []
