@@ -86,3 +86,6 @@ jobs:
 
       - name: 🔍 Manual control queue check
         run: bash scripts/check-manual-control-queue.sh
+
+      - name: 🔍 Command arbitration check
+        run: bash scripts/check-command-arbitration.sh

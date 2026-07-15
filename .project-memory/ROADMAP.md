@@ -42,7 +42,7 @@
 - [x] PR 0018C — Pure deterministic policy decision engine
 - [x] PR 0018D — Scenario matrix and regression tests
 - [x] PR 0019 — Manual control queue boundary
-- [ ] PR 0020 — Command proposal before automatic execution
+- [x] PR 0020 — Command intent and proposal arbitration
 - [ ] Later — Controlled execution with safety gates
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
