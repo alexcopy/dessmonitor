@@ -83,3 +83,6 @@ jobs:
 
       - name: 🔍 Policy decision scenarios check
         run: bash scripts/check-policy-decision-scenarios.sh
+
+      - name: 🔍 Manual control queue check
+        run: bash scripts/check-manual-control-queue.sh

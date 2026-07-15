@@ -69,6 +69,16 @@ from app.control.policy_decision import (
     evaluate_policy_decision,
 )
 
+from app.control.manual_control_queue import (
+    ManualControlStatus,
+    ManualControlCommand,
+    ManualControlQueueItem,
+    ManualControlQueueSnapshot,
+    ManualControlQueueResult,
+    enqueue_manual_control_command,
+    cancel_manual_control_command,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -114,4 +124,11 @@ __all__ = [
     "PolicyDecisionResult",
     "PondSafetyContext",
     "evaluate_policy_decision",
+    "ManualControlStatus",
+    "ManualControlCommand",
+    "ManualControlQueueItem",
+    "ManualControlQueueSnapshot",
+    "ManualControlQueueResult",
+    "enqueue_manual_control_command",
+    "cancel_manual_control_command",
 ]
