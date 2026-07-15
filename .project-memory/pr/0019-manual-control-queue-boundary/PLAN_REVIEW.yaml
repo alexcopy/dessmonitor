@@ -1,0 +1,178 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0019-manual-control-queue-boundary/PLAN.md -> PASS"
+  - name: manual_control_queue.py target module
+    result: pass
+    notes: "grep -q 'manual_control_queue.py' PLAN.md -> PASS. Module to be created at app/control/manual_control_queue.py"
+  - name: ManualControlStatus enum
+    result: pass
+    notes: "Four values: QUEUED, CANCELLED, REJECTED, EXPIRED — all present."
+  - name: ManualControlCommand type
+    result: pass
+    notes: "grep -q 'ManualControlCommand' PLAN.md -> PASS. Frozen dataclass with command_id, load_id, desired_state, source, requested_by, reason, idempotency_key, created_at."
+  - name: ManualControlQueueItem type
+    result: pass
+    notes: "grep -q 'ManualControlQueueItem' PLAN.md -> PASS. Frozen dataclass with command, status, blocked_by, safety_notes, updated_at."
+  - name: ManualControlQueueSnapshot type
+    result: pass
+    notes: "grep -q 'ManualControlQueueSnapshot' PLAN.md -> PASS. Frozen dataclass with items tuple."
+  - name: ManualControlQueueResult type
+    result: pass
+    notes: "grep -q 'ManualControlQueueResult' PLAN.md -> PASS. Frozen dataclass with accepted, snapshot, item, reason, blocked_by."
+  - name: enqueue_manual_control_command function
+    result: pass
+    notes: "grep -q 'enqueue_manual_control_command' PLAN.md -> PASS. Pure function: (snapshot, command) -> ManualControlQueueResult."
+  - name: cancel_manual_control_command function
+    result: pass
+    notes: "grep -q 'cancel_manual_control_command' PLAN.md -> PASS. Pure function: (snapshot, command_id, reason) -> ManualControlQueueResult."
+  - name: command_id field
+    result: pass
+    notes: "Present in ManualControlCommand. Section 7: duplicate command_id protection — rejects if non-terminal item with same command_id exists."
+  - name: load_id field
+    result: pass
+    notes: "Present in ManualControlCommand. Section 7: rejected if empty."
+  - name: desired_state field
+    result: pass
+    notes: "Present in ManualControlCommand. Uses DesiredState from app/control/domain.py (PR 0009)."
+  - name: source field
+    result: pass
+    notes: "Present in ManualControlCommand. Default: 'manual'."
+  - name: requested_by field
+    result: pass
+    notes: "Present in ManualControlCommand. String field for operator identifier."
+  - name: idempotency_key field
+    result: pass
+    notes: "grep -q 'idempotency_key' PLAN.md -> PASS. Section 7: duplicate idempotency_key protection — rejects if non-terminal item with same key exists."
+  - name: QUEUED/CANCELLED/REJECTED/EXPIRED statuses
+    result: pass
+    notes: "All four ManualControlStatus values confirmed present."
+  - name: Duplicate command_id protection
+    result: pass
+    notes: "Section 7.3: 'If a non-terminal item (QUEUED) with the same command_id already exists → rejected (duplicate command_id).'"
+  - name: Duplicate idempotency_key protection
+    result: pass
+    notes: "Section 7.4: 'If command.idempotency_key is non-empty and a non-terminal item with the same idempotency_key already exists → rejected (duplicate idempotency).'"
+  - name: Pure functions only
+    result: pass
+    notes: "Section 7: 'Pure — no side effects, no I/O, no time reads. Deterministic.' Section 8: 'Same input produces same output.'"
+  - name: No API endpoints
+    result: pass
+    notes: "Section 2: 'not a runtime API.' Section 17: 'No API endpoints: Deferred.' Section 15: 'API endpoints for manual control → Later.'"
+  - name: No CommandProposal
+    result: pass
+    notes: "grep -q 'CommandProposal' PLAN.md -> PASS. Section 2: 'not command proposal.' Section 9: 'CommandProposal as a type must NOT exist.' Section 17: 'no command proposal.'"
+  - name: No exact CommandQueue class/function name
+    result: pass
+    notes: "Section 9: 'CommandQueue as an exact class/type name must NOT exist.' Uses ManualControlQueue naming throughout. Section 4.2: 'CommandQueue appears in future PR roadmap references but is not implemented.'"
+  - name: No hardware execution
+    result: pass
+    notes: "Section 17: 'Does not call any switch/device/Tuya method.' Section 8: 'No function executes hardware.'"
+  - name: No runtime wiring
+    result: pass
+    notes: "Section 17: 'Not connected to any runtime component.' Section 2: 'without... wiring into runtime.'"
+  - name: No weather fetch
+    result: pass
+    notes: "Section 5: Module must not import app.weather, openweather, requests, aiohttp. Script checks forbid weather fetch calls."
+  - name: No ML calls/control
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. Section 17: 'ML advisory is advice-only; ML control deferred per ADR-0003.'"
+  - name: No automation enabled
+    result: pass
+    notes: "Section 17: 'No automation enabled: Pump automation disabled per PR 0008.' Section 2: 'not automation.'"
+  - name: No deployment or GitOps changes
+    result: pass
+    notes: "Section 11 forbids Dockerfile, docker-compose.yml, .github/workflows/build-and-deploy.yml. Section 17: 'Docker/GitOps: build-and-deploy.yml untouched; external GitOps boundary respected.'"
+  - name: Timestamps are caller-provided strings
+    result: pass
+    notes: "Section 6: 'created_at is a caller-provided string, NOT generated with datetime.now().' 'updated_at is a caller-provided string, NOT generated with datetime.now().' Section 8: 'The module never calls time.time or datetime.now.'"
+  - name: Dependencies restricted
+    result: pass
+    notes: "Section 5: Only stdlib (dataclasses, typing, enum) + app.control.domain types: DesiredState. Must not import any other app.control module, runtime service, config reader, hardware adapter."
+  - name: Allowed files match specification
+    result: pass
+    notes: "Section 10: app/control/manual_control_queue.py (create), app/control/__init__.py (edit), scripts/check-manual-control-queue.sh (create), .github/workflows/validate.yml (edit), CURRENT_STATE.md (edit), ROADMAP.md (edit), CODER_REPORT.txt (create)."
+  - name: Forbidden files include all frozen modules
+    result: pass
+    notes: "Section 11: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, domain.py, relay_mapping.py, energy_policy.py, readiness.py, health.py, schedule_profile.py, weather_adjustment.py, policy_models.py, policy_decision.py, examples/energy_policy.example.yaml, service/**, shared_state/**, config/data files, Docker/deployment files."
+  - name: Validation script requirements
+    result: pass
+    notes: "Section 12 defines 17 requirements: verify module/5 types/2 functions/7 fields/4 statuses/frozen/__init__ exports/CommandProposal absent/CommandQueue absent/forbidden imports/hardware calls/impurity calls/runtime integrity, clear output, exit 0/1."
+  - name: Additive validate.yml step
+    result: pass
+    notes: "Section 12: adds one step after existing policy decision scenarios check. Does not modify existing steps."
+  - name: Concise CURRENT_STATE.md update
+    result: pass
+    notes: "Section 13 defines exact wording: 'PR 0019 adds a pure manual control queue boundary... No hardware execution. No command proposal. No runtime wiring. No API endpoints. No automation.' No broad rewrite."
+  - name: Concise ROADMAP.md update
+    result: pass
+    notes: "Section 14 defines exact single line: '- [x] PR 0019 — Manual control queue boundary'. Update under Phase 2b."
+  - name: Future PR boundaries deferred
+    result: pass
+    notes: "Section 15: command proposal → 0020, wire decisions → 0020, API endpoints → later, persistent storage → later, queue executor → later, controlled execution → 0021+, ML advisory → later, ML control → much later, runtime wiring → deferred."
+  - name: Naming boundary clearly enforced
+    result: pass
+    notes: "Section 9: 'Use ManualControlQueue naming throughout. CommandQueue as exact class/type name must NOT exist. CommandProposal as type must NOT exist.'"
+  - name: Existing DesiredState from domain.py referenced
+    result: pass
+    notes: "Section 4.1: 'The existing ControlCommand, CommandSource, and DesiredState types from PR 0009 provide a foundation.' ManualControlCommand.desired_state uses DesiredState."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "eab27353ef8766c90bef8d00e5d04d2762ccfa00"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0019-manual-control-queue-boundary — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0019-manual-control-queue-boundary/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0019-manual-control-queue-boundary/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q manual_control_queue.py PLAN.md
+      result: pass
+      output_summary: "Target module referenced"
+    - command: grep -q ManualControlCommand PLAN.md
+      result: pass
+      output_summary: "ManualControlCommand type defined"
+    - command: grep -q ManualControlQueueItem PLAN.md
+      result: pass
+      output_summary: "ManualControlQueueItem type defined"
+    - command: grep -q ManualControlQueueSnapshot PLAN.md
+      result: pass
+      output_summary: "ManualControlQueueSnapshot type defined"
+    - command: grep -q ManualControlQueueResult PLAN.md
+      result: pass
+      output_summary: "ManualControlQueueResult type defined"
+    - command: grep -q enqueue_manual_control_command PLAN.md
+      result: pass
+      output_summary: "enqueue_manual_control_command function defined"
+    - command: grep -q cancel_manual_control_command PLAN.md
+      result: pass
+      output_summary: "cancel_manual_control_command function defined"
+    - command: grep -q idempotency_key PLAN.md
+      result: pass
+      output_summary: "idempotency_key field for duplicate protection"
+    - command: grep -qi "api endpoint\|no.*api" PLAN.md
+      result: pass
+      output_summary: "Section 2: 'not a runtime API.' Section 17: 'No API endpoints: Deferred.'"
+    - command: grep -q CommandProposal PLAN.md
+      result: pass
+      output_summary: "CommandProposal referenced as absent/deferred. Section 9: 'CommandProposal as a type must NOT exist (deferred to PR 0020).'"
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control deferred. Section 17: 'ML advisory is advice-only; ML control deferred per ADR-0003.'"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"
