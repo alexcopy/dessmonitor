@@ -1,0 +1,178 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0018d-policy-decision-scenario-matrix-tests/PLAN.md -> PASS"
+  - name: POLICY_DECISION_SCENARIOS.md target document
+    result: pass
+    notes: "grep -q 'POLICY_DECISION_SCENARIOS.md' PLAN.md -> PASS. Scenario matrix document to be created."
+  - name: check-policy-decision-scenarios.sh validation script
+    result: pass
+    notes: "grep -q 'check-policy-decision-scenarios.sh' PLAN.md -> PASS. Standalone Python test script + static validation."
+  - name: Interactive validate.yml step only
+    result: pass
+    notes: "Section 9: 'add one validation step'. Section 8: additive to CI, no existing steps modified."
+  - name: Scenario tests import evaluate_policy_decision
+    result: pass
+    notes: "Section 6.2: 'Imports evaluate_policy_decision and all passive model types from app.control.'"
+  - name: No-loads scenario (scenario 1)
+    result: pass
+    notes: "Scenario 1: 'Empty loads tuple' → expected reason 'no-loads'. Assertion 1: 'Empty/tiny loads → reason no-loads'."
+  - name: Battery fallback scenario (scenario 2)
+    result: pass
+    notes: "Scenario 2: 'Voltage <= grid_fallback_voltage, discretionary ON load available' → 'battery-fallback-protection'."
+  - name: Inverter cap scenario (scenario 3)
+    result: pass
+    notes: "Scenario 3: 'current_total_load_watts >= max_total_load_watts, discretionary ON load available' → 'inverter-load-cap-protection'."
+  - name: Cloudy morning + sunny later scenario (scenario 4)
+    result: pass
+    notes: "Scenario 4: 'morning_strategy_active=true, forecast_improves_later_today=true, voltage <= morning_minimum_voltage' → 'morning-minimum-hold-for-sun'."
+  - name: Bad all-day forecast scenario (scenario 5)
+    result: pass
+    notes: "Scenario 5: 'bad_forecast_all_day=true, discretionary ON load available' → 'bad-forecast-conserve'."
+  - name: High-voltage spend scenario (scenario 6)
+    result: pass
+    notes: "Scenario 6: 'voltage >= high_voltage_spend_threshold, healthy/ready OFF load available' → 'high-voltage-spend'. Assertion 8: 'reason high-voltage-spend with ALLOW_ON'."
+  - name: max_total_load_watts blocked candidate (scenario 8)
+    result: pass
+    notes: "Scenario 8: 'current + candidate watts > max_w' → 'high-voltage-spend' or 'neutral-no-action'. Assertion 9: 'ALLOW_ON projected_total_load_watts never exceeds max_total_load_watts'."
+  - name: Hot pond + aeration available (scenario 9)
+    result: pass
+    notes: "Scenario 9: 'life_support_active=true, healthy aeration OFF load fits budget' → 'pond-life-support-aeration'. Assertion 10."
+  - name: Hot pond + no budget (scenario 10)
+    result: pass
+    notes: "Scenario 10: 'life_support_active=true, aeration candidate exists but budget full' → 'shed-discretionary-for-aeration'. Assertion 11."
+  - name: Shed discretionary before aeration (scenario 11)
+    result: pass
+    notes: "Scenario 11: 'life_support_active=true, discretionary ON load can be shed for aeration' → 'shed-discretionary-for-aeration'."
+  - name: Unhealthy aeration not selected (scenario 12)
+    result: pass
+    notes: "Scenario 12: 'aeration load has health=STALE or MISMATCH or UNREACHABLE' → no pond-life-support-aeration with target. Assertion 12."
+  - name: Life-support not first shed target (scenario 16)
+    result: pass
+    notes: "Scenario 16: 'life-support ON load exists alongside discretionary ON' → 'battery-fallback-protection' or 'inverter-load-cap-protection' selecting non-life-support. Assertion 13."
+  - name: Weather-conserve scenario (scenario 13)
+    result: pass
+    notes: "Scenario 13: 'weather_adjustment.decision = PREFER_OFF or FORCE_OFF, shed target exists' → 'weather-conserve'. Assertion 14."
+  - name: Weather-spend scenario (scenario 14)
+    result: pass
+    notes: "Scenario 14: 'weather_adjustment.decision = ALLOW_ON, healthy/ready OFF load fits budget' → 'weather-spend'. Assertion 15."
+  - name: Neutral-no-action scenario (scenario 15)
+    result: pass
+    notes: "Scenario 15: 'weather_adjustment=None or decision=NO_ACTION, no other rule triggers' → 'neutral-no-action'. Assertion 16."
+  - name: 16 scenarios documented
+    result: pass
+    notes: "Section 5 table lists 16 scenarios covering: no-loads, battery fallback, inverter cap, cloudy morning+sun, bad forecast, high-voltage spend, max cap blocked, pond hot+available, pond hot+no budget, shed for aeration, unhealthy aeration, weather conserve/spend/neutral, life-support not first shed. Assertion table lists 16 corresponding assertions."
+  - name: No CommandProposal
+    result: pass
+    notes: "Section 3: 'does NOT add... command proposal'. Section 8 check 4: 'No CommandProposal or CommandQueue exists in the module.' Section 15: 'No command proposal: Deferred to 0020.'"
+  - name: No CommandQueue
+    result: pass
+    notes: "Section 8 check 4: script verifies no CommandQueue exists. Section 4.1: 'CommandProposal and CommandQueue do not exist in app/control/'."
+  - name: No hardware execution
+    result: pass
+    notes: "Section 15: 'Does not call any switch/device/Tuya method.' Script checks forbid hardware calls."
+  - name: No runtime wiring
+    result: pass
+    notes: "Section 15: 'Not connected to any runtime component.' Section 3: 'does NOT add runtime wiring.'"
+  - name: No weather fetch
+    result: pass
+    notes: "Section 6.5: 'Does not require network, secrets, or config files.' Section 8 check 7: no weather fetch/file/env/network/ML/logging/current-time calls."
+  - name: No ML calls/control
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. Section 15: 'ML advisory is advice-only; ML control deferred per ADR-0003.'"
+  - name: No automation enabled
+    result: pass
+    notes: "Section 15: 'No automation enabled: Pump automation disabled per PR 0008.'"
+  - name: Concurrent contract-preserving fix allowed
+    result: pass
+    notes: "Section 7: minimal contract-preserving fixes to policy_decision.py allowed only if scenario test reveals mismatch. Must be smallest change, not change signature/dependencies/rules. Documented in CODER_REPORT.txt."
+  - name: Allowed files match specification
+    result: pass
+    notes: "Section 9: .project-memory/POLICY_DECISION_SCENARIOS.md (create), scripts/check-policy-decision-scenarios.sh (create), .github/workflows/validate.yml (edit), CURRENT_STATE.md (edit), ROADMAP.md (edit), CODER_REPORT.txt (create), app/control/policy_decision.py (edit only if minimal fix needed)."
+  - name: Forbidden files include all frozen modules
+    result: pass
+    notes: "Section 10: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, domain.py, relay_mapping.py, energy_policy.py, readiness.py, health.py, schedule_profile.py, weather_adjustment.py, policy_models.py, examples/energy_policy.example.yaml, service/**, shared_state/**, config/data files, Docker/deployment files, build-and-deploy.yml."
+  - name: Validation script requirements
+    result: pass
+    notes: "Section 6: standalone Python/bash, imports evaluate_policy_decision, no pytest/network/secrets/config, prints PASS/FAIL per scenario, exit 0/1. Section 8: static mode checks document exists, 16 reason strings, at least 12 of 16 assertions present, no CommandProposal, no forbidden imports/hardware/impurity calls, runtime file integrity."
+  - name: Additive validate.yml step
+    result: pass
+    notes: "Section 9: adds one step. Does not modify existing steps."
+  - name: Concise CURRENT_STATE.md update
+    result: pass
+    notes: "Section 11 defines exact wording: 'PR 0018D documents 16 operating scenarios... and provides a standalone Python validation script... No runtime wiring added. No command proposal. No execution. No automation.' No broad rewrite."
+  - name: Concise ROADMAP.md update
+    result: pass
+    notes: "Section 12 defines exact single line: '- [x] PR 0018D — Scenario matrix and regression tests'. Update under Phase 2b."
+  - name: Future PR boundaries deferred
+    result: pass
+    notes: "Section 13: command proposal → 0020, command queue → 0019, wire decisions → 0020, controlled execution → 0021+, ML advisory → later, ML control → much later, runtime wiring → deferred."
+  - name: No deployment or GitOps changes
+    result: pass
+    notes: "Section 10 forbids Dockerfile, docker-compose.yml, .github/workflows/build-and-deploy.yml. Section 15: 'Docker/GitOps: build-and-deploy.yml untouched; external GitOps boundary respected.'"
+  - name: ALLOW_ON max_total_load_watts assertion present
+    result: pass
+    notes: "Assertion 9: 'ALLOW_ON projected_total_load_watts never exceeds max_total_load_watts'. Verifies inverter cap is enforced."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "b9671e00a381e0522fec2bce566c8bb1b0e326ad"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0018d-policy-decision-scenario-matrix-tests — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0018d-policy-decision-scenario-matrix-tests/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0018d-policy-decision-scenario-matrix-tests/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q POLICY_DECISION_SCENARIOS.md PLAN.md
+      result: pass
+      output_summary: "POLICY_DECISION_SCENARIOS.md target document"
+    - command: grep -q check-policy-decision-scenarios.sh PLAN.md
+      result: pass
+      output_summary: "check-policy-decision-scenarios.sh validation script"
+    - command: grep -q battery-fallback-protection PLAN.md
+      result: pass
+      output_summary: "battery-fallback-protection scenario defined"
+    - command: grep -q inverter-load-cap-protection PLAN.md
+      result: pass
+      output_summary: "inverter-load-cap-protection scenario defined"
+    - command: grep -q morning-minimum-hold-for-sun PLAN.md
+      result: pass
+      output_summary: "morning-minimum-hold-for-sun scenario defined"
+    - command: grep -q bad-forecast-conserve PLAN.md
+      result: pass
+      output_summary: "bad-forecast-conserve scenario defined"
+    - command: grep -q high-voltage-spend PLAN.md
+      result: pass
+      output_summary: "high-voltage-spend scenario defined"
+    - command: grep -q pond-life-support-aeration PLAN.md
+      result: pass
+      output_summary: "pond-life-support-aeration scenario defined"
+    - command: grep -q shed-discretionary-for-aeration PLAN.md
+      result: pass
+      output_summary: "shed-discretionary-for-aeration scenario defined"
+    - command: grep -q max_total_load_watts PLAN.md
+      result: pass
+      output_summary: "max_total_load_watts inverter cap enforcement in scenarios"
+    - command: grep -qi "CommandProposal" PLAN.md
+      result: pass
+      output_summary: "CommandProposal referenced as absent/deferred. Section 8 script check 4: 'No CommandProposal or CommandQueue exists.'"
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control deferred. Section 15: 'ML advisory is advice-only; ML control deferred per ADR-0003.'"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"

@@ -1,0 +1,163 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: .project-memory/POLICY_DECISION_SCENARIOS.md exists
+    result: pass
+    notes: "Confirmed: file exists at .project-memory/POLICY_DECISION_SCENARIOS.md (untracked, created by coder)."
+  - name: scripts/check-policy-decision-scenarios.sh exists
+    result: pass
+    notes: "Confirmed: file exists at scripts/check-policy-decision-scenarios.sh (untracked, created by coder)."
+  - name: validate.yml only adds validation-only check
+    result: pass
+    notes: "One step added after policy decision engine check: bash scripts/check-policy-decision-scenarios.sh. No other changes to validate.yml."
+  - name: no-loads scenario exists
+    result: pass
+    notes: "Scenario 1 in POLICY_DECISION_SCENARIOS.md: Empty loads tuple → no-loads/NO_ACTION. Verified by test: 2 assertions pass."
+  - name: battery fallback scenario exists
+    result: pass
+    notes: "Scenario 2: Voltage <= grid_fallback_voltage → battery-fallback-protection/FORCE_OFF. Verified by test: 3 assertions pass."
+  - name: battery fallback does not shed life-support first
+    result: pass
+    notes: "Scenario 16 explicitly documents this. Test scenario 3 confirms: life-support + discretionary ON → FORCE_OFF on discretionary, not life-support."
+  - name: inverter cap scenario exists
+    result: pass
+    notes: "Scenario 3: current_total >= max_total → inverter-load-cap-protection/FORCE_OFF. Verified by test scenario 4: 2 assertions pass. No-shed-target safe path verified by scenario 5."
+  - name: cloudy morning + sun later scenario exists
+    result: pass
+    notes: "Scenario 4: morning_strategy_active + forecast_improves_later + voltage <= morning_minimum → morning-minimum-hold-for-sun. Verified by test scenario 6: 2 assertions pass."
+  - name: bad all-day forecast scenario exists
+    result: pass
+    notes: "Scenario 5: bad_forecast_all_day → bad-forecast-conserve. Verified by test scenario 7: 2 assertions pass."
+  - name: high-voltage spend scenario exists
+    result: pass
+    notes: "Scenario 6/7: voltage >= high_voltage_spend_threshold → high-voltage-spend/ALLOW_ON. Verified by test scenario 8: 3 assertions pass."
+  - name: candidate exceeds cap scenario exists
+    result: pass
+    notes: "Scenario 8: current + candidate > max_w → NO_ACTION. Verified by test scenario 9: 3 assertions pass (NO_ACTION, projected is None)."
+  - name: hot pond + aeration available scenario exists
+    result: pass
+    notes: "Scenario 9: life_support_active + healthy aeration fits budget → pond-life-support-aeration/ALLOW_ON. Verified by test scenario 10: 4 assertions pass."
+  - name: hot pond + no budget + discretionary shed scenario exists
+    result: pass
+    notes: "Scenario 10/11: life_support_active + aeration exists but budget full → shed-discretionary-for-aeration/FORCE_OFF. Verified by test scenario 11: 2 assertions pass."
+  - name: unhealthy aeration scenario exists
+    result: pass
+    notes: "Scenario 12: unhealthy/stale aeration → NO_ACTION, no target selected. Verified by test scenario 12: 4 assertions pass (blocked_by confirms no-healthy-aeration-candidate)."
+  - name: weather conserve scenario exists
+    result: pass
+    notes: "Scenario 13: weather_adjustment.decision = PREFER_OFF/FORCE_OFF → weather-conserve. Verified by test scenario 14: 2 assertions pass."
+  - name: weather spend scenario exists
+    result: pass
+    notes: "Scenario 14: weather_adjustment.decision = ALLOW_ON → weather-spend/ALLOW_ON. Verified by test scenario 15: 4 assertions pass."
+  - name: neutral-no-action scenario exists
+    result: pass
+    notes: "Scenario 15: no triggers → neutral-no-action/NO_ACTION. Verified by test scenario 16: 3 assertions pass."
+  - name: ALLOW_ON invariant asserts projected_total_load_watts <= max_total_load_watts
+    result: pass
+    notes: "Documented in §ALLOW_ON Invariant. Test code tracks all ALLOW_ON results and asserts invariant. Final check: PASS."
+  - name: all required reason strings documented
+    result: pass
+    notes: "All 11 reason strings present in both POLICY_DECISION_SCENARIOS.md and scripts/check-policy-decision-scenarios.sh. Verified by grep and static check S2."
+  - name: no CommandProposal
+    result: pass
+    notes: "grep for class CommandProposal — no matches in policy_decision.py. Static check S7 confirms."
+  - name: no CommandQueue
+    result: pass
+    notes: "grep for class CommandQueue — no matches in policy_decision.py. Static check S7 confirms."
+  - name: no execution
+    result: pass
+    notes: "PR is documentation and validation tests only. No new evaluation logic, no hardware calls, no side effects."
+  - name: no runtime wiring
+    result: pass
+    notes: "No app/control/ files modified by this PR. check-policy-engine-operating-boundaries.sh confirms app/control/ not modified."
+  - name: no weather fetch
+    result: pass
+    notes: "Script is standalone with no network dependencies. No weather API imports or calls. Static check S8 confirms no forbidden calls."
+  - name: no automation
+    result: pass
+    notes: "No automation flags or execution code. Output is advisory PolicyDecisionResult only."
+  - name: no ML control
+    result: pass
+    notes: "No ML imports, calls, or flags in any changed files. ML control remains deferred per ADR-0003."
+  - name: CURRENT_STATE.md update is concise
+    result: pass
+    notes: "6 lines added for PR 0018D section. No broad rewrites. Matches PLAN.md §11 template."
+  - name: ROADMAP.md update is concise
+    result: pass
+    notes: "Single line changed from [ ] to [x] for PR 0018D. No broad rewrites."
+  - name: PLAN.md and PLAN_REVIEW.yaml locked
+    result: pass
+    notes: "Neither PLAN.md nor PLAN_REVIEW.yaml appear in git diff. CODER_REPORT confirms both untouched."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "2ff7efb496f71feab648524ed2934e1b22e19103"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0018d-policy-decision-scenario-matrix-tests"
+    - command: git status --short
+      result: pass
+      output_summary: "3 modified tracked files, 3 untracked files (POLICY_DECISION_SCENARIOS.md, check-*.sh, CODER_REPORT.txt). All within PR 0018D scope."
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: ".github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md — all allowed files. No app/control/ files modified."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "3 files changed: validate.yml (+3 lines), CURRENT_STATE.md (+6 lines), ROADMAP.md (1 line [x]). No runtime or implementation files changed."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Exit 0. No syntax errors."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit 0. All required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit 0. All 23 YAML files validated successfully."
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Exit 0. Energy policy domain types present and safe."
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Readiness evaluator present, pure, and safe."
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Health evaluator present, pure, and safe."
+    - command: bash scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Exit 0. Schedule profile model present, passive, and safe."
+    - command: bash scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. Weather adjustment evaluator present, pure, and safe."
+    - command: bash scripts/check-policy-engine-operating-boundaries.sh
+      result: pass
+      output_summary: "Exit 0. All checks pass (app/control/ not modified by this PR — no false positive)."
+    - command: bash scripts/check-policy-engine-models.sh
+      result: pass
+      output_summary: "Exit 0. All 19 checks pass."
+    - command: bash scripts/check-policy-decision-engine.sh
+      result: pass
+      output_summary: "Exit 0. All 17 checks pass."
+    - command: bash scripts/check-policy-decision-scenarios.sh
+      result: pass
+      output_summary: "Exit 0. 8 static checks + 43/43 scenario assertions pass across all 16 scenarios + ALLOW_ON invariant."
+    - command: grep for 11 reason strings
+      result: pass
+      output_summary: "All 11 reason strings found in both POLICY_DECISION_SCENARIOS.md and check-policy-decision-scenarios.sh."
+    - command: grep for key numeric values and wattage fields
+      result: pass
+      output_summary: "All key values (24.0, 24.5, 26.0, 28.5, 29.5, 2500) and fields (max_total_load_watts, projected_total_load_watts) found in both files."
+    - command: grep for forbidden calls/imports
+      result: pass
+      output_summary: "No matches for CommandProposal, CommandQueue, send_commands, switch_on_device, switch_off_device, set_numeric, open(, os.getenv, yaml.safe_load, requests, aiohttp, subprocess, logging, datetime.now, time.time."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

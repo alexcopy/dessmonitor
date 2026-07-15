@@ -146,6 +146,12 @@ a single advisory PolicyDecisionResult. The engine is pure, deterministic, and
 side-effect-free. It does not execute commands, propose actions, or wire into runtime.
 No automation enabled. No ML control.
 
+## PR 0018D — Policy Decision Scenario Matrix Tests
+PR 0018D documents 16 operating scenarios in `.project-memory/POLICY_DECISION_SCENARIOS.md`
+and provides a standalone Python validation script (`scripts/check-policy-decision-scenarios.sh`)
+that asserts evaluate_policy_decision reason strings and decision behavior for each scenario.
+No runtime wiring added. No command proposal. No execution. No automation.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
