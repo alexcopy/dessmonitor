@@ -1,0 +1,159 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "File confirmed at .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md"
+  - name: command_arbitration.py referenced
+    result: pass
+    notes: "grep confirmed 'command_arbitration.py' in PLAN.md"
+  - name: AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md referenced
+    result: pass
+    notes: "grep confirmed 'AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md' in PLAN.md"
+  - name: CommandIntentSource defined
+    result: pass
+    notes: "grep confirmed 'CommandIntentSource' in PLAN.md (full enum with 5 values defined)"
+  - name: CommandProposalStatus defined
+    result: pass
+    notes: "grep confirmed 'CommandProposalStatus' in PLAN.md (6 occurrences, 3 enum values)"
+  - name: CommandIntent defined
+    result: pass
+    notes: "grep confirmed 'CommandIntent' in PLAN.md (13 occurrences, frozen dataclass)"
+  - name: CommandProposal defined
+    result: pass
+    notes: "grep confirmed 'CommandProposal' in PLAN.md (frozen dataclass with execution_eligible, requires_operator_review, blocked_by)"
+  - name: CommandArbitrationInput defined
+    result: pass
+    notes: "grep confirmed 'CommandArbitrationInput' in PLAN.md (6 occurrences, frozen dataclass with autonomous_enabled, operator_overrides_enabled, safety_blocked_by)"
+  - name: CommandArbitrationResult defined
+    result: pass
+    notes: "grep confirmed 'CommandArbitrationResult' in PLAN.md (5 occurrences, frozen dataclass)"
+  - name: arbitrate_command_intent function defined
+    result: pass
+    notes: "grep confirmed 'arbitrate_command_intent' in PLAN.md (full behavior spec with 6 rules)"
+  - name: AUTO_POLICY defined
+    result: pass
+    notes: "grep confirmed 'AUTO_POLICY' in PLAN.md (in CommandIntentSource enum + arbitration rules)"
+  - name: MANUAL_OPERATOR defined
+    result: pass
+    notes: "grep confirmed 'MANUAL_OPERATOR' in PLAN.md (in CommandIntentSource enum + arbitration rules)"
+  - name: autonomous_enabled field defined
+    result: pass
+    notes: "grep confirmed 'autonomous_enabled' in PLAN.md (4 occurrences, in CommandArbitrationInput)"
+  - name: operator_overrides_enabled field defined
+    result: pass
+    notes: "grep confirmed 'operator_overrides_enabled' in PLAN.md (3 occurrences, in CommandArbitrationInput)"
+  - name: safety_blocked_by field defined
+    result: pass
+    notes: "grep confirmed 'safety_blocked_by' in PLAN.md (5 occurrences, in CommandArbitrationInput + CommandProposal)"
+  - name: execution_eligible field defined
+    result: pass
+    notes: "grep confirmed 'execution_eligible' in PLAN.md (5 occurrences, in CommandProposal)"
+  - name: requires_operator_review field defined
+    result: pass
+    notes: "grep confirmed 'requires_operator_review' in PLAN.md (5 occurrences, in CommandProposal)"
+  - name: autonomous operation is default
+    result: pass
+    notes: "grep confirmed 'Autonomous operation is the default path' in PLAN.md"
+  - name: operator input is override/correction layer
+    result: pass
+    notes: "grep confirmed 'override' in PLAN.md - plan states 'Manual/operator input is an override and correction layer, not a mandatory approval step'"
+  - name: safety gates remain final authority
+    result: pass
+    notes: "grep confirmed 'safety gates' in PLAN.md - plan states 'Safety gates and life-support constraints remain the final authority'"
+  - name: AUTO_POLICY can create execution-eligible proposal without mandatory operator approval
+    result: pass
+    notes: "PLAN.md arbitration rule 3 creates CommandProposal with execution_eligible=True, requires_operator_review=False for AUTO_POLICY intents"
+  - name: MANUAL_OPERATOR can override autonomous policy unless blocked
+    result: pass
+    notes: "PLAN.md arbitration rule 2 checks manual override before auto policy (rule 3), with safety (rule 1) being the only pre-check"
+  - name: CommandProposal is not executed
+    result: pass
+    notes: "PLAN.md states 'Does not execute proposals', 'No executor', 'No hardware execution'"
+  - name: no API endpoints
+    result: pass
+    notes: "grep confirmed 'no API endpoints' in PLAN.md; 'API endpoints for web UI' explicitly deferred"
+  - name: no command executor
+    result: pass
+    notes: "PLAN.md states 'No executor', 'CommandExecutor and execute function must NOT exist'"
+  - name: no runtime wiring
+    result: pass
+    notes: "PLAN.md states 'No runtime wiring', 'Not connected to any runtime component'"
+  - name: no hardware calls
+    result: pass
+    notes: "PLAN.md states 'No hardware calls', 'No hardware execution', 'Does not call any switch/device/Tuya method'"
+  - name: no weather fetch
+    result: pass
+    notes: "PLAN.md states 'no weather fetch', 'not import OpenWeather', 'no network connections'"
+  - name: no automation execution
+    result: pass
+    notes: "PLAN.md states 'No automation enabled', 'Pump automation disabled per PR 0008'"
+  - name: no ML control
+    result: pass
+    notes: "grep confirmed 'ML control' in PLAN.md - states 'ML control remains deferred per ADR-0003', 'ML advisory/control remains deferred'"
+  - name: validation script defined
+    result: pass
+    notes: "grep confirmed 'scripts/check-command-arbitration.sh' in PLAN.md (3 occurrences, full 21-check spec)"
+  - name: additive validate.yml step defined
+    result: pass
+    notes: "PLAN.md defines additive YAML step 'Command arbitration check' after existing manual control queue check"
+  - name: implementation scope files allowed only
+    result: pass
+    notes: "PLAN.md lists allowed files: command_arbitration.py, __init__.py, AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md, check-command-arbitration.sh, validate.yml, CURRENT_STATE.md, ROADMAP.md, CODER_REPORT.txt. Forbidden files listed in Section 11."
+  - name: forbidden scope absent
+    result: pass
+    notes: "No hardware execution, no runtime wiring, no API endpoints, no command executor, no weather fetch, no ML control, no automation execution, no deployment/GitOps changes permitted by PLAN.md"
+  - name: branch matches PR
+    result: pass
+    notes: "git branch --show-current: '0020-command-intent-and-proposal-arbitration' matches PR ID 0020"
+  - name: working tree contains only PR planning artifacts
+    result: pass
+    notes: "git status --short shows only '?? .project-memory/pr/0020-command-intent-and-proposal-arbitration/'. git diff HEAD empty. No unexpected dirty files."
+validation:
+  commands_run:
+    - command: test -f .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: grep -q "command_arbitration.py" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "CommandIntentSource" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "CommandProposal" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "arbitrate_command_intent" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "AUTO_POLICY" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "MANUAL_OPERATOR" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "Autonomous operation is the default path\|autonomous operation is the default path\|Autonomous operation is the default" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched - 'Autonomous operation is the default path' present"
+    - command: grep -q "override" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched - override/correction layer semantics confirmed"
+    - command: grep -q "safety gates" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched - safety gates as final authority confirmed"
+    - command: grep -q "no API endpoints\|No API endpoints" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched"
+    - command: grep -q "ML control" .project-memory/pr/0020-command-intent-and-proposal-arbitration/PLAN.md
+      result: pass
+      output_summary: "Pattern matched - ML control deferred per ADR-0003"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder: []
