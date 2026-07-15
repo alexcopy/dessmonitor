@@ -121,6 +121,14 @@ automation is not enabled. Manual relay/switch ON/OFF remains unchanged.
 Pump automation remains disabled by default from PR 0008. ML control
 remains disabled.
 
+## PR 0018A — Policy Engine Operating Boundaries
+PR 0018A records policy engine operating boundaries, battery/inverter extrema, pond/fish
+life-support invariants, forecast-aware strategy rules, and a scenario matrix in
+`.project-memory/POLICY_DECISION_ENGINE.md`. No decision engine implementation yet.
+No runtime wiring. No execution. No automation. Pond/fish aeration life-support invariant
+recorded. Battery/inverter extrema recorded. Future sub-PRs: 0018B (models), 0018C
+(decision function), 0018D (scenario tests).
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

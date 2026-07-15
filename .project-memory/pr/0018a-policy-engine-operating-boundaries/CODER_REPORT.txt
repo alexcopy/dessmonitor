@@ -1,0 +1,117 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED
+
+  Created:
+    .project-memory/POLICY_DECISION_ENGINE.md
+    scripts/check-policy-engine-operating-boundaries.sh
+    .project-memory/pr/0018a-policy-engine-operating-boundaries/CODER_REPORT.txt
+
+  Modified:
+    .github/workflows/validate.yml (added policy engine operating boundaries check step)
+    .project-memory/CURRENT_STATE.md (added PR 0018A entry)
+    .project-memory/ROADMAP.md (split 0018 into 0018A/0018B/0018C/0018D)
+
+  Not modified (as required):
+    run.py
+    app/control/**
+    app/service/**
+    app/devices/**
+    app/tuya/**
+    app/monitoring/**
+    app/ml/**
+    app/weather/**
+    examples/energy_policy.example.yaml
+    service/**
+    shared_state/**
+    PLAN.md
+    PLAN_REVIEW.yaml
+
+VALIDATION RUN
+
+  All validation commands executed and passed:
+
+  1. python3 -m compileall -q .
+     Exit: 0 — all Python files compile clean
+
+  2. bash scripts/check-repo-safety.sh
+     Exit: 0 — ✅ PASSED: All checks clean
+
+  3. bash scripts/check-project-memory.sh
+     Exit: 0 — ✅ PASSED: All required files present
+
+  4. python3 scripts/validate-yaml.py
+     Exit: 0 — All 23 YAML files validated successfully
+
+  5. bash scripts/check-energy-policy-domain-types.sh
+     Exit: 0 — ✅ PASSED: Energy policy domain types present and safe
+
+  6. bash scripts/check-readiness-evaluator.sh
+     Exit: 0 — ✅ PASSED: Readiness evaluator present, pure, and safe
+
+  7. bash scripts/check-health-evaluator.sh
+     Exit: 0 — ✅ PASSED: Health evaluator present, pure, and safe
+
+  8. bash scripts/check-schedule-profile-model.sh
+     Exit: 0 — ✅ PASSED: Schedule profile model present, passive, and safe
+
+  9. bash scripts/check-weather-adjustment-evaluator.sh
+     Exit: 0 — ✅ PASSED: Weather adjustment evaluator present, pure, and safe
+
+  10. bash scripts/check-policy-engine-operating-boundaries.sh
+      Exit: 0 — ✅ PASSED: Policy engine operating boundaries document present and complete
+
+  11. grep evidence — all required terms confirmed present in POLICY_DECISION_ENGINE.md and validation script
+
+VALIDATION RESULTS: All 11 validation checks passed with exit code 0.
+
+DEVIATIONS FROM PLAN: none
+
+  All specification requirements met:
+  - POLICY_DECISION_ENGINE.md created with all 16 sections
+  - All required exact terms present (7 battery/pond parameters)
+  - All required values present (24.0, 24.5, 26.5, 28.5, 29.0, 29.5, 2500, 25, 26)
+  - All required roadmap split items present (0018A-0018D, 0019, 0020, controlled execution, ML advisory, ML control)
+  - Pond invariant text present with all 6 bullets
+  - Scenario matrix covers all 12 scenarios
+  - check-policy-engine-operating-boundaries.sh validates all required terms
+  - validate.yml updated additively with policy engine check step
+  - CURRENT_STATE.md updated concisely
+  - ROADMAP.md updated with 0018A/0018B/0018C/0018D split
+  - No forbidden files modified
+
+BOUNDARY CONFIRMATIONS
+
+  - confirm: implementation followed approved PLAN.md
+  - confirm: no review artifact written
+  - confirm: PLAN.md not modified
+  - confirm: plan-review artifact not modified
+  - confirm: ROADMAP.md modified only as explicitly allowed by PLAN.md
+  - confirm: post-0100 strategic direction files not modified
+  - confirm: only PLAN.md-approved implementation/test paths changed
+  - confirm: validation commands run and recorded
+  - confirm: no git mutation commands run
+  - confirm: no Docker commands run
+  - confirm: no policy engine models implemented (deferred to 0018B)
+  - confirm: no policy decision function implemented (deferred to 0018C)
+  - confirm: no command proposal implemented (deferred to 0020)
+  - confirm: no execution wired (deferred)
+  - confirm: no automation or ML control enabled
+  - confirm: app/control/** not modified
+  - confirm: app/service/** not modified
+  - confirm: app/devices/** not modified
+  - confirm: app/tuya/** not modified
+  - confirm: app/monitoring/** not modified
+  - confirm: app/ml/** not modified
+  - confirm: app/weather/** not modified
+  - confirm: examples/energy_policy.example.yaml not modified
+
+NEXT REQUIRED ACTION
+
+  PR 0018B — Passive policy engine models (frozen dataclasses for PolicyDecisionInput,
+  PolicyDecisionResult, LoadCandidate, EnergyBudget, BatteryOperatingWindow,
+  PondSafetyContext, ForecastStrategyContext).

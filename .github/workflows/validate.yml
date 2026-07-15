@@ -71,3 +71,6 @@ jobs:
 
       - name: 🔍 Weather adjustment evaluator check
         run: bash scripts/check-weather-adjustment-evaluator.sh
+
+      - name: 🔍 Policy engine operating boundaries check
+        run: bash scripts/check-policy-engine-operating-boundaries.sh
