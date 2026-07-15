@@ -152,6 +152,14 @@ and provides a standalone Python validation script (`scripts/check-policy-decisi
 that asserts evaluate_policy_decision reason strings and decision behavior for each scenario.
 No runtime wiring added. No command proposal. No execution. No automation.
 
+## PR 0019 — Manual Control Queue Boundary
+PR 0019 adds a pure manual control queue boundary in
+`app/control/manual_control_queue.py` with 5 passive types (ManualControlStatus,
+ManualControlCommand, ManualControlQueueItem, ManualControlQueueSnapshot,
+ManualControlQueueResult) and 2 pure functions (enqueue_manual_control_command,
+cancel_manual_control_command). No hardware execution. No command proposal.
+No runtime wiring. No API endpoints. No automation.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
