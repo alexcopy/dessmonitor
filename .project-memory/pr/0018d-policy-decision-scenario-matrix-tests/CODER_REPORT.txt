@@ -1,0 +1,80 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- .project-memory/POLICY_DECISION_SCENARIOS.md (created) — scenario matrix documentation with 16 scenarios
+- scripts/check-policy-decision-scenarios.sh (created) — standalone validation with static checks + Python scenario tests (43 assertions)
+- .github/workflows/validate.yml (modified) — added 🔍 Policy decision scenarios check step
+- .project-memory/CURRENT_STATE.md (modified) — added PR 0018D section
+- .project-memory/ROADMAP.md (modified) — marked PR 0018D [x] complete
+- .project-memory/pr/0018d-policy-decision-scenario-matrix-tests/CODER_REPORT.txt (created) — this report
+
+VALIDATION RUN:
+1. python3 -m compileall -q . — PASS
+2. scripts/check-repo-safety.sh — PASS
+3. scripts/check-project-memory.sh — PASS
+4. python3 scripts/validate-yaml.py — PASS (23 YAML files)
+5. scripts/check-energy-policy-domain-types.sh — PASS
+6. scripts/check-readiness-evaluator.sh — PASS
+7. scripts/check-health-evaluator.sh — PASS
+8. scripts/check-schedule-profile-model.sh — PASS
+9. scripts/check-weather-adjustment-evaluator.sh — PASS
+10. scripts/check-policy-engine-operating-boundaries.sh — PASS (all checks including runtime file integrity)
+11. scripts/check-policy-engine-models.sh — PASS
+12. scripts/check-policy-decision-engine.sh — PASS (17/17)
+13. scripts/check-policy-decision-scenarios.sh — PASS (8 static checks + 43/43 scenario assertions)
+
+VALIDATION RESULTS:
+All validations pass. The PR-specific scenarios script passes:
+- 8 static checks: document exists, 11 reason strings in document, 16 scenarios counted, 6 key numeric values, Python assertion block present, no forbidden imports, no CommandProposal/CommandQueue, no forbidden calls
+- 43/43 Python scenario assertions across 16 scenarios:
+  1. no-loads (2 assertions)
+  2. battery-fallback-protection (3)
+  3. battery fallback life-support not first shed (2)
+  4. inverter-load-cap-protection (2)
+  5. inverter cap no shed target (2)
+  6. morning-minimum-hold-for-sun (2)
+  7. bad-forecast-conserve (2)
+  8. high-voltage-spend (3)
+  9. high-voltage exceeds cap (3)
+  10. hot pond aeration available (4)
+  11. hot pond shed discretionary for aeration (2)
+  12. unhealthy aeration not selected (4)
+  13. life-support not first shed at inverter cap (2)
+  14. weather-conserve (2)
+  15. weather-spend (4)
+  16. neutral-no-action (3)
+  + ALLOW_ON invariant check (1)
+
+Grep evidence:
+- All 11 reason strings confirmed in both POLICY_DECISION_SCENARIOS.md and check-policy-decision-scenarios.sh
+- All key numeric values (24.0, 24.5, 26.0, 28.5, 29.5, 2500) confirmed
+- max_total_load_watts and projected_total_load_watts confirmed
+- No CommandProposal, CommandQueue, forbidden imports, hardware calls, or impurity calls in module or script
+- Git diff confirms only allowed files changed (validate.yml, CURRENT_STATE.md, ROADMAP.md)
+- app/control/policy_decision.py NOT modified (no contract-preserving fixes needed)
+
+DEVIATIONS FROM PLAN:
+- Scenario 11 test adjusted: current_total_load_watts changed from 2500.0 to 2400.0 to avoid the inverter cap check (priority 3) firing before the pond life-support check (priority 4). The pond life-support check then correctly produces "shed-discretionary-for-aeration" when aeration cannot fit the remaining budget. This is a test input adjustment only — the engine behavior is unchanged and the scenario still tests the correct behavior (pond aeration needs budget, discretionary loads are shed to make room).
+- No changes to app/control/policy_decision.py were needed.
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: ROADMAP.md modified only as explicitly allowed by PLAN.md section 12
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no CommandProposal, CommandQueue, runtime wiring, execution, automation, ML control added
+- confirm: app/control/policy_decision.py unchanged (no contract-preserving fix needed)
+- confirm: all frozen modules (energy_policy.py, policy_models.py, readiness.py, health.py, schedule_profile.py, weather_adjustment.py) unchanged
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent to review final diff and produce PRECOMMIT_REVIEW.yaml.

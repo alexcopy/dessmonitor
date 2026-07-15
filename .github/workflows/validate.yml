@@ -80,3 +80,6 @@ jobs:
 
       - name: 🔍 Policy decision engine check
         run: bash scripts/check-policy-decision-engine.sh
+
+      - name: 🔍 Policy decision scenarios check
+        run: bash scripts/check-policy-decision-scenarios.sh

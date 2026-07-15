@@ -40,7 +40,7 @@
 - [x] PR 0018A — Policy engine operating boundaries (documentation only)
 - [x] PR 0018B — Passive policy engine models
 - [x] PR 0018C — Pure deterministic policy decision engine
-- [ ] PR 0018D — Scenario matrix and regression tests
+- [x] PR 0018D — Scenario matrix and regression tests
 - [ ] PR 0019 — Manual control API or command queue
 - [ ] PR 0020 — Command proposal before automatic execution
 - [ ] Later — Controlled execution with safety gates
