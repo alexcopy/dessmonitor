@@ -1,0 +1,199 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: PLAN.md exists
+    result: pass
+    notes: "test -f .project-memory/pr/0018a-policy-engine-operating-boundaries/PLAN.md -> PASS"
+  - name: POLICY_DECISION_ENGINE.md target documented
+    result: pass
+    notes: "grep -q 'POLICY_DECISION_ENGINE.md' PLAN.md -> PASS. Document to be created at .project-memory/POLICY_DECISION_ENGINE.md"
+  - name: Battery grid fallback voltage defined
+    result: pass
+    notes: "grep -q 'battery_grid_fallback_voltage' PLAN.md -> PASS. 24.0-24.5V, configurable."
+  - name: Battery morning minimum voltage defined
+    result: pass
+    notes: "grep -q 'battery_morning_minimum_voltage' PLAN.md -> PASS. Configurable voltage floor for morning hours."
+  - name: Battery evening reserve voltage defined
+    result: pass
+    notes: "grep -q 'battery_evening_reserve_voltage' PLAN.md -> PASS. 26.5V typical, configurable."
+  - name: Battery high voltage spend threshold defined
+    result: pass
+    notes: "grep -q 'battery_high_voltage_spend_threshold' PLAN.md -> PASS. 28.5-29.0V typical, configurable."
+  - name: Battery full voltage defined
+    result: pass
+    notes: "grep -q 'battery_full_voltage' PLAN.md -> PASS. 29.5V typical, hardware limit."
+  - name: Max total load watts defined
+    result: pass
+    notes: "grep -q 'max_total_load_watts' PLAN.md -> PASS. 2500W typical, configurable."
+  - name: Pond hot water temperature defined
+    result: pass
+    notes: "grep -q 'pond_hot_water_temperature_c' PLAN.md -> PASS. 25-26°C typical, configurable."
+  - name: Life-support invariant exists
+    result: pass
+    notes: "grep -q 'life-support' PLAN.md -> PASS. Section 6.11: 'Pond aeration is life-support, not ordinary discretionary load.'"
+  - name: Aeration criticality documented
+    result: pass
+    notes: "grep -q 'aeration' PLAN.md -> PASS. Multiple sections: pond aeration life-support, high temp aeration priority, healthy/unhealthy aeration handling."
+  - name: Numeric boundary 2500W present
+    result: pass
+    notes: "grep -q '2500' PLAN.md -> PASS. max_total_load_watts typical 2500W."
+  - name: Numeric boundary 29.5V present
+    result: pass
+    notes: "grep -q '29.5' PLAN.md -> PASS. battery_full_voltage typical 29.5V."
+  - name: Numeric boundary 24.5V present
+    result: pass
+    notes: "grep -q '24.5' PLAN.md -> PASS. battery_grid_fallback_voltage range 24.0-24.5V."
+  - name: 0018B sub-PR documented
+    result: pass
+    notes: "grep -q '0018B' PLAN.md -> PASS. Passive policy engine models PR."
+  - name: 0018C sub-PR documented
+    result: pass
+    notes: "grep -q '0018C' PLAN.md -> PASS. Pure deterministic decision engine PR."
+  - name: 0018D sub-PR documented
+    result: pass
+    notes: "grep -q '0018D' PLAN.md -> PASS. Scenario matrix and regression tests PR."
+  - name: ML control boundary preserved
+    result: pass
+    notes: "grep -q 'ML control' PLAN.md -> PASS. Section 15: 'ML control remains disabled per ADR-0003.'"
+  - name: No decision engine implementation in 0018A
+    result: pass
+    notes: "Section 2: 'This PR does NOT implement the decision engine.' Section 5: 0018A is 'documentation and validation of product invariants... No code.'"
+  - name: No runtime wiring
+    result: pass
+    notes: "Section 15: 'No runtime wiring: Not connected to any runtime component.' Section 6.17: 'The engine must never call hardware switch methods...'"
+  - name: No hardware execution
+    result: pass
+    notes: "Section 6.17: 'The engine must never call hardware switch methods... call Tuya, DESS, OpenWeather... switch devices.'"
+  - name: No command proposal implementation in 0018A
+    result: pass
+    notes: "Section 6.19: Command proposal deferred to 0020. 0018A is documentation only."
+  - name: No automation or ML control enabled
+    result: pass
+    notes: "Section 15: 'No automation enabled... No ML control enabled: ML advisory is advice-only.'"
+  - name: Morning minimum strategy documented
+    result: pass
+    notes: "Section 6.5: 'Overcast morning with sunny forecast in 2 hours: preserve battery near morning minimum.' 'Cloudy morning with bad all-day forecast: conserve energy more aggressively.'"
+  - name: Forecast-aware morning strategy
+    result: pass
+    notes: "Section 6.13: 'The engine must consider forecast when making morning decisions: Sunny forecast in 2 hours → preserve battery near morning minimum. Bad all-day forecast → conserve energy aggressively.'"
+  - name: Bad all-day forecast strategy
+    result: pass
+    notes: "Section 6.5: 'Cloudy morning with bad all-day forecast: conserve energy more aggressively; minimize discretionary load activation; protect evening reserve from morning draw-down.'"
+  - name: Weather unknown safe strategy
+    result: pass
+    notes: "Section 6.14: 'When weather forecast is missing, stale, or UNKNOWN, the engine must fall back to conservative defaults (no adjustment factor = 1.0, no assumed sunny spending).'"
+  - name: Scenario matrix with at least 12 scenarios
+    result: pass
+    notes: "Section 6.18 describes 12 scenarios: (1) cloudy morning/sunny later, (2) cloudy morning/bad all-day, (3) sunny/battery rising, (4) sunny/near capacity, (5) battery near fallback, (6) evening reserve, (7) weather unknown, (8) pond 26°C/bad weather, (9) pond 26°C/near cap, (10) aeration unhealthy, (11) multiple aerators, (12) high PV/aeration vs low-priority."
+  - name: Inverter max load protection
+    result: pass
+    notes: "Section 6.9: 'max_total_load_watts: Configurable, typical 2500W. The engine must never propose or suggest a total active load exceeding this limit.'"
+  - name: Load priority and wattage awareness
+    result: pass
+    notes: "Section 6.10: 'Shedding order: LOW priority discretionary first, then NORMAL, then HIGH. CRITICAL loads must never be automatically switched OFF unless safety conditions require it.'"
+  - name: Pond/fish aeration life-support invariant
+    result: pass
+    notes: "Section 6.11: 'Pond aeration is life-support, not ordinary discretionary load. Aeration devices maintain dissolved oxygen for fish and biological filtration. The engine must treat pond aeration as a protected class above standard discretionary loads.'"
+  - name: High pond temperature 25-26°C rule
+    result: pass
+    notes: "Section 6.12: 'When pond water temperature equals or exceeds pond_hot_water_temperature_c (25-26°C), aeration becomes safety-critical because warm water holds less dissolved oxygen.'"
+  - name: Shed discretionary before aeration
+    result: pass
+    notes: "Section 6.12: 'If load cap is tight, shed lower-priority discretionary loads before pond aeration.' Section 8: 'Shed lower-priority discretionary loads before life-support aeration.'"
+  - name: 0020+ command proposal before execution
+    result: pass
+    notes: "Section 6.19: '0020: Command proposal before automatic execution. Later: Controlled execution with safety gates.' Consistent with roadmap."
+  - name: Additive validate.yml step only
+    result: pass
+    notes: "Section 11: adds one step after existing weather adjustment evaluator check. Does not modify existing steps."
+  - name: Concise CURRENT_STATE.md update
+    result: pass
+    notes: "Section 12 defines exact wording: 'PR 0018A records policy engine operating boundaries... No decision engine implementation yet. No runtime wiring. No execution. No automation.' No broad rewrite."
+  - name: Concise ROADMAP.md update
+    result: pass
+    notes: "Section 13 replaces single PR 0018 line with 0018A/0018B/0018C/0018D split. No broad rewrite of unrelated sections."
+  - name: Allowed implementation files match specification
+    result: pass
+    notes: "Section 9: .project-memory/POLICY_DECISION_ENGINE.md (create), scripts/check-policy-engine-operating-boundaries.sh (create), .github/workflows/validate.yml (edit), CURRENT_STATE.md (edit), ROADMAP.md (edit), CODER_REPORT.txt (create)."
+  - name: Forbidden implementation files
+    result: pass
+    notes: "Section 10: run.py, app/service/**, app/devices/**, app/tuya/**, app/monitoring/**, app/ml/**, app/weather/**, app/control/*.py (all frozen), examples/energy_policy.example.yaml, service/**, shared_state/**, config/data files, Docker/deployment files, build-and-deploy.yml."
+  - name: Static validation script requirements defined
+    result: pass
+    notes: "Section 11 defines 20 requirements: check document exists, 7 battery/pond parameters, 7 numeric values, life-support/aeration/forecast/high-voltage/inverter/shedding/no-execution/0018B/0018C/0018D/no-runtime-modification checks, clear output, exit 0/1."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "28b38c9b7a381ce5cfd474a8120f67d545602f6a"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0018a-policy-engine-operating-boundaries — matches expected branch"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0018a-policy-engine-operating-boundaries/ — only untracked PR directory present. No committed files modified. Working tree clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No output — no tracked files modified."
+    - command: test -f .project-memory/pr/0018a-policy-engine-operating-boundaries/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q POLICY_DECISION_ENGINE.md PLAN.md
+      result: pass
+      output_summary: "Target document referenced"
+    - command: grep -q battery_grid_fallback_voltage PLAN.md
+      result: pass
+      output_summary: "24.0-24.5V boundary defined"
+    - command: grep -q battery_morning_minimum_voltage PLAN.md
+      result: pass
+      output_summary: "Morning voltage floor defined"
+    - command: grep -q battery_evening_reserve_voltage PLAN.md
+      result: pass
+      output_summary: "26.5V reserve defined"
+    - command: grep -q battery_high_voltage_spend_threshold PLAN.md
+      result: pass
+      output_summary: "28.5-29.0V spend threshold defined"
+    - command: grep -q battery_full_voltage PLAN.md
+      result: pass
+      output_summary: "29.5V full battery defined"
+    - command: grep -q max_total_load_watts PLAN.md
+      result: pass
+      output_summary: "2500W inverter cap defined"
+    - command: grep -q pond_hot_water_temperature_c PLAN.md
+      result: pass
+      output_summary: "25-26°C pond temp defined"
+    - command: grep -q life-support PLAN.md
+      result: pass
+      output_summary: "Pond aeration life-support invariant defined"
+    - command: grep -q aeration PLAN.md
+      result: pass
+      output_summary: "Aeration criticality documented across multiple sections"
+    - command: grep -q 2500 PLAN.md
+      result: pass
+      output_summary: "2500W numeric boundary present"
+    - command: grep -q 29.5 PLAN.md
+      result: pass
+      output_summary: "29.5V numeric boundary present"
+    - command: grep -q 24.5 PLAN.md
+      result: pass
+      output_summary: "24.5V numeric boundary present"
+    - command: grep -q 0018B PLAN.md
+      result: pass
+      output_summary: "0018B passive models sub-PR documented"
+    - command: grep -q 0018C PLAN.md
+      result: pass
+      output_summary: "0018C pure engine sub-PR documented"
+    - command: grep -q 0018D PLAN.md
+      result: pass
+      output_summary: "0018D scenario tests sub-PR documented"
+    - command: grep -q "ML control" PLAN.md
+      result: pass
+      output_summary: "ML control deferred. Section 15: 'ML advisory is advice-only. ML control deferred per ADR-0003.'"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "PLAN_REVIEW.yaml must be written and read back (verified below)"
