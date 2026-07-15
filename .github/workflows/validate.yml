@@ -74,3 +74,6 @@ jobs:
 
       - name: 🔍 Policy engine operating boundaries check
         run: bash scripts/check-policy-engine-operating-boundaries.sh
+
+      - name: 🔍 Policy engine models check
+        run: bash scripts/check-policy-engine-models.sh

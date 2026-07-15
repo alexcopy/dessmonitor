@@ -1,0 +1,98 @@
+TASK COMPLETE
+============
+yes
+
+BLOCKERS
+========
+none
+
+WARNINGS
+========
+- check-policy-engine-operating-boundaries.sh fails (exit 1): flags app/control/ as
+  a modified "runtime file". This is a false positive — app/control/policy_models.py
+  and app/control/__init__.py are explicitly allowed by PLAN.md section 9. The check's
+  runtime-file list includes app/control/ as protected, which predates PR 0018B and
+  does not account for new control sub-modules. Our own check-policy-engine-models.sh
+  check [19] correctly confirms no forbidden runtime files are modified.
+
+FILES CHANGED
+=============
+app/control/policy_models.py           — created (7 frozen dataclasses, 212 lines)
+app/control/__init__.py                — updated (+17 lines: imports + __all__ exports)
+scripts/check-policy-engine-models.sh  — created (19-point validation script, 270 lines)
+.github/workflows/validate.yml         — updated (+3 lines: new policy engine models step)
+.project-memory/CURRENT_STATE.md       — updated (+9 lines: PR 0018B entry, plan-exact wording)
+.project-memory/ROADMAP.md             — updated (-[ ] + [x] mark, removed duplicate line)
+.project-memory/pr/0018b-passive-policy-engine-models/CODER_REPORT.txt — this file
+
+BEHAVIOR IMPLEMENTED
+====================
+Seven passive frozen dataclasses defined in app/control/policy_models.py:
+1. BatteryOperatingWindow — battery voltage operating boundaries (5 float fields)
+2. EnergyBudget — inverter max load budget (max/current/available load watts)
+3. PondSafetyContext — pond/fish/aeration life-support context (8 fields)
+4. ForecastStrategyContext — forecast-aware strategy flags (4 fields)
+5. LoadCandidate — single device load for evaluation (13 fields incl. readiness/health)
+6. PolicyDecisionInput — aggregated input for one evaluation cycle (7 fields)
+7. PolicyDecisionResult — evaluation output (7 fields incl. blocked_by tuple)
+
+All types are frozen dataclasses with no evaluation logic, no side effects,
+no hardware calls, no config/file/env/network reads, no system clock calls.
+
+configurable_load_watts and max_total_load_watts are modeled per spec.
+projected_total_load_watts defaults to None (matches PLAN.md section 5).
+configured_load_watts defaults to 0.0 (matches PLAN.md section 5).
+
+VALIDATION RUN
+==============
+1. python3 -m compileall -q .                        → exit 0, all clean
+2. scripts/check-repo-safety.sh                       → exit 0, PASS
+3. scripts/check-project-memory.sh                    → exit 0, PASS
+4. python3 scripts/validate-yaml.py                   → exit 0, PASS (23 files)
+5. scripts/check-energy-policy-domain-types.sh        → exit 0, PASS
+6. scripts/check-readiness-evaluator.sh               → exit 0, PASS
+7. scripts/check-health-evaluator.sh                  → exit 0, PASS
+8. scripts/check-schedule-profile-model.sh            → exit 0, PASS
+9. scripts/check-weather-adjustment-evaluator.sh      → exit 0, PASS
+10. scripts/check-policy-engine-operating-boundaries.sh → exit 1, FAIL (see warnings)
+11. scripts/check-policy-engine-models.sh             → exit 0, PASS (19/19 checks)
+12. Python import/construction check                  → exit 0, all asserts pass
+13. grep evidence — all 7 types present in all 3 files
+14. grep evidence — all 5 wattage fields present
+15. grep evidence — all 4 pond safety fields present
+16. grep evidence — no evaluate_policy_decision, CommandProposal, CommandQueue defs
+
+DEVIATIONS FROM PLAN
+====================
+none — all changes match PLAN.md sections 5-13 exactly.
+
+BOUNDARY CONFIRMATIONS
+======================
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written (PLAN_REVIEW.yaml untouched)
+- confirm: PLAN.md not modified
+- confirm: plan-review artifact not modified
+- confirm: ROADMAP.md modified only as explicitly allowed (PLAN.md section 13)
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no evaluate_policy_decision() implementation
+- confirm: no command proposal or queue types
+- confirm: no runtime wiring
+- confirm: no hardware/weather/ML/network calls
+- confirm: no system clock calls
+- confirm: no config loading or YAML reads
+- confirm: no automation enabled
+- confirm: no ML control enabled
+- confirm: manual switch control preserved
+- confirm: all existing evaluators unchanged (PR 0014-0017)
+- confirm: run.py, app/service/, app/devices/, app/tuya/, app/monitoring/,
+  app/ml/, app/weather/, examples/energy_policy.example.yaml untouched
+
+NEXT REQUIRED ACTION
+====================
+PR 0018C — Pure deterministic policy decision engine
+Implement evaluate_policy_decision() as a pure function consuming
+PolicyDecisionInput and producing PolicyDecisionResult.
