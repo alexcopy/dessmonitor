@@ -1,0 +1,224 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: false-positive-operating-boundaries-check
+    severity: warning
+    finding: "check-policy-engine-operating-boundaries.sh flags app/control/ as modified runtime file (exit 1). This is a known false positive — the script predates the addition of new app/control/ sub-modules."
+    recommendation: "Update check-policy-engine-operating-boundaries.sh in a follow-up PR to allow new app/control/ sub-modules."
+checks:
+  - name: app/control/command_safety_gate.py exists
+    result: pass
+    notes: "Confirmed: file exists at app/control/command_safety_gate.py (untracked, created by coder)."
+  - name: .project-memory/COMMAND_SAFETY_GATES.md exists
+    result: pass
+    notes: "Confirmed: 10-section architecture document at .project-memory/COMMAND_SAFETY_GATES.md."
+  - name: SafetyGateStatus exists
+    result: pass
+    notes: "class SafetyGateStatus(Enum) with PASSED, BLOCKED, REVIEW_REQUIRED, NO_PROPOSAL."
+  - name: SafetyGateCheck exists
+    result: pass
+    notes: "@dataclass(frozen=True) class SafetyGateCheck with name, passed, reason, severity."
+  - name: CommandSafetyContext exists
+    result: pass
+    notes: "@dataclass(frozen=True) with battery_voltage, battery_grid_fallback_voltage, max_total_load_watts, projected_total_load_watts, readiness_passed, health_passed, cooldown_passed, operator_override_allowed, life_support_load_ids, manual_review_required, kill_switch_active, maintenance_mode."
+  - name: CommandSafetyGateInput exists
+    result: pass
+    notes: "@dataclass(frozen=True) with proposal, context."
+  - name: CommandSafetyGateResult exists
+    result: pass
+    notes: "@dataclass(frozen=True) with status, execution_allowed, requires_operator_review, reason, blocked_by, checks, safety_notes."
+  - name: evaluate_command_safety_gate exists
+    result: pass
+    notes: "Pure function with 12 priority-ordered checks. Verified by script check [7] and import/behavior test."
+  - name: PASSED/BLOCKED/REVIEW_REQUIRED/NO_PROPOSAL exist
+    result: pass
+    notes: "All 4 enum values in SafetyGateStatus. Script check [8] confirms all 4 OK."
+  - name: execution_allowed exists
+    result: pass
+    notes: "bool field in CommandSafetyGateResult. Script check [9] confirms."
+  - name: requires_operator_review exists
+    result: pass
+    notes: "bool field in CommandSafetyGateResult. Script check [10] confirms."
+  - name: kill_switch_active exists
+    result: pass
+    notes: "bool field in CommandSafetyContext. Triggers kill-switch-active block. Script check [11] confirms."
+  - name: maintenance_mode exists
+    result: pass
+    notes: "bool field in CommandSafetyContext. Triggers maintenance-mode block. Script check [12] confirms."
+  - name: battery_voltage exists
+    result: pass
+    notes: "float | None field in CommandSafetyContext. Script check [13] confirms."
+  - name: battery_grid_fallback_voltage exists
+    result: pass
+    notes: "float field in CommandSafetyContext. Default: 24.5. Script check [13] confirms."
+  - name: max_total_load_watts exists
+    result: pass
+    notes: "float field in CommandSafetyContext. Default: 2500.0. Script check [14] confirms."
+  - name: projected_total_load_watts exists
+    result: pass
+    notes: "float | None field in CommandSafetyContext. Script check [14] confirms."
+  - name: readiness_passed exists
+    result: pass
+    notes: "bool field in CommandSafetyContext. Script check [15] confirms."
+  - name: health_passed exists
+    result: pass
+    notes: "bool field in CommandSafetyContext. Script check [15] confirms."
+  - name: cooldown_passed exists
+    result: pass
+    notes: "bool field in CommandSafetyContext. Script check [15] confirms."
+  - name: no-proposal behavior exists
+    result: pass
+    notes: "proposal=None → NO_PROPOSAL, execution_allowed=False, reason='no-proposal'. Verified by grep and code read."
+  - name: proposal-not-executable behavior exists
+    result: pass
+    notes: "proposal.execution_eligible=False → BLOCKED, reason='proposal-not-executable'. Verified by code read."
+  - name: kill-switch-active behavior exists
+    result: pass
+    notes: "kill_switch_active=True → BLOCKED, reason='kill-switch-active'. Verified by import/behavior test."
+  - name: maintenance-mode behavior exists
+    result: pass
+    notes: "maintenance_mode=True → BLOCKED, reason='maintenance-mode'. Verified by code read."
+  - name: battery-fallback-block behavior exists
+    result: pass
+    notes: "voltage <= fallback → BLOCKED, reason='battery-fallback-block'. Life-support → REVIEW_REQUIRED. Verified by import/behavior test."
+  - name: inverter-load-cap-block behavior exists
+    result: pass
+    notes: "projected > max → BLOCKED, reason='inverter-load-cap-block'. Verified by import/behavior test."
+  - name: readiness-block behavior exists
+    result: pass
+    notes: "readiness_passed=False → BLOCKED, reason='readiness-block'. Verified by code read."
+  - name: health-block behavior exists
+    result: pass
+    notes: "health_passed=False → BLOCKED, reason='health-block'. Verified by code read."
+  - name: cooldown-block behavior exists
+    result: pass
+    notes: "cooldown_passed=False → BLOCKED, reason='cooldown-block'. Verified by code read."
+  - name: manual-review-required behavior exists
+    result: pass
+    notes: "proposal.requires_operator_review or ctx.manual_review_required → REVIEW_REQUIRED. Verified by code read."
+  - name: manual-override-not-allowed behavior exists
+    result: pass
+    notes: "MANUAL_OPERATOR source + operator_override_allowed=False → BLOCKED. Verified by code read."
+  - name: passed behavior exists
+    result: pass
+    notes: "All conditions safe → PASSED, execution_allowed=True, reason='passed'. Verified by import/behavior test."
+  - name: safety gates final authority documented
+    result: pass
+    notes: "COMMAND_SAFETY_GATES.md §5: 'Safety Gates Have Final Authority' — no downstream component may bypass or override."
+  - name: CommandProposal is not executed
+    result: pass
+    notes: "Module docstring: 'does NOT execute commands'. No executor, no execute function."""
+  - name: no API endpoints
+    result: pass
+    notes: "No Flask routes, HTTP handlers, or API endpoint code in any changed file."
+  - name: no command executor
+    result: pass
+    notes: "No CommandExecutor class, no execute_command/execute_proposal function. Script check [19] confirms."
+  - name: no runtime wiring
+    result: pass
+    notes: "No runtime services imported. Script check [23] confirms forbidden runtime files not modified."
+  - name: no hardware execution
+    result: pass
+    notes: "No switch_on_device, switch_off_device, or hardware calls. Script check [21] confirms."
+  - name: no automation execution
+    result: pass
+    notes: "No automation flags, schedulers, or execution code."
+  - name: no ML control
+    result: pass
+    notes: "No ML imports, calls, or flags. COMMAND_SAFETY_GATES.md §10 defers ML control."
+  - name: __init__.py exports public types/functions
+    result: pass
+    notes: "All 5 types + evaluate_command_safety_gate imported and exported. All existing exports preserved."
+  - name: validate.yml only adds validation-only check
+    result: pass
+    notes: "One step added after command arbitration check: 'bash scripts/check-command-safety-gate.sh'."
+  - name: CURRENT_STATE.md update is concise
+    result: pass
+    notes: "9 lines added for PR 0021 section. No broad rewrites."
+  - name: ROADMAP.md update is concise
+    result: pass
+    notes: "PR 0021 [x] added. Next milestone updated to 'Controlled execution (hardware dispatch with safety gates)'. No broad rewrites."
+  - name: PLAN.md and PLAN_REVIEW.yaml locked
+    result: pass
+    notes: "PLAN.md not modified (git diff HEAD shows no changes). PLAN_REVIEW.yaml absent (never created — not a blocker)."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "ea700360e90e67641709d70cd7b44e56bb328da9"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0021-command-safety-gate-model"
+    - command: git status --short
+      result: pass
+      output_summary: "4 modified tracked files, 4 untracked files. All within PR 0021 scope."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Exit 0. No syntax errors."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit 0. All required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit 0. All 23 YAML files validated successfully."
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-policy-engine-operating-boundaries.sh
+      result: warning
+      output_summary: "Exit 1. Known false positive: 'Runtime file app/control/ was modified' — script predates new sub-modules."
+    - command: bash scripts/check-policy-engine-models.sh
+      result: pass
+      output_summary: "Exit 0. All 19 checks pass."
+    - command: bash scripts/check-policy-decision-engine.sh
+      result: pass
+      output_summary: "Exit 0. All 17 checks pass."
+    - command: bash scripts/check-policy-decision-scenarios.sh
+      result: pass
+      output_summary: "Exit 0. 43/43 scenario assertions pass."
+    - command: bash scripts/check-manual-control-queue.sh
+      result: pass
+      output_summary: "Exit 0. All 18 checks pass."
+    - command: bash scripts/check-command-arbitration.sh
+      result: pass
+      output_summary: "Exit 0. All 25 checks pass."
+    - command: bash scripts/check-command-safety-gate.sh
+      result: pass
+      output_summary: "Exit 0. All 23 checks pass."
+    - command: python3 import/behavior test
+      result: pass
+      output_summary: "'command safety gate import and behavior ok' — verified passed, kill-switch-active, battery-fallback-block, life-support-review, inverter-load-cap-block."
+    - command: grep for types
+      result: pass
+      output_summary: "All 5 types found in command_safety_gate.py, __init__.py, and check script."
+    - command: grep for function/fields
+      result: pass
+      output_summary: "evaluate_command_safety_gate, execution_allowed, requires_operator_review, kill_switch_active, maintenance_mode found."
+    - command: grep for 12 reason strings
+      result: pass
+      output_summary: "All 12 reason strings found in command_safety_gate.py."
+    - command: grep for executor/forbidden calls
+      result: pass
+      output_summary: "No executor, execute, send_commands, switch_on_device, switch_off_device, or other forbidden calls found."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

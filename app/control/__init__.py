@@ -89,6 +89,15 @@ from app.control.command_arbitration import (
     arbitrate_command_intent,
 )
 
+from app.control.command_safety_gate import (
+    SafetyGateStatus,
+    SafetyGateCheck,
+    CommandSafetyContext,
+    CommandSafetyGateInput,
+    CommandSafetyGateResult,
+    evaluate_command_safety_gate,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -148,4 +157,10 @@ __all__ = [
     "CommandArbitrationInput",
     "CommandArbitrationResult",
     "arbitrate_command_intent",
+    "SafetyGateStatus",
+    "SafetyGateCheck",
+    "CommandSafetyContext",
+    "CommandSafetyGateInput",
+    "CommandSafetyGateResult",
+    "evaluate_command_safety_gate",
 ]

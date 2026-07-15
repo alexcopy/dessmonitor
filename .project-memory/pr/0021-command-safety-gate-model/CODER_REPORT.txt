@@ -1,0 +1,70 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- app/control/command_safety_gate.py (created) — 360 lines, 5 types + 1 pure function
+- app/control/__init__.py (modified) — +15 lines, 6 new exports
+- .project-memory/COMMAND_SAFETY_GATES.md (created) — 10-section architecture document
+- scripts/check-command-safety-gate.sh (created) — 23 static validation checks
+- .github/workflows/validate.yml (modified) — +3 lines, adds Command safety gate check
+- .project-memory/CURRENT_STATE.md (modified) — +9 lines, PR 0021 section
+- .project-memory/ROADMAP.md (modified) — PR 0021 [x], +fixed next milestone text
+- .project-memory/pr/0021-command-safety-gate-model/CODER_REPORT.txt (created) — this report
+
+BEHAVIOR IMPLEMENTED:
+- SafetyGateStatus enum: PASSED, BLOCKED, REVIEW_REQUIRED, NO_PROPOSAL
+- SafetyGateCheck: frozen dataclass with name, passed, reason, severity
+- CommandSafetyContext: 12-field runtime safety context (battery, load cap, readiness, health, cooldown, operator override, life-support, kill switch, maintenance)
+- CommandSafetyGateInput: frozen dataclass aggregating proposal + context
+- CommandSafetyGateResult: frozen dataclass with status, execution_allowed, requires_operator_review, reason, blocked_by, checks, safety_notes
+- evaluate_command_safety_gate(): 12 priority-ordered checks:
+  1. no-proposal (None → NO_PROPOSAL)
+  2. proposal-not-executable (not eligible → BLOCKED)
+  3. kill-switch-active → BLOCKED
+  4. maintenance-mode → BLOCKED
+  5. battery-fallback-block (life-support → REVIEW_REQUIRED, otherwise BLOCKED)
+  6. inverter-load-cap-block → BLOCKED
+  7. readiness-block → BLOCKED
+  8. health-block → BLOCKED
+  9. cooldown-block → BLOCKED
+  10. manual-review-required → REVIEW_REQUIRED
+  11. manual-override-not-allowed → BLOCKED
+  12. passed → PASSED, execution_allowed=true
+
+TESTS ADDED OR UPDATED:
+Import/behavior check confirms 7 scenarios: passed, no-proposal, kill-switch-active, battery-fallback-block, life-support-review, inverter-load-cap-block, manual-review-required.
+
+VALIDATION RUN:
+| Command | Result |
+|---|---|
+| python3 -m compileall -q . | PASS |
+| scripts/check-repo-safety.sh | PASS |
+| scripts/check-project-memory.sh | PASS |
+| scripts/check-command-arbitration.sh | PASS |
+| scripts/check-command-safety-gate.sh | PASS (23/23) |
+| Import/behavior check | PASS (all assertions pass) |
+| grep evidence (types, fields, reasons, forbidden) | PASS |
+
+DEVIATIONS FROM PLAN:
+None. All PLAN.md requirements met exactly. Priority order follows PLAN.md Section 8 (manual-override-not-allowed at step 11, after manual-review-required).
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: ROADMAP.md modified only as explicitly allowed
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no executor introduced
+- confirm: no hardware execution
+- confirm: no API endpoints
+- confirm: no runtime wiring
+- confirm: all frozen modules unchanged
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.
