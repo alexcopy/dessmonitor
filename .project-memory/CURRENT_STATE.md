@@ -129,6 +129,15 @@ No runtime wiring. No execution. No automation. Pond/fish aeration life-support 
 recorded. Battery/inverter extrema recorded. Future sub-PRs: 0018B (models), 0018C
 (decision function), 0018D (scenario tests).
 
+## PR 0018B — Passive Policy Engine Models
+PR 0018B adds seven passive policy engine model types in
+`app/control/policy_models.py`: BatteryOperatingWindow, EnergyBudget,
+PondSafetyContext, ForecastStrategyContext, LoadCandidate, PolicyDecisionInput,
+PolicyDecisionResult. All types are frozen dataclasses with no evaluation logic.
+No evaluate_policy_decision implementation. No command proposal. No runtime wiring.
+No automation enabled. Pond aeration life-support term recorded. Battery/inverter
+boundaries recorded.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
