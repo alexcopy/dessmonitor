@@ -98,6 +98,15 @@ from app.control.command_safety_gate import (
     evaluate_command_safety_gate,
 )
 
+from app.control.execution_eligibility import (
+    ExecutionEligibilityStatus,
+    ExecutionEligibilityMode,
+    ExecutionEligibilityContext,
+    ExecutionEligibilityInput,
+    ExecutionEligibilityResult,
+    evaluate_execution_eligibility,
+)
+
 __all__ = [
     "SwitchableLoad",
     "DesiredState",
@@ -163,4 +172,10 @@ __all__ = [
     "CommandSafetyGateInput",
     "CommandSafetyGateResult",
     "evaluate_command_safety_gate",
+    "ExecutionEligibilityStatus",
+    "ExecutionEligibilityMode",
+    "ExecutionEligibilityContext",
+    "ExecutionEligibilityInput",
+    "ExecutionEligibilityResult",
+    "evaluate_execution_eligibility",
 ]

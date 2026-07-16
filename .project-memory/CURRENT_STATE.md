@@ -176,6 +176,16 @@ CommandSafetyGateResult) and the pure function
 `.project-memory/COMMAND_SAFETY_GATES.md`. No executor. No runtime wiring.
 No API endpoints. No hardware execution.
 
+## PR 0022 — Controlled Execution Eligibility Model
+PR 0022 adds a pure controlled execution eligibility model in
+`app/control/execution_eligibility.py` with 5 types (ExecutionEligibilityStatus,
+ExecutionEligibilityMode, ExecutionEligibilityContext, ExecutionEligibilityInput,
+ExecutionEligibilityResult) and the pure function
+`evaluate_execution_eligibility()`. Documents controlled execution eligibility
+architecture in `.project-memory/CONTROLLED_EXECUTION_ELIGIBILITY.md`.
+execution_allowed_now is always false. No executor. No runtime wiring.
+No API endpoints. No hardware execution.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
