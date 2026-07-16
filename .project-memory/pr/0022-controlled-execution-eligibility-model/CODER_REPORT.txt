@@ -1,0 +1,60 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- app/control/execution_eligibility.py (created) — 330 lines, 5 types + 2 enums + 1 pure function
+- app/control/__init__.py (modified) — +15 lines, 6 new exports
+- .project-memory/CONTROLLED_EXECUTION_ELIGIBILITY.md (created) — 10-section architecture document
+- scripts/check-execution-eligibility.sh (created) — 22 static validation checks
+- .github/workflows/validate.yml (modified) — +3 lines, adds Execution eligibility check
+- .project-memory/CURRENT_STATE.md (modified) — +10 lines, PR 0022 section
+- .project-memory/ROADMAP.md (modified) — PR 0022 [x]
+- .project-memory/pr/0022-controlled-execution-eligibility-model/CODER_REPORT.txt (created) — this report
+
+BEHAVIOR IMPLEMENTED:
+- ExecutionEligibilityStatus enum: ELIGIBLE, BLOCKED, REVIEW_REQUIRED, NO_PROPOSAL
+- ExecutionEligibilityMode enum: AUTONOMOUS, MANUAL_OPERATOR, DISABLED
+- ExecutionEligibilityContext: 7-field context (controlled_execution_enabled, autonomous_execution_enabled, manual_operator_execution_enabled, require_operator_review_for_autonomous, require_operator_review_for_manual, disabled_load_ids, dry_run_only)
+- ExecutionEligibilityInput: proposal + safety_gate_result + context
+- ExecutionEligibilityResult: status, eligible_for_future_executor, execution_allowed_now (always false), requires_operator_review, mode, reason, blocked_by, safety_notes
+- evaluate_execution_eligibility(): 12 priority-ordered checks:
+  1. no-proposal, 2. no-safety-gate, 3. safety-review-required, 4. safety-gate-blocked,
+  5. controlled-execution-disabled, 6. disabled-load, 7. autonomous-disabled,
+  8. manual-operator-disabled, 9. autonomous-review-required, 10. manual-review-required,
+  11. dry-run-only, 12. eligible
+- execution_allowed_now is always False (hard invariant, verified by check [21])
+- Mode mapping: AUTO_POLICY→AUTONOMOUS, MANUAL_OPERATOR→MANUAL_OPERATOR, else DISABLED
+
+TESTS ADDED OR UPDATED:
+Import/behavior check confirms 7 scenarios: eligible, no-proposal, no-safety-gate, safety-gate-blocked, safety-review-required, controlled-execution-disabled, dry-run-only.
+
+VALIDATION RUN:
+| Command | Result |
+|---|---|
+| python3 -m compileall -q . | PASS |
+| scripts/check-execution-eligibility.sh | PASS (22/22) |
+| Import/behavior check | PASS (all assertions pass) |
+| grep evidence (types, fields, reasons, forbidden) | PASS |
+
+DEVIATIONS FROM PLAN:
+One minimal deviation: controlled_execution_enabled defaults to True (per task spec and import test requirements) instead of False (per PLAN.md Section 7). The PLAN.md Section 8 step 5 checks "if context.controlled_execution_enabled is false" — the logic is preserved; only the default value differs. This is a contract-preserving adjustment required for the behavior test to pass with default context.
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: ROADMAP.md modified only as explicitly allowed
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no executor introduced
+- confirm: execution_allowed_now always False
+- confirm: no hardware execution, API endpoints, runtime wiring
+- confirm: all frozen modules unchanged
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.

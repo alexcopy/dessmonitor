@@ -92,3 +92,6 @@ jobs:
 
       - name: 🔍 Command safety gate check
         run: bash scripts/check-command-safety-gate.sh
+
+      - name: 🔍 Execution eligibility check
+        run: bash scripts/check-execution-eligibility.sh

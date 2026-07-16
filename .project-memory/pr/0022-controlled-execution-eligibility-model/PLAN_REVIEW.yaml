@@ -1,0 +1,197 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: >-
+      Case-sensitive grep for "no API endpoints" (lowercase) returned no match.
+      PLAN.md uses "No API endpoints" (capitalized) in section 12 and clearly
+      states API endpoints are deferred throughout the document. Content is
+      present and correct; only the exact literal case differs.
+    recommendation: >-
+      No change required. The plan explicitly defers API endpoints. The warning
+      is noted for future checklist case-sensitivity awareness.
+checks:
+  - name: plan-file-exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md"
+  - name: branch-is-correct
+    result: pass
+    notes: "Branch is 0022-controlled-execution-eligibility-model"
+  - name: dirty-tree-in-scope
+    result: pass
+    notes: "Working tree shows only untracked .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md — expected for uncommitted plan review"
+  - name: execution_eligibility.py-defined
+    result: pass
+    notes: "PLAN.md section 9 lists app/control/execution_eligibility.py as Create"
+  - name: ExecutionEligibilityStatus-defined
+    result: pass
+    notes: "Section 7 Type 1 defines ExecutionEligibilityStatus enum with ELIGIBLE, BLOCKED, REVIEW_REQUIRED, NO_PROPOSAL"
+  - name: ExecutionEligibilityMode-defined
+    result: pass
+    notes: "Section 7 Type 2 defines ExecutionEligibilityMode enum with AUTONOMOUS, MANUAL_OPERATOR, DISABLED"
+  - name: ExecutionEligibilityContext-defined
+    result: pass
+    notes: "Section 7 Type 3 defines ExecutionEligibilityContext dataclass with all required fields"
+  - name: ExecutionEligibilityInput-defined
+    result: pass
+    notes: "Section 7 Type 4 defines ExecutionEligibilityInput dataclass with proposal, safety_gate_result, context"
+  - name: ExecutionEligibilityResult-defined
+    result: pass
+    notes: "Section 7 Type 5 defines ExecutionEligibilityResult with eligible_for_future_executor, execution_allowed_now fields"
+  - name: evaluate_execution_eligibility-defined
+    result: pass
+    notes: "Section 8 defines the pure function with 12 ordered behavioral rules"
+  - name: eligible_for_future_executor-present
+    result: pass
+    notes: "Appears in ExecutionEligibilityResult dataclass and all 12 behavioral rules"
+  - name: execution_allowed_now-always-false
+    result: pass
+    notes: "Explicitly false in all result paths; validation script checks never-True"
+  - name: no-executor
+    result: pass
+    notes: "PLAN.md section 2, 14, and boundary confirmations explicitly forbid executor. Validation checks enforce no CommandExecutor, no execute function"
+  - name: no-runtime-wiring
+    result: pass
+    notes: "PLAN.md section 2 and boundary confirmations: 'no runtime wiring'"
+  - name: no-api-endpoints
+    result: pass
+    notes: "PLAN.md sections 2, 12, 14: 'No API endpoints' and 'Deferred'"
+  - name: no-hardware-execution
+    result: pass
+    notes: "PLAN.md section 2: does NOT call Tuya/hardware; boundary confirmations: 'Does not call any switch/device/Tuya method'"
+  - name: no-weather-fetch
+    result: pass
+    notes: "PLAN.md does not mention weather fetch; module dependencies exclude app.weather"
+  - name: no-ml-control
+    result: pass
+    notes: "PLAN.md sections 5, 14, boundary confirmations: ML control deferred per ADR-0003"
+  - name: no-automation-execution
+    result: pass
+    notes: "PLAN.md boundary confirmations: pump automation disabled per PR 0008; no automation enabled"
+  - name: no-deployment-gitops-changes
+    result: pass
+    notes: "PLAN.md section 10 forbids build-and-deploy.yml edits; boundary confirmations: Docker/GitOps respected"
+  - name: safety-gate-dependency-present
+    result: pass
+    notes: "Section 8 rules 2-4 directly depend on CommandSafetyGateResult; section 6 imports from command_safety_gate"
+  - name: no-proposal-behavior
+    result: pass
+    notes: "Section 8 rule 1: NO_PROPOSAL, eligible_for_future_executor=False, reason='no-proposal'"
+  - name: no-safety-gate-behavior
+    result: pass
+    notes: "Section 8 rule 2: BLOCKED, eligible_for_future_executor=False, reason='no-safety-gate'"
+  - name: safety-gate-blocked-behavior
+    result: pass
+    notes: "Section 8 rule 3: BLOCKED, eligible_for_future_executor=False, reason='safety-gate-blocked'"
+  - name: safety-review-required-behavior
+    result: pass
+    notes: "Section 8 rule 4: REVIEW_REQUIRED, requires_operator_review=True, reason='safety-review-required'"
+  - name: controlled-execution-disabled-behavior
+    result: pass
+    notes: "Section 8 rule 5: BLOCKED, reason='controlled-execution-disabled'"
+  - name: disabled-load-behavior
+    result: pass
+    notes: "Section 8 rule 6: BLOCKED, reason='disabled-load'"
+  - name: autonomous-disabled-behavior
+    result: pass
+    notes: "Section 8 rule 7: BLOCKED, reason='autonomous-disabled'"
+  - name: manual-operator-disabled-behavior
+    result: pass
+    notes: "Section 8 rule 8: BLOCKED, reason='manual-operator-disabled'"
+  - name: autonomous-review-required-behavior
+    result: pass
+    notes: "Section 8 rule 9: REVIEW_REQUIRED, reason='autonomous-review-required'"
+  - name: manual-review-required-behavior
+    result: pass
+    notes: "Section 8 rule 10: REVIEW_REQUIRED, reason='manual-review-required'"
+  - name: dry-run-only-behavior
+    result: pass
+    notes: "Section 8 rule 11: ELIGIBLE, eligible_for_future_executor=True, execution_allowed_now=False, reason='dry-run-only'"
+  - name: eligible-behavior
+    result: pass
+    notes: "Section 8 rule 12: ELIGIBLE, eligible_for_future_executor=True, execution_allowed_now=False, reason='eligible'"
+  - name: validation-script-defined
+    result: pass
+    notes: "Section 11 defines scripts/check-execution-eligibility.sh with 21 checks"
+  - name: additive-validate-yml-step
+    result: pass
+    notes: "Section 11 GitHub Actions Integration: additive step after existing safety gate check"
+  - name: allowed-implementation-scope
+    result: pass
+    notes: "Section 9 lists 8 allowed files matching specification exactly"
+  - name: forbidden-implementation-scope
+    result: pass
+    notes: "Section 10 lists all frozen modules and forbidden files; no unauthorized files permitted"
+  - name: roadmap-alignment
+    result: pass
+    notes: "ROADMAP.md Phase 2b lists 'Controlled execution' as next after PR 0021. Plan references this correctly"
+  - name: current-state-update
+    result: pass
+    notes: "Section 12 specifies CURRENT_STATE.md update text for PR 0022"
+  - name: roadmap-update
+    result: pass
+    notes: "Section 13 specifies ROADMAP.md update marking PR 0022 as completed"
+  - name: plan-structure-is-markdown
+    result: pass
+    notes: "PLAN.md is valid Markdown with 16 numbered sections. Not YAML — expected for this project"
+validation:
+  commands_run:
+    - command: test -f .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: grep -q "execution_eligibility.py" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "execution_eligibility.py referenced in plan"
+    - command: grep -q "ExecutionEligibilityStatus" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "ExecutionEligibilityStatus defined"
+    - command: grep -q "ExecutionEligibilityContext" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "ExecutionEligibilityContext defined"
+    - command: grep -q "evaluate_execution_eligibility" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "evaluate_execution_eligibility function defined"
+    - command: grep -q "eligible_for_future_executor" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "eligible_for_future_executor referenced"
+    - command: grep -q "execution_allowed_now" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "execution_allowed_now referenced (always false)"
+    - command: grep -q "no-safety-gate" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "no-safety-gate reason string present"
+    - command: grep -q "safety-gate-blocked" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "safety-gate-blocked reason string present"
+    - command: grep -q "dry-run-only" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "dry-run-only reason string present"
+    - command: grep -q "CONTROLLED_EXECUTION_ELIGIBILITY.md" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "CONTROLLED_EXECUTION_ELIGIBILITY.md architecture doc referenced"
+    - command: grep -q "No API endpoints" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "No API endpoints statement present"
+    - command: grep -q "ML control" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "ML control mentioned as deferred"
+    - command: grep -q "execution_allowed_now.*true\|execution_allowed_now.*True" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "execution_allowed_now only mentioned as false or in validation check (never set to true)"
+    - command: grep -c "CommandExecutor\|class.*Executor\|def execute" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "Matches only in validation check sections forbidding executor — no executor implemented"
+    - command: grep -c "weather fetch\|weather_fetch\|fetch_weather" .project-memory/pr/0022-controlled-execution-eligibility-model/PLAN.md
+      result: pass
+      output_summary: "No weather fetch references in plan"
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No staged or unstaged changes to tracked files — only untracked PLANNING artifact"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "Case-sensitive 'no API endpoints' grep mismatch resolved (surface-level only; content correct)"
