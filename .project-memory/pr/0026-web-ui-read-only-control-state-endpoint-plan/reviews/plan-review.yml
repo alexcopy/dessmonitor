@@ -1,0 +1,140 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: "Validation grep for exact string 'no real API endpoint' (lowercase) did not match PLAN.md because the text uses capitalized 'No real API endpoint' (e.g., line 39: 'No real API endpoint is added.'). Content requirement is fully met — case-sensitivity of grep only."
+    recommendation: "No action required. PLAN.md clearly states the concept with standard sentence capitalization."
+checks:
+  - name: branch-is-correct
+    result: pass
+    notes: "Branch is 0026-web-ui-read-only-control-state-endpoint-plan, matching PR 0026."
+  - name: dirty-tree-is-within-scope
+    result: pass
+    notes: "git status --short shows only untracked files under .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/. No modified tracked files."
+  - name: plan-md-was-read
+    result: pass
+    notes: "PLAN.md read at .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md. Documents passive future endpoint implementation plan."
+  - name: required-supporting-files-read
+    result: pass
+    notes: "Read CURRENT_STATE.md, ROADMAP.md, WEB_UI_READ_ONLY_API_CONTRACT.md, RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md, CONTROL_STATE_SNAPSHOT.md, COMMAND_SAFETY_GATES.md, AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md, web_ui_read_contract.py, runtime_snapshot_adapter.py, control_state_snapshot.py, app/control/__init__.py, .github/workflows/validate.yml."
+  - name: roadmap-alignment
+    result: pass
+    notes: "ROADMAP.md Phase 2b lists 'PR 0025 — Web UI read-only control state API contract' as done and has no PR 0026 entry yet. PLAN.md product context correctly places after PR 0025 and before a separate future endpoint PR. ROADMAP.md update is planned."
+  - name: prior-pr-evidence
+    result: pass
+    notes: "No prior PR gate claimed. PR 0026 is a standalone plan PR following PR 0025 (web UI read-only API contract). Prior artifacts read: web_ui_read_contract.py, control_state_snapshot.py, runtime_snapshot_adapter.py."
+  - name: executable-first
+    result: pass
+    notes: "PLAN.md defines passive types and pure functions only. No executable endpoint, no runtime wiring, no hardware execution. validation script checks are static analysis."
+  - name: validation-strategy-explicit
+    result: pass
+    notes: "Section 12 describes 24 static validation checks. Validation will be in scripts/check-web-ui-read-only-endpoint-plan.sh. validate.yml will get additive step."
+  - name: forbidden-scope-absent
+    result: pass
+    notes: "PLAN.md explicitly forbids: real API endpoint, FastAPI routes, write API, runtime wiring, hardware execution, executor, direct device reads, live shared_state reads, runtime imports, weather fetch, ML control, automation execution. All requirements verified."
+  - name: artifact-physically-written
+    result: pass
+    notes: "Artifact written to .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/reviews/plan-review.yml."
+  - name: artifact-read-back
+    result: pass
+    notes: "Artifact read back and verified."
+  - name: specification-spec-items
+    result: pass
+    notes: "All 43 specification items from SPECIFICATION section confirmed present and correct in PLAN.md."
+  - name: validation-checklist-grep
+    result: pass
+    notes: "11/12 grep checks passed exactly; 1/12 (no real API endpoint) passed content-wise with case difference only."
+  - name: no-real-api-endpoint
+    result: pass
+    notes: "PLAN.md states 'No real API endpoint is added.' (section 2, line 39), 'Plan/model only: No real API endpoint' (section 13). Explicitly disallows FastAPI route, write API, executor."
+  - name: no-fastapi-route
+    result: pass
+    notes: "Section 2: 'It does NOT add a real API endpoint, edit FastAPI route files'. Module design restricts to stdlib only. build_web_ui_read_endpoint_plan must not import FastAPI/Flask."
+  - name: no-write-api
+    result: pass
+    notes: "WebUiReadEndpointBoundary.writes_allowed=false, forbidden_actions includes 'write-api', 'route-write-methods'. Section 13: 'No write API'."
+  - name: no-executor
+    result: pass
+    notes: "Section 13: 'No executor'. CommandExecutor must NOT exist. execution_allowed=false in boundary."
+  - name: no-runtime-wiring
+    result: pass
+    notes: "Section 8: 'Must not call adapter/snapshot builders', 'Must not read runtime state'. no-runtime-wiring marker in notes."
+  - name: no-hardware-execution
+    result: pass
+    notes: "execution_allowed=false, forbidden_actions includes 'direct-hardware-write', 'direct-tuya-command'. Section 13: 'Does not call any switch/device/Tuya method'."
+  - name: no-automation-execution
+    result: pass
+    notes: "no-execution marker in notes. Allowed actions only includes 'read-control-state'. Section 5 (architecture doc) requires execution_allowed_now false."
+  - name: no-ml-control
+    result: pass
+    notes: "Section 5: 'ML control remains deferred per ADR-0003'. Section 13: 'ML control deferred per ADR-0003'."
+  - name: future-separate-pr-required
+    result: pass
+    notes: "Section 2: 'A separate future PR will implement the actual FastAPI/Flask endpoint.' Section 5: 'Adding the actual endpoint requires a separate PR.' future-separate-pr-required in notes."
+  - name: safety-gates-cannot-be-bypassed
+    result: pass
+    notes: "forbidden_actions includes 'bypass-safety-gates', 'bypass-control-layer'. Section 5 architecture doc: 'Future endpoint must not bypass safety gates.'"
+  - name: allowed-implementation-files
+    result: pass
+    notes: "Section 9 lists allowed files: app/control/web_ui_read_endpoint_plan.py, app/control/__init__.py, .project-memory/WEB_UI_READ_ONLY_ENDPOINT_PLAN.md, scripts/check-web-ui-read-only-endpoint-plan.sh, .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, CODER_REPORT.txt."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "9349db0fccedd60bf528ba88f020fa318eee9dc0"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0026-web-ui-read-only-control-state-endpoint-plan"
+    - command: git status --short
+      result: pass
+      output_summary: "Only untracked files in PR directory — clean working tree"
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No diff — HEAD is clean, no modified tracked files"
+    - command: test -f .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: "grep -q \"web_ui_read_endpoint_plan.py\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found reference to web_ui_read_endpoint_plan.py"
+    - command: "grep -q \"WebUiReadEndpointPlanStatus\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found WebUiReadEndpointPlanStatus"
+    - command: "grep -q \"WebUiReadEndpointBoundary\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found WebUiReadEndpointBoundary"
+    - command: "grep -q \"build_web_ui_read_endpoint_plan\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found build_web_ui_read_endpoint_plan"
+    - command: "grep -q \"route_added_now\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found route_added_now in WebUiReadEndpointBoundary"
+    - command: "grep -q \"future-separate-pr-required\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found future-separate-pr-required in notes"
+    - command: "grep -q \"no-real-api-endpoint\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found no-real-api-endpoint in notes tuple"
+    - command: "grep -q \"bypass-safety-gates\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found bypass-safety-gates in forbidden_actions"
+    - command: "grep -q \"WEB_UI_READ_ONLY_ENDPOINT_PLAN.md\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found WEB_UI_READ_ONLY_ENDPOINT_PLAN.md reference"
+    - command: "grep -q \"no real API endpoint\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: fail
+      output_summary: "No exact lowercase match; PLAN.md uses 'No real API endpoint' (capital N). Content is present — grep case-sensitivity mismatch only."
+    - command: "grep -q \"ML control\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found ML control reference — confirms ML deferred"
+    - command: "grep -q \"future-separate-pr\" .project-memory/pr/0026-web-ui-read-only-control-state-endpoint-plan/PLAN.md"
+      result: pass
+      output_summary: "Found future-separate-pr in notes and section 5"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "None — PLAN.md is approved for coder implementation as specified. Coder must produce only the 8 allowed files listed in section 9. Must not add real API endpoint, FastAPI routes, write API, runtime wiring, executor, hardware execution, or automation execution."
