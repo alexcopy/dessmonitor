@@ -45,6 +45,7 @@
 - [x] PR 0020 — Command intent and proposal arbitration
 - [x] PR 0021 — Command safety gate model
 - [x] PR 0022 — Controlled execution eligibility model
+- [x] PR 0023 — Runtime read-only control state snapshot
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 

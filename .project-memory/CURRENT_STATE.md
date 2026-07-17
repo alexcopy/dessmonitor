@@ -186,6 +186,15 @@ architecture in `.project-memory/CONTROLLED_EXECUTION_ELIGIBILITY.md`.
 execution_allowed_now is always false. No executor. No runtime wiring.
 No API endpoints. No hardware execution.
 
+## PR 0023 — Runtime Read-Only Control State Snapshot
+PR 0023 adds a read-only control state snapshot model in
+`app/control/control_state_snapshot.py` with 6 types (ControlStateSnapshotStatus,
+LoadControlSnapshot, ControlPipelineSnapshot, ControlModeSnapshot,
+ControlStateSnapshotInput, ControlStateSnapshot) and the pure function
+`build_control_state_snapshot()`. Packages already-computed control-layer state
+for future web UI/observability. No executor. No runtime wiring. No API endpoints.
+No hardware execution.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
