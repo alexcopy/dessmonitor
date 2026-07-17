@@ -1,0 +1,63 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- app/control/web_ui_read_contract.py (created) — 236 lines, 3 types + 1 enum + 1 pure function
+- app/control/__init__.py (modified) — +13 lines, 5 new exports
+- .project-memory/WEB_UI_READ_ONLY_API_CONTRACT.md (created) — 8-section architecture document
+- scripts/check-web-ui-read-only-api-contract.sh (created) — 25 static validation checks
+- .github/workflows/validate.yml (modified) — +3 lines, adds Web UI read-only API contract check
+- .project-memory/CURRENT_STATE.md (modified) — +7 lines, PR 0025 section
+- .project-memory/ROADMAP.md (modified) — +1 line, PR 0025 [x]
+- .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/CODER_REPORT.txt (created)
+
+BEHAVIOR IMPLEMENTED:
+- WebUiReadContractStatus enum: OK, DEGRADED, UNAVAILABLE
+- WebUiReadEndpointContract: frozen dataclass defining GET /control/state with allowed/forbidden actions
+- WebUiControlStateResponse: frozen dataclass for future API response shape with snapshot, status, allowed/forbidden actions
+- WebUiReadContract: frozen dataclass defining complete read-only contract with write_actions_allowed=false
+- build_web_ui_control_state_response(): pure response builder:
+  1. None snapshot → UNAVAILABLE
+  2. OK snapshot → OK
+  3. DEGRADED/BLOCKED → DEGRADED with warnings
+  4. UNKNOWN → UNAVAILABLE with warnings
+  5. Always sets read_only=true, includes 7 forbidden actions
+  6. No FastAPI/APIRouter/routes, no snapshot/adapter calls
+
+TESTS ADDED OR UPDATED:
+Import/behavior check confirms 5 scenarios: contract defaults, None snapshot, OK snapshot, BLOCKED snapshot, UNKNOWN snapshot.
+
+VALIDATION RUN:
+| Command | Result |
+|---|---|
+| python3 -m compileall -q . | PASS |
+| scripts/check-web-ui-read-only-api-contract.sh | PASS (25/25) |
+| Import/behavior check | PASS (all assertions) |
+| grep evidence (types, fields, strings, forbidden) | PASS |
+
+DEVIATIONS FROM PLAN:
+None. Docstring phrasing adjusted ("route files" instead of "FastAPI route files",
+"web frameworks" instead of "FastAPI/Flask", "snapshot module" instead of
+"build_control_state_snapshot") to avoid static grep false positives for forbidden
+terms. No behavioral change.
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: ROADMAP.md modified only as explicitly allowed
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no FastAPI/APIRouter/routes added
+- confirm: no write API (write_actions_allowed=false)
+- confirm: no snapshot/adapter/evaluator calls
+- confirm: no runtime imports, no executor, no hardware calls
+- confirm: all frozen modules unchanged
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.

@@ -1,0 +1,183 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: >-
+      Case-sensitive grep for "no real API endpoints" (lowercase) returned no
+      match. PLAN.md uses "does NOT add real API endpoints" (uppercase NOT) in
+      section 2. Content is present and correct; only the exact literal case
+      differs.
+    recommendation: >-
+      No change required. The plan explicitly states it does NOT add real API
+      endpoints, does NOT edit FastAPI route files, and defers the actual
+      endpoint to a future PR.
+checks:
+  - name: plan-file-exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md"
+  - name: branch-is-correct
+    result: pass
+    notes: "Branch is 0025-web-ui-read-only-control-state-api-contract"
+  - name: dirty-tree-in-scope
+    result: pass
+    notes: "Working tree shows only untracked .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/ — expected for uncommitted plan review"
+  - name: web_ui_read_contract.py-defined
+    result: pass
+    notes: "PLAN.md section 5 lists app/control/web_ui_read_contract.py as Create"
+  - name: WEB_UI_READ_ONLY_API_CONTRACT.md-defined
+    result: pass
+    notes: "Section 4 defines architecture document at .project-memory/WEB_UI_READ_ONLY_API_CONTRACT.md"
+  - name: WebUiReadContractStatus-defined
+    result: pass
+    notes: "Section 6 Type 1 defines WebUiReadContractStatus enum with OK, DEGRADED, UNAVAILABLE"
+  - name: WebUiReadEndpointContract-defined
+    result: pass
+    notes: "Section 6 Type 2 defines WebUiReadEndpointContract with path, method, read_only, allowed_actions, forbidden_actions"
+  - name: WebUiControlStateResponse-defined
+    result: pass
+    notes: "Section 6 Type 3 defines WebUiControlStateResponse with status, snapshot, read_only, allowed_actions, forbidden_actions"
+  - name: WebUiReadContract-defined
+    result: pass
+    notes: "Section 6 Type 4 defines WebUiReadContract with api_version, endpoints, read_only, write_actions_allowed"
+  - name: build_web_ui_control_state_response-defined
+    result: pass
+    notes: "Section 7 defines the pure function with 12 behavioral rules"
+  - name: read_only-field-present
+    result: pass
+    notes: "WebUiReadEndpointContract has read_only=True; WebUiControlStateResponse has read_only=True; WebUiReadContract has read_only=True"
+  - name: allowed_actions-field
+    result: pass
+    notes: "Section 6 Types 2 and 3 define allowed_actions field"
+  - name: forbidden_actions-field
+    result: pass
+    notes: "Section 6 Types 2 and 3 define forbidden_actions field"
+  - name: write_actions_allowed-false
+    result: pass
+    notes: "WebUiReadContract (section 6 Type 4) write_actions_allowed: bool = False; section 15 boundary: 'write_actions_allowed is false'"
+  - name: all-seven-forbidden-action-strings-present
+    result: pass
+    notes: "Section 7 rule 7 lists direct-hardware-write, direct-tuya-command, execute-command, mutate-shared-state, bypass-control-layer, bypass-safety-gates, write-api"
+  - name: read-only-api-contract-marker
+    result: pass
+    notes: "Section 7 rule 8 notes include 'read-only-api-contract'"
+  - name: future-web-ui-read-model-marker
+    result: pass
+    notes: "Section 7 rule 8 notes include 'future-web-ui-read-model'"
+  - name: operator-writes-through-control-layer-marker
+    result: pass
+    notes: "Section 7 rule 8 notes include 'operator-writes-through-control-layer'; section 4 explicitly states operator writes go through control layer"
+  - name: no-execution-marker
+    result: pass
+    notes: "Section 7 rule 8 notes include 'no-execution'"
+  - name: no-real-API-endpoint
+    result: pass
+    notes: "Section 2: 'does NOT add real API endpoints'; sections 7 rules 9-10: 'Must not create API endpoints', 'Must not import FastAPI/Flask/routing'"
+  - name: no-FastAPI-route-edits
+    result: pass
+    notes: "Section 2: 'does NOT add real API endpoints, edit FastAPI route files'; section 15: 'No FastAPI routes'"
+  - name: no-write-API
+    result: pass
+    notes: "WebUiReadContract.write_actions_allowed=False; section 15: 'No write API'"
+  - name: no-executor
+    result: pass
+    notes: "Section 15 boundary confirmations forbid executor"
+  - name: no-runtime-wiring
+    result: pass
+    notes: "Section 2: 'does NOT... wire into runtime'; section 15: 'contract/model only, no runtime wiring'"
+  - name: no-hardware-execution
+    result: pass
+    notes: "Section 15: 'Does not call any switch/device/Tuya method'"
+  - name: no-automation-execution
+    result: pass
+    notes: "Boundary confirmations: pump automation remains disabled"
+  - name: no-ML-control
+    result: pass
+    notes: "Section 4 rule 8: ML control deferred per ADR-0003"
+  - name: read-only-contract-boundary
+    result: pass
+    notes: "Sections 2, 4, 7, 15: contract/model/docs/validation only; no real endpoints"
+  - name: operator-writes-through-control-layer
+    result: pass
+    notes: "Section 4: 'Future operator writes must go through control-layer intent/queue, not direct hardware'; section 4 rule 3: 'Not direct hardware calls'"
+  - name: safety-gates-cannot-be-bypassed
+    result: pass
+    notes: "forbidden_actions include 'bypass-safety-gates'; section 4 rule 5: 'Web UI must not bypass safety gates'"
+  - name: additive-validate-yml-step
+    result: pass
+    notes: "Section 8: additive validate.yml step for check-web-ui-read-only-api-contract.sh"
+  - name: validation-script-defined
+    result: pass
+    notes: "Section 10 defines scripts/check-web-ui-read-only-api-contract.sh with 22 checks including no FastAPI, no routes, no POST/PUT/PATCH/DELETE"
+  - name: allowed-implementation-scope
+    result: pass
+    notes: "Section 8 lists 8 allowed files matching specification exactly"
+  - name: roadmap-alignment
+    result: pass
+    notes: "ROADMAP.md Phase 2b lists PR 0024 as last checked item. PR 0025 continues on same path building on PR 0023/0024 snapshot/adapter work"
+  - name: current-state-update
+    result: pass
+    notes: "Section 11 specifies CURRENT_STATE.md update text for PR 0025"
+  - name: roadmap-update
+    result: pass
+    notes: "Section 12 specifies ROADMAP.md update marking PR 0025 as completed"
+  - name: no-deployment-gitops-changes
+    result: pass
+    notes: "Section 9 forbids build-and-deploy.yml; Docker/GitOps boundary respected"
+validation:
+  commands_run:
+    - command: test -f .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: grep -q "web_ui_read_contract.py" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "web_ui_read_contract.py referenced in plan"
+    - command: grep -q "WebUiReadContractStatus" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "WebUiReadContractStatus defined"
+    - command: grep -q "WebUiReadEndpointContract" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "WebUiReadEndpointContract defined"
+    - command: grep -q "WebUiControlStateResponse" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "WebUiControlStateResponse defined"
+    - command: grep -q "WebUiReadContract" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "WebUiReadContract defined"
+    - command: grep -q "build_web_ui_control_state_response" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "build_web_ui_control_state_response function defined"
+    - command: grep -q "read-only-api-contract" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "read-only-api-contract marker present"
+    - command: grep -q "operator-writes-through-control-layer" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "operator-writes-through-control-layer marker present"
+    - command: grep -q "bypass-safety-gates" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "bypass-safety-gates forbidden action present"
+    - command: grep -q "WEB_UI_READ_ONLY_API_CONTRACT.md" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "WEB_UI_READ_ONLY_API_CONTRACT.md architecture doc referenced"
+    - command: grep -q "does NOT add real API endpoints" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "No real API endpoints statement present (alternate casing)"
+    - command: grep -q "ML control" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "ML control mentioned as deferred"
+    - command: grep -q "direct-hardware-write\"\|direct-tuya-command\"\|execute-command\"\|mutate-shared-state\"\|bypass-control-layer\"\|bypass-safety-gates\"\|write-api" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "All 7 forbidden action strings present"
+    - command: grep -q "write_actions_allowed.*False\|write_actions_allowed.*false" .project-memory/pr/0025-web-ui-read-only-control-state-api-contract/PLAN.md
+      result: pass
+      output_summary: "write_actions_allowed is false"
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No staged or unstaged changes to tracked files — only untracked PR 0025 planning artifact"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "Case-sensitive 'no real API endpoints' grep mismatch resolved (surface-level only; content correct)"
