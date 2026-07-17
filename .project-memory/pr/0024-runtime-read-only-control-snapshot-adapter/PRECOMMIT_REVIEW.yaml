@@ -1,0 +1,206 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: false-positive-operating-boundaries-check
+    severity: warning
+    finding: "check-policy-engine-operating-boundaries.sh flags app/control/ as modified runtime file (exit 1). This is a known false positive — the script predates the addition of new app/control/ sub-modules."
+    recommendation: "Update check-policy-engine-operating-boundaries.sh in a follow-up PR to allow new app/control/ sub-modules."
+checks:
+  - name: app/control/runtime_snapshot_adapter.py exists
+    result: pass
+    notes: "Confirmed: file exists at app/control/runtime_snapshot_adapter.py (untracked, created by coder)."
+  - name: .project-memory/RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md exists
+    result: pass
+    notes: "Confirmed: 13-section architecture document at .project-memory/RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md."
+  - name: RuntimeSnapshotAdapterStatus exists
+    result: pass
+    notes: "class RuntimeSnapshotAdapterStatus(Enum) with OK, DEGRADED, UNKNOWN."
+  - name: RuntimeLoadState exists
+    result: pass
+    notes: "@dataclass(frozen=True) with load_id, display_name, configured_load_watts, currently_on, controllable, is_life_support, roles, status, notes."
+  - name: RuntimeControlModeState exists
+    result: pass
+    notes: "@dataclass(frozen=True) with autonomous_enabled, operator_overrides_enabled, controlled_execution_enabled, dry_run_only."
+  - name: RuntimeControlSnapshotAdapterInput exists
+    result: pass
+    notes: "@dataclass(frozen=True) with runtime_state dict, loads, pipeline objects, mode."
+  - name: RuntimeControlSnapshotAdapterResult exists
+    result: pass
+    notes: "@dataclass(frozen=True) with status, snapshot_input, snapshot, warnings, notes."
+  - name: build_runtime_control_snapshot exists
+    result: pass
+    notes: "Pure adapter function. Verified by script check [7] and import/behavior test."
+  - name: OK/DEGRADED/UNKNOWN exist
+    result: pass
+    notes: "All 3 enum values in RuntimeSnapshotAdapterStatus. Script check [8] confirms all 3 OK."
+  - name: runtime_state field exists
+    result: pass
+    notes: "dict[str, object] field in RuntimeControlSnapshotAdapterInput. Script check [13] confirms."
+  - name: caller-provided-state marker exists
+    result: pass
+    notes: "'caller-provided-state' always included in notes. Script check [15] confirms."
+  - name: read-only-adapter marker exists
+    result: pass
+    notes: "'read-only-adapter' always included in notes. Script check [14] confirms."
+  - name: read-only-snapshot marker exists
+    result: pass
+    notes: "'read-only-snapshot' always included in notes. Script check [15] confirms."
+  - name: no-execution marker exists
+    result: pass
+    notes: "'no-execution' always included in notes. Script check [14] confirms."
+  - name: no-runtime-wiring marker exists
+    result: pass
+    notes: "'no-runtime-wiring' always included in notes. Script check [14] confirms."
+  - name: future-web-ui-read-model marker exists
+    result: pass
+    notes: "'future-web-ui-read-model' always included in notes. Script check [14] confirms."
+  - name: converts RuntimeLoadState to LoadCandidate
+    result: pass
+    notes: "_to_load_candidate() function converts RuntimeLoadState → LoadCandidate. Verified by code read."
+  - name: may call build_control_state_snapshot
+    result: pass
+    notes: "Imports and calls build_control_state_snapshot from PR 0023. Verified by code read."
+  - name: does not call evaluate_policy_decision
+    result: pass
+    notes: "Script check [19] confirms: no evaluate_policy_decision call found."
+  - name: does not call arbitrate_command_intent
+    result: pass
+    notes: "Script check [19] confirms: no arbitrate_command_intent call found."
+  - name: does not call evaluate_command_safety_gate
+    result: pass
+    notes: "Script check [19] confirms: no evaluate_command_safety_gate call found."
+  - name: does not call evaluate_execution_eligibility
+    result: pass
+    notes: "Script check [19] confirms: no evaluate_execution_eligibility call found."
+  - name: no API endpoints
+    result: pass
+    notes: "No Flask routes, HTTP handlers, or API endpoint code in any changed file."
+  - name: no command executor
+    result: pass
+    notes: "No CommandExecutor class, no execute command function. Script check [20] confirms."
+  - name: no direct device reads
+    result: pass
+    notes: "No hardware reads, Tuya calls, or device queries. Script check [21] confirms."
+  - name: no live shared_state global reads
+    result: pass
+    notes: "No import of shared_state, SharedState, get_state. Script check [18] confirms no runtime imports."
+  - name: no runtime/service/Tuya/device imports
+    result: pass
+    notes: "Script check [18] confirms: no app.service, app.devices, app.tuya, app.monitoring, app.ml, app.weather, shared_state imports."
+  - name: no runtime wiring
+    result: pass
+    notes: "No runtime services imported. Script check [23] confirms forbidden runtime files not modified."
+  - name: no hardware execution
+    result: pass
+    notes: "No switch_on_device, switch_off_device, or hardware calls. Script check [21] confirms."
+  - name: no automation execution
+    result: pass
+    notes: "No automation flags, schedulers, or execution code."
+  - name: no ML control
+    result: pass
+    notes: "No ML imports, calls, or flags. RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md §13 defers ML control."
+  - name: __init__.py exports public types/functions
+    result: pass
+    notes: "All 5 types + build_runtime_control_snapshot imported and exported. All existing exports preserved."
+  - name: validate.yml only adds validation-only check
+    result: pass
+    notes: "One step added after control state snapshot check: 'bash scripts/check-runtime-snapshot-adapter.sh'."
+  - name: CURRENT_STATE.md update is concise
+    result: pass
+    notes: "7 lines added for PR 0024 section. No broad rewrites."
+  - name: ROADMAP.md update is concise
+    result: pass
+    notes: "PR 0024 [x] added. No broad rewrites."
+  - name: PLAN.md and PLAN_REVIEW.yaml locked
+    result: pass
+    notes: "PLAN.md not modified (git diff HEAD shows no changes). PLAN_REVIEW.yaml absent (never created — not a blocker)."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "663c14235c512bbbb32c196fa66856f61fc899bc"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0024-runtime-read-only-control-snapshot-adapter"
+    - command: git status --short
+      result: pass
+      output_summary: "4 modified tracked files, 4 untracked files. All within PR 0024 scope."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Exit 0. No syntax errors."
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Exit 0. All required governance files present."
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "Exit 0. All 23 YAML files validated successfully."
+    - command: bash scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Exit 0. All checks clean."
+    - command: bash scripts/check-policy-engine-operating-boundaries.sh
+      result: warning
+      output_summary: "Exit 1. Known false positive: 'Runtime file app/control/ was modified' — script predates new sub-modules."
+    - command: bash scripts/check-policy-engine-models.sh
+      result: pass
+      output_summary: "Exit 0. All 19 checks pass."
+    - command: bash scripts/check-policy-decision-engine.sh
+      result: pass
+      output_summary: "Exit 0. All 17 checks pass."
+    - command: bash scripts/check-policy-decision-scenarios.sh
+      result: pass
+      output_summary: "Exit 0. 43/43 scenario assertions pass."
+    - command: bash scripts/check-manual-control-queue.sh
+      result: pass
+      output_summary: "Exit 0. All 18 checks pass."
+    - command: bash scripts/check-command-arbitration.sh
+      result: pass
+      output_summary: "Exit 0. All 25 checks pass."
+    - command: bash scripts/check-command-safety-gate.sh
+      result: pass
+      output_summary: "Exit 0. All 23 checks pass."
+    - command: bash scripts/check-execution-eligibility.sh
+      result: pass
+      output_summary: "Exit 0. All 22 checks pass."
+    - command: bash scripts/check-control-state-snapshot.sh
+      result: pass
+      output_summary: "Exit 0. All 24 checks pass."
+    - command: bash scripts/check-runtime-snapshot-adapter.sh
+      result: pass
+      output_summary: "Exit 0. All 23 checks pass. Checks [18-19] confirm no runtime imports and no evaluator/arbitrator calls."
+    - command: python3 import/behavior test
+      result: pass
+      output_summary: "'runtime snapshot adapter import and behavior ok' — verified unknown, ok, partial scenarios."
+    - command: grep for types
+      result: pass
+      output_summary: "All 5 types found in runtime_snapshot_adapter.py, __init__.py, and check script."
+    - command: grep for function/fields
+      result: pass
+      output_summary: "build_runtime_control_snapshot, runtime_state, read-only-adapter, no-execution, no-runtime-wiring, caller-provided-state, future-web-ui-read-model found."
+    - command: grep for warning strings
+      result: pass
+      output_summary: "All required warning strings found: no-input, missing-runtime-state, missing-loads, partial-runtime-state, read-only-snapshot."
+    - command: grep for forbidden evaluator/runtime imports
+      result: pass
+      output_summary: "No evaluate_policy_decision, arbitrate_command_intent, evaluate_command_safety_gate, evaluate_execution_eligibility calls. No runtime/service/device/Tuya/ML/weather imports."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

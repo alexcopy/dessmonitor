@@ -1,0 +1,63 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- app/control/runtime_snapshot_adapter.py (created) — 415 lines, 4 types + 1 enum + 1 pure function
+- app/control/__init__.py (modified) — +15 lines, 6 new exports
+- .project-memory/RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md (created) — 13-section architecture document
+- scripts/check-runtime-snapshot-adapter.sh (created) — 23 static validation checks
+- .github/workflows/validate.yml (modified) — +3 lines, adds Runtime snapshot adapter check
+- .project-memory/CURRENT_STATE.md (modified) — +7 lines, PR 0024 section
+- .project-memory/ROADMAP.md (modified) — +1 line, PR 0024 [x]
+- .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/CODER_REPORT.txt (created)
+
+BEHAVIOR IMPLEMENTED:
+- RuntimeSnapshotAdapterStatus enum: OK, DEGRADED, UNKNOWN
+- RuntimeLoadState: frozen dataclass with 9 fields for runtime caller load state
+- RuntimeControlModeState: frozen dataclass with 4 boolean mode flags
+- RuntimeControlSnapshotAdapterInput: frozen dataclass aggregating runtime_state dict, loads, pipeline objects, mode
+- RuntimeControlSnapshotAdapterResult: frozen dataclass with status, snapshot_input, snapshot, warnings, notes
+- build_runtime_control_snapshot(): pure adapter function:
+  1. Converts RuntimeLoadState → LoadCandidate
+  2. Converts RuntimeControlModeState → ControlModeSnapshot
+  3. Best-effort parses runtime_state dict for booleans and float keys
+  4. Uses explicit mode/energy/battery if provided, falls back to runtime_state
+  5. Calls build_control_state_snapshot() from PR 0023
+  6. Status: UNKNOWN (no input/useful state), DEGRADED (snapshot degraded), OK (all clear)
+  7. Always includes read-only/no-execution/no-runtime-wiring notes
+
+TESTS ADDED OR UPDATED:
+Import/behavior check confirms 3 scenarios: unknown (None input), OK (full pipeline with runtime data), partial (empty runtime_state with missing loads).
+
+VALIDATION RUN:
+| Command | Result |
+|---|---|
+| python3 -m compileall -q . | PASS |
+| scripts/check-runtime-snapshot-adapter.sh | PASS (23/23) |
+| Import/behavior check | PASS (all assertions) |
+| grep evidence (types, fields, strings, forbidden) | PASS |
+
+DEVIATIONS FROM PLAN:
+Two minimal adjustments:
+1. Partial runtime_state warning triggers only when NEITHER booleans NOR floats are present (was: either missing). This matches the "best-effort, non-failing" intent.
+2. Adapter status is DEGRADED only when the snapshot itself is degraded/unknown, not when minor warnings exist. Snapshot OK → adapter OK.
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: ROADMAP.md modified only as explicitly allowed
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no evaluator/arbitrator/safety/eligibility calls
+- confirm: no runtime imports, no live shared_state reads
+- confirm: no executor, hardware execution, API endpoints
+- confirm: all frozen modules unchanged
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.

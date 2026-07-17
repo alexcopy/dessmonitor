@@ -195,6 +195,13 @@ ControlStateSnapshotInput, ControlStateSnapshot) and the pure function
 for future web UI/observability. No executor. No runtime wiring. No API endpoints.
 No hardware execution.
 
+## PR 0024 — Runtime Read-Only Control Snapshot Adapter
+PR 0024 adds a pure runtime read-only control snapshot adapter in
+`app/control/runtime_snapshot_adapter.py` with 5 types and the pure function
+`build_runtime_control_snapshot()`. Transforms caller-provided runtime-like data
+into ControlStateSnapshot. No runtime wiring. No API endpoints. No device reads.
+No execution.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
