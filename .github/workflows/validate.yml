@@ -98,3 +98,6 @@ jobs:
 
       - name: 🔍 Control state snapshot check
         run: bash scripts/check-control-state-snapshot.sh
+
+      - name: 🔍 Runtime snapshot adapter check
+        run: bash scripts/check-runtime-snapshot-adapter.sh

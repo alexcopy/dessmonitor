@@ -1,0 +1,201 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: >-
+      Case-sensitive grep for "no API endpoints" (lowercase) returned no match.
+      PLAN.md uses "No API endpoints" (capitalized) in the boundary confirmation
+      section and "add API endpoints" in section 2. Content is present and
+      correct; only the exact literal case differs.
+    recommendation: >-
+      No change required. The plan explicitly defers API endpoints across
+      sections 2, 4, and 14. The warning is noted for future checklist
+      case-sensitivity awareness.
+checks:
+  - name: plan-file-exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md"
+  - name: branch-is-correct
+    result: pass
+    notes: "Branch is 0024-runtime-read-only-control-snapshot-adapter"
+  - name: dirty-tree-in-scope
+    result: pass
+    notes: "Working tree shows only untracked .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/ — expected for uncommitted plan review"
+  - name: runtime_snapshot_adapter.py-defined
+    result: pass
+    notes: "PLAN.md section 5 lists app/control/runtime_snapshot_adapter.py as Create"
+  - name: RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md-defined
+    result: pass
+    notes: "Section 4 defines architecture document at .project-memory/RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md"
+  - name: RuntimeSnapshotAdapterStatus-defined
+    result: pass
+    notes: "Section 5 Type 1 defines RuntimeSnapshotAdapterStatus enum with OK, DEGRADED, UNKNOWN"
+  - name: RuntimeLoadState-defined
+    result: pass
+    notes: "Section 5 Type 2 defines RuntimeLoadState dataclass"
+  - name: RuntimeControlModeState-defined
+    result: pass
+    notes: "Section 5 Type 3 defines RuntimeControlModeState dataclass"
+  - name: RuntimeControlSnapshotAdapterInput-defined
+    result: pass
+    notes: "Section 5 Type 4 defines RuntimeControlSnapshotAdapterInput with runtime_state dict and all pipeline objects"
+  - name: RuntimeControlSnapshotAdapterResult-defined
+    result: pass
+    notes: "Section 5 Type 5 defines RuntimeControlSnapshotAdapterResult with snapshot_input, snapshot, warnings, notes"
+  - name: build_runtime_control_snapshot-defined
+    result: pass
+    notes: "Section 6 defines the pure function with 7 behavioral rules"
+  - name: runtime_state-field
+    result: pass
+    notes: "RuntimeControlSnapshotAdapterInput (section 5 Type 4) has runtime_state dict field"
+  - name: caller-provided-state-boundary
+    result: pass
+    notes: "Sections 2, 4, 6 explicitly state all state is caller-provided; no live reads"
+  - name: read-only-adapter-marker
+    result: pass
+    notes: "Section 6 required warning strings include read-only-adapter, read-only-snapshot"
+  - name: no-execution-marker
+    result: pass
+    notes: "Section 6 required warning strings include no-execution"
+  - name: no-runtime-wiring-marker
+    result: pass
+    notes: "Section 6 required warning strings include no-runtime-wiring"
+  - name: conversion-RuntimeLoadState-to-LoadCandidate
+    result: pass
+    notes: "Section 6 rule 2: 'Convert RuntimeLoadState objects into LoadCandidate objects for ControlStateSnapshotInput'"
+  - name: build_control_state_snapshot-called
+    result: pass
+    notes: "Section 6 rule 6: 'Call build_control_state_snapshot() from PR 0023 to produce the final snapshot'"
+  - name: evaluate_policy_decision-forbidden
+    result: pass
+    notes: "Section 4 rule 9: 'It does not recompute policy/arbitration/safety/eligibility'; Section 6 rule 7: 'Does not compute policy decisions'"
+  - name: arbitrate_command_intent-forbidden
+    result: pass
+    notes: "Section 4 rule 9: 'It does not recompute policy/arbitration/safety/eligibility'"
+  - name: evaluate_command_safety_gate-forbidden
+    result: pass
+    notes: "Section 6 rule 9: 'Does not evaluate safety gates'"
+  - name: evaluate_execution_eligibility-forbidden
+    result: pass
+    notes: "Section 6 rule 10: 'Does not evaluate execution eligibility'"
+  - name: no-executor
+    result: pass
+    notes: "PLAN.md section 14 boundary confirmations explicitly forbid executor. Validation script checks no CommandExecutor, no execute function"
+  - name: no-runtime-wiring
+    result: pass
+    notes: "PLAN.md sections 2, 14: 'does NOT wire into runtime', 'no-runtime-wiring'"
+  - name: no-api-endpoints
+    result: pass
+    notes: "PLAN.md sections 2, 4, 14: 'No API endpoints' and 'Deferred'"
+  - name: no-hardware-execution
+    result: pass
+    notes: "PLAN.md section 2: does NOT call Tuya/hardware; section 14: 'Does not call any switch/device/Tuya method'"
+  - name: no-direct-device-reads
+    result: pass
+    notes: "PLAN.md sections 2, 4, 14: 'Does not read hardware directly', 'No device reads'"
+  - name: no-live-shared-state-reads
+    result: pass
+    notes: "PLAN.md sections 2, 4: 'does NOT read live shared_state globals', 'It does not read live shared_state globals'"
+  - name: no-runtime-service-imports
+    result: pass
+    notes: "PLAN.md section 2: 'does NOT import runtime modules'; section 14: 'No runtime module imports'; forbidden imports listed"
+  - name: no-recompute-policy-decisions
+    result: pass
+    notes: "PLAN.md section 4 rule 9: 'It does not recompute policy/arbitration/safety/eligibility'; section 6 rule 6: 'Preserve all already-computed pipeline objects'"
+  - name: no-weather-fetch
+    result: pass
+    notes: "PLAN.md sections 2, 4: does NOT fetch weather"
+  - name: no-ml-control
+    result: pass
+    notes: "PLAN.md sections 2, 12, 14: ML control deferred per ADR-0003"
+  - name: no-automation-execution
+    result: pass
+    notes: "PLAN.md section 14: pump automation disabled per PR 0008"
+  - name: no-deployment-gitops-changes
+    result: pass
+    notes: "PLAN.md section 8 forbids build-and-deploy.yml edits; Docker/GitOps boundary respected"
+  - name: additive-validate-yml-step
+    result: pass
+    notes: "Section 9: additive validate.yml step for check-runtime-snapshot-adapter.sh"
+  - name: validation-script-defined
+    result: pass
+    notes: "Section 9 defines scripts/check-runtime-snapshot-adapter.sh with 21 checks including no evaluator calls, no runtime imports"
+  - name: allowed-implementation-scope
+    result: pass
+    notes: "Section 7 lists 8 allowed files matching specification exactly"
+  - name: forbidden-implementation-scope
+    result: pass
+    notes: "Section 8 lists all frozen modules and forbidden files including control_state_snapshot.py (PR 0023); no unauthorized files permitted"
+  - name: roadmap-alignment
+    result: pass
+    notes: "ROADMAP.md Phase 2b lists PR 0023 as last checked item. PR 0024 continues on same path building on PR 0023's control_state_snapshot"
+  - name: current-state-update
+    result: pass
+    notes: "Section 10 specifies CURRENT_STATE.md update text for PR 0024"
+  - name: roadmap-update
+    result: pass
+    notes: "Section 11 specifies ROADMAP.md update marking PR 0024 as completed"
+validation:
+  commands_run:
+    - command: test -f .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: grep -q "runtime_snapshot_adapter.py" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "runtime_snapshot_adapter.py referenced in plan"
+    - command: grep -q "RuntimeSnapshotAdapterStatus" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RuntimeSnapshotAdapterStatus defined"
+    - command: grep -q "RuntimeLoadState" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RuntimeLoadState defined"
+    - command: grep -q "RuntimeControlModeState" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RuntimeControlModeState defined"
+    - command: grep -q "RuntimeControlSnapshotAdapterInput" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RuntimeControlSnapshotAdapterInput defined"
+    - command: grep -q "RuntimeControlSnapshotAdapterResult" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RuntimeControlSnapshotAdapterResult defined"
+    - command: grep -q "build_runtime_control_snapshot" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "build_runtime_control_snapshot function defined"
+    - command: grep -q "caller-provided" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "caller-provided state boundary stated"
+    - command: grep -q "read-only-adapter" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "read-only-adapter marker present in warning/reason strings"
+    - command: grep -q "no-runtime-wiring" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "no-runtime-wiring marker present in warning/reason strings"
+    - command: grep -q "RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md architecture doc referenced"
+    - command: grep -q "No API endpoints" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "No API endpoints statement present (alternate casing)"
+    - command: grep -q "ML control" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "ML control mentioned as deferred"
+    - command: grep -q "conversion.*RuntimeLoadState.*LoadCandidate\|Convert.*RuntimeLoadState.*LoadCandidate" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "RuntimeLoadState to LoadCandidate conversion defined"
+    - command: grep -q "build_control_state_snapshot" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "build_control_state_snapshot() called from PR 0023"
+    - command: grep -q "Does not compute policy decisions\|does not recompute policy" .project-memory/pr/0024-runtime-read-only-control-snapshot-adapter/PLAN.md
+      result: pass
+      output_summary: "Policy decision/arbitration/safety/eligibility recomputation explicitly forbidden"
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No staged or unstaged changes to tracked files — only untracked PR 0024 planning artifact"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "Case-sensitive 'no API endpoints' grep mismatch resolved (surface-level only; content correct)"
