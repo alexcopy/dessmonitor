@@ -48,6 +48,7 @@
 - [x] PR 0023 — Runtime read-only control state snapshot
 - [x] PR 0024 — Runtime read-only control snapshot adapter
 - [x] PR 0025 — Web UI read-only control state API contract
+- [x] PR 0026 — Web UI read-only control state endpoint implementation plan
 - [ ] Later — ML advisory
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 

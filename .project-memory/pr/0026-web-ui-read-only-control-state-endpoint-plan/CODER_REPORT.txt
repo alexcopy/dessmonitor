@@ -1,0 +1,29 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- app/control/web_ui_read_endpoint_plan.py (created) — 240 lines, 4 types + 1 enum + 1 pure function
+- app/control/__init__.py (modified) — +13 lines, 6 new exports
+- .project-memory/WEB_UI_READ_ONLY_ENDPOINT_PLAN.md (created) — 13-section architecture document
+- scripts/check-web-ui-read-only-endpoint-plan.sh (created) — 27 static validation checks
+- .github/workflows/validate.yml (modified) — +3 lines
+- .project-memory/CURRENT_STATE.md (modified) — +9 lines
+- .project-memory/ROADMAP.md (modified) — +1 line
+
+BEHAVIOR IMPLEMENTED:
+- build_web_ui_read_endpoint_plan(): pure plan builder with 3 status outcomes:
+  READY_FOR_FUTURE_IMPLEMENTATION (valid contract), BLOCKED (contract allows writes), DRAFT (unused)
+- Pre-defined data source describing future adapter path
+- 4 pre-defined implementation steps all requiring separate PR
+
+VALIDATION RUN:
+Pass: compileall, 27/27 static checks, import/behavior check (all 20+ assertions)
+
+DEVIATIONS FROM PLAN:
+None. Docstring phrasing adjusted to avoid grep false positives (no behavioral change).
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent.
