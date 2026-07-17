@@ -1,0 +1,115 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: branch-is-correct
+    result: pass
+    notes: "Branch is 0027-web-ui-read-only-control-state-endpoint, matching PR 0027."
+  - name: dirty-tree-is-within-scope
+    result: pass
+    notes: "git status --short shows only untracked files under .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/. No modified tracked files. git diff HEAD is empty."
+  - name: plan-md-was-read
+    result: pass
+    notes: "PLAN.md read at .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md. Documents isolated read-only endpoint module with lazy FastAPI router factory, response builder, and supporting types."
+  - name: required-supporting-files-read
+    result: pass
+    notes: "Read all 13 required supporting files: CURRENT_STATE.md, ROADMAP.md, WEB_UI_READ_ONLY_API_CONTRACT.md, WEB_UI_READ_ONLY_ENDPOINT_PLAN.md, RUNTIME_CONTROL_SNAPSHOT_ADAPTER.md, CONTROL_STATE_SNAPSHOT.md, COMMAND_SAFETY_GATES.md, AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md, web_ui_read_contract.py, web_ui_read_endpoint_plan.py, control_state_snapshot.py, app/control/__init__.py, .github/workflows/validate.yml."
+  - name: roadmap-alignment
+    result: pass
+    notes: "ROADMAP.md Phase 2b has PR 0026 as last checked item. PLAN.md product context correctly places PR 0027 after PR 0026 and before a separate future runtime-wiring PR. Planned ROADMAP.md update adds PR 0027 entry."
+  - name: prior-pr-evidence
+    result: pass
+    notes: "No prior PR gate claimed. PR 0027 builds on PR 0026 (endpoint plan) and PR 0025 (API contract). Prior artifacts read and verified: web_ui_read_endpoint_plan.py, web_ui_read_contract.py, control_state_snapshot.py, runtime_snapshot_adapter.py."
+  - name: executable-first
+    result: pass
+    notes: "PLAN.md defines a router factory (not wired), a response builder (no FastAPI dependency), and passive types/constants. The endpoint module is isolated and not runtime-wired. Validation script checks are static analysis."
+  - name: validation-strategy-explicit
+    result: pass
+    notes: "Section 13 describes 25 static validation checks. Validation script scripts/check-web-ui-read-only-endpoint.sh planned. validate.yml will get additive step."
+  - name: forbidden-scope-absent
+    result: pass
+    notes: "PLAN.md explicitly forbids: runtime wiring, api.py edits, run.py edits, write API, hardware execution, executor, direct device reads, live shared_state reads, top-level FastAPI import, runtime/service/Tuya/device module imports, weather fetch, ML control, automation execution. All verified."
+  - name: artifact-physically-written
+    result: pass
+    notes: "Artifact written to .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/reviews/plan-review.yml."
+  - name: artifact-read-back
+    result: pass
+    notes: "Artifact read back and verified."
+  - name: specification-spec-items
+    result: pass
+    notes: "All 30 specification items confirmed present and correct in PLAN.md."
+  - name: validation-checklist-grep
+    result: pass
+    notes: "All 10 validation grep checks passed."
+  - name: lazy-fastapi-import
+    result: pass
+    notes: "Section 4: 'FastAPI/APIRouter must be imported only inside create_control_state_read_router() via lazy import. No top-level FastAPI import.' Section 7 Function 2 implements this with lazy import and fastapi-unavailable error."
+  - name: no-api-py-or-run-py-edits
+    result: pass
+    notes: "Section 2: 'does not edit api.py or run.py'. Section 14: 'No api.py/run.py changes'. Allowed implementation files do not include api.py or run.py."
+  - name: no-runtime-wiring
+    result: pass
+    notes: "Section 7: 'This PR does NOT include the router in any app — route_wired_now remains false.' Section 14: 'Isolated endpoint module only: Not wired into runtime'. no-runtime-wiring in note strings."
+  - name: caller-provided-snapshot-provider
+    result: pass
+    notes: "Section 7 Function 1: build_control_state_endpoint_response takes snapshot_provider: Callable[[], ControlStateSnapshot | None] | None. Section 8 includes 'caller-provided-snapshot-provider' in note strings."
+  - name: safety-gates-cannot-be-bypassed
+    result: pass
+    notes: "Section 8 note strings include 'bypass-safety-gates', 'safety-gates-required'. Architecture documents (COMMAND_SAFETY_GATES.md, AUTONOMOUS_CONTROL_AND_OPERATOR_OVERRIDE.md) confirm safety gates are final authority."
+  - name: separate-pr-for-runtime-wiring
+    result: pass
+    notes: "Section 2: 'A separate future PR will wire this router into the application.' Section 3: 'A separate future PR will wire this router into the application.'"
+  - name: allowed-implementation-files
+    result: pass
+    notes: "Section 9 lists allowed files: app/control/web_ui_read_endpoint.py, app/control/__init__.py, .project-memory/WEB_UI_READ_ONLY_ENDPOINT.md, scripts/check-web-ui-read-only-endpoint.sh, .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, CODER_REPORT.txt."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "465faeb4573d682c35aeb282666debb53398cf49"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0027-web-ui-read-only-control-state-endpoint"
+    - command: git status --short
+      result: pass
+      output_summary: "Only untracked files in PR directory — clean working tree"
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No diff — HEAD is clean, no modified tracked files"
+    - command: test -f .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: grep -q "web_ui_read_endpoint.py" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found reference to web_ui_read_endpoint.py"
+    - command: grep -q "WebUiReadEndpointStatus" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found WebUiReadEndpointStatus"
+    - command: grep -q "create_control_state_read_router" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found create_control_state_read_router"
+    - command: grep -q "caller-provided-snapshot-provider" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found caller-provided-snapshot-provider in note strings"
+    - command: grep -q "fastapi-lazy-import" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found fastapi-lazy-import in note strings"
+    - command: grep -q "route-not-wired" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found route-not-wired in note strings"
+    - command: grep -q "no-runtime-wiring" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found no-runtime-wiring in note strings"
+    - command: grep -q "WEB_UI_READ_ONLY_ENDPOINT.md" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found WEB_UI_READ_ONLY_ENDPOINT.md reference"
+    - command: grep -q "ML control" .project-memory/pr/0027-web-ui-read-only-control-state-endpoint/PLAN.md
+      result: pass
+      output_summary: "Found ML control reference — confirms ML deferred"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "None — PLAN.md is approved for coder implementation as specified. Coder must produce only the 8 allowed files listed in section 9. Must use lazy FastAPI import inside router factory only. Must not wire router into runtime. Must not edit api.py or run.py. Must not add write API, executor, hardware execution, runtime imports, or automation execution."
