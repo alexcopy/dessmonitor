@@ -104,3 +104,6 @@ jobs:
 
       - name: 🔍 Web UI read-only API contract check
         run: bash scripts/check-web-ui-read-only-api-contract.sh
+
+      - name: 🔍 Web UI read-only endpoint plan check
+        run: bash scripts/check-web-ui-read-only-endpoint-plan.sh

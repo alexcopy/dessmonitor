@@ -209,6 +209,16 @@ WebUiReadEndpointContract, WebUiControlStateResponse, WebUiReadContract)
 and the pure function `build_web_ui_control_state_response()`.
 No FastAPI routes. No write API. No runtime wiring. No execution.
 
+## PR 0026 — Web UI Read-Only Control State Endpoint Implementation Plan
+PR 0026 defines the future endpoint implementation plan in
+`app/control/web_ui_read_endpoint_plan.py` with 5 types
+(WebUiReadEndpointPlanStatus, WebUiReadEndpointDataSource,
+WebUiReadEndpointBoundary, WebUiReadEndpointImplementationStep,
+WebUiReadEndpointPlan) and the pure function
+`build_web_ui_read_endpoint_plan()`. Documents future GET /control/state
+endpoint boundaries and implementation steps. No real API endpoint added.
+No FastAPI routes. No runtime wiring. No execution.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

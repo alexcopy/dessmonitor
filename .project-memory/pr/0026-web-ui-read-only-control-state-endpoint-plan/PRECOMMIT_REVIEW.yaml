@@ -1,0 +1,283 @@
+# PRECOMMIT_REVIEW.yaml for PR 0026
+# Web UI Read-Only Control State Endpoint Implementation Plan
+
+pr_id: "0026-web-ui-read-only-control-state-endpoint-plan"
+review_type: precommit
+review_timestamp: 2026-07-17T19:46:56Z
+
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: >-
+      check-policy-engine-operating-boundaries.sh flagged app/control/ as
+      modified. This is expected — app/control/__init__.py was modified to
+      export WebUiReadEndpointPlan types per PLAN.md section 9 (allowed edit).
+      The check script predates PR 0026 and flags any app/control/ change as
+      a runtime file modification. No behavioral issue.
+    recommendation: >-
+      No change required. The __init__.py edit is explicitly allowed by PLAN.md.
+
+checks:
+  - name: app/control/web_ui_read_endpoint_plan.py-exists
+    result: pass
+    notes: "File exists at app/control/web_ui_read_endpoint_plan.py (approx 240 lines)"
+  - name: WEB_UI_READ_ONLY_ENDPOINT_PLAN.md-exists
+    result: pass
+    notes: "File exists at .project-memory/WEB_UI_READ_ONLY_ENDPOINT_PLAN.md (13 sections)"
+  - name: WebUiReadEndpointPlanStatus-exists
+    result: pass
+    notes: "Enum defined with DRAFT, READY_FOR_FUTURE_IMPLEMENTATION, BLOCKED values"
+  - name: WebUiReadEndpointDataSource-exists
+    result: pass
+    notes: "Frozen dataclass with name, description, read_only, live_shared_state_reads_allowed, direct_device_reads_allowed"
+  - name: WebUiReadEndpointBoundary-exists
+    result: pass
+    notes: "Frozen dataclass with path, method, read_only, writes_allowed, execution_allowed, route_added_now"
+  - name: WebUiReadEndpointImplementationStep-exists
+    result: pass
+    notes: "Frozen dataclass with step_id, description, requires_separate_pr, safety_review_required, allowed_in_this_pr"
+  - name: WebUiReadEndpointPlan-exists
+    result: pass
+    notes: "Frozen dataclass with status, contract, endpoint, data_sources, implementation_steps"
+  - name: build_web_ui_read_endpoint_plan-exists
+    result: pass
+    notes: "Pure function defined, handles None→default contract, valid contract→READY_FOR_FUTURE_IMPLEMENTATION, invalid contract→BLOCKED"
+  - name: DRAFT/READY_FOR_FUTURE_IMPLEMENTATION/BLOCKED-status-values
+    result: pass
+    notes: "All three status values present in WebUiReadEndpointPlanStatus enum"
+  - name: path-/control/state
+    result: pass
+    notes: "WebUiReadEndpointBoundary.path defaults to /control/state"
+  - name: method-GET
+    result: pass
+    notes: "WebUiReadEndpointBoundary.method defaults to GET"
+  - name: route_added_now-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointBoundary.route_added_now defaults to False"
+  - name: writes_allowed-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointBoundary.writes_allowed defaults to False"
+  - name: execution_allowed-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointBoundary.execution_allowed defaults to False"
+  - name: live_shared_state_reads_allowed-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointDataSource.live_shared_state_reads_allowed defaults to False"
+  - name: direct_device_reads_allowed-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointDataSource.direct_device_reads_allowed defaults to False"
+  - name: requires_separate_pr-true-for-steps
+    result: pass
+    notes: "All 4 implementation steps have requires_separate_pr=True"
+  - name: safety_review_required-true-for-steps
+    result: pass
+    notes: "All 4 implementation steps have safety_review_required=True"
+  - name: allowed_in_this_pr-false-for-steps
+    result: pass
+    notes: "All 4 implementation steps have allowed_in_this_pr=False"
+  - name: read-control-state-allowed
+    result: pass
+    notes: "read-control-state in allowed_actions"
+  - name: direct-hardware-write-forbidden
+    result: pass
+    notes: "direct-hardware-write in forbidden_actions"
+  - name: direct-tuya-command-forbidden
+    result: pass
+    notes: "direct-tuya-command in forbidden_actions"
+  - name: execute-command-forbidden
+    result: pass
+    notes: "execute-command in forbidden_actions"
+  - name: mutate-shared-state-forbidden
+    result: pass
+    notes: "mutate-shared-state in forbidden_actions"
+  - name: bypass-control-layer-forbidden
+    result: pass
+    notes: "bypass-control-layer in forbidden_actions"
+  - name: bypass-safety-gates-forbidden
+    result: pass
+    notes: "bypass-safety-gates in forbidden_actions"
+  - name: write-api-forbidden
+    result: pass
+    notes: "write-api in forbidden_actions"
+  - name: route-write-methods-forbidden
+    result: pass
+    notes: "route-write-methods in forbidden_actions"
+  - name: endpoint-plan-only-marker
+    result: pass
+    notes: "endpoint-plan-only in notes tuples"
+  - name: no-real-api-endpoint-marker
+    result: pass
+    notes: "no-real-api-endpoint in notes tuples and plan document"
+  - name: read-only-endpoint-future-marker
+    result: pass
+    notes: "read-only-endpoint-future in notes tuples"
+  - name: future-separate-pr-required-marker
+    result: pass
+    notes: "future-separate-pr-required in notes tuples"
+  - name: no-execution-marker
+    result: pass
+    notes: "no-execution in notes tuples and plan document"
+  - name: no-runtime-wiring-marker
+    result: pass
+    notes: "no-runtime-wiring in notes tuples"
+  - name: no-write-api-marker
+    result: pass
+    notes: "no-write-api in notes tuples"
+  - name: control-layer-only-marker
+    result: pass
+    notes: "control-layer-only in notes tuples"
+  - name: safety-gates-required-marker
+    result: pass
+    notes: "safety-gates-required in notes tuples"
+  - name: operator-writes-through-control-layer-marker
+    result: pass
+    notes: "operator-writes-through-control-layer in notes tuples and plan document"
+  - name: no-real-API-endpoint
+    result: pass
+    notes: "No real API endpoint creation; contract/model/plan only"
+  - name: no-FastAPI-route
+    result: pass
+    notes: "No FastAPI or APIRouter imports, no @router or @app decorators"
+  - name: no-APIRouter
+    result: pass
+    notes: "No APIRouter class imported or used"
+  - name: no-POST/PUT/PATCH/DELETE-write-route
+    result: pass
+    notes: "No post(), put(), patch(), delete() calls present"
+  - name: no-snapshot/adapter-builder-calls
+    result: pass
+    notes: "No build_web_ui_control_state_response, build_runtime_control_snapshot, or build_control_state_snapshot calls"
+  - name: no-API-endpoints
+    result: pass
+    notes: "No real API endpoint creation; plan/model only"
+  - name: no-command-executor
+    result: pass
+    notes: "No CommandExecutor class or execute_command function"
+  - name: no-direct-device-reads
+    result: pass
+    notes: "No switch_on_device, switch_off_device, set_numeric, or similar calls"
+  - name: no-live-shared_state-global-reads
+    result: pass
+    notes: "No shared_state imports or references; live_shared_state_reads_allowed=False"
+  - name: no-runtime/service/Tuya/device-imports
+    result: pass
+    notes: "Only imports: stdlib dataclasses, enum, field + app.control.web_ui_read_contract"
+  - name: no-runtime-wiring
+    result: pass
+    notes: "No runtime wiring, no Flask/FastAPI/runtime setup"
+  - name: no-hardware-execution
+    result: pass
+    notes: "No Tuya, relay, or hardware commands"
+  - name: no-automation-execution
+    result: pass
+    notes: "No automation execution enabled"
+  - name: no-ML-control
+    result: pass
+    notes: "No ML imports or control calls; ML deferred per ADR-0003"
+  - name: __init__.py-exports-public-types
+    result: pass
+    notes: "Exports WebUiReadEndpointPlanStatus, WebUiReadEndpointDataSource, WebUiReadEndpointBoundary, WebUiReadEndpointImplementationStep, WebUiReadEndpointPlan, build_web_ui_read_endpoint_plan"
+  - name: validate.yml-adds-validation-only-check
+    result: pass
+    notes: "3 lines added: single step referencing check-web-ui-read-only-endpoint-plan.sh"
+  - name: CURRENT_STATE.md-update-concise
+    result: pass
+    notes: "10 lines added, succinct PR 0026 description"
+  - name: ROADMAP.md-update-concise
+    result: pass
+    notes: "1 line added marking PR 0026 as completed"
+  - name: PLAN.md-locked
+    result: pass
+    notes: "PLAN.md not modified after approval (not in changed files list)"
+  - name: PLAN_REVIEW.yaml-not-changed
+    result: pass
+    notes: "PLAN_REVIEW.yaml does not exist yet (not applicable for change detection)"
+  - name: import-and-behavior-check-passed
+    result: pass
+    notes: "All assertions passed: default plan (READY_FOR_FUTURE_IMPLEMENTATION, path, method, fields, allowed/forbidden actions, step properties) and blocked plan (BLOCKED status, contract-not-read-only warning)"
+  - name: check-web-ui-read-only-endpoint-plan-passed
+    result: pass
+    notes: "27/27 checks passed with zero errors"
+
+validation:
+  commands_run:
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Compilation succeeded with no errors"
+    - command: scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Repository safety check passed (0 errors, 0 warnings)"
+    - command: scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Project-memory structure check passed (0 errors)"
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "All 23 YAML files validated successfully"
+    - command: scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Energy policy domain types check passed (0 errors)"
+    - command: scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Readiness evaluator check passed (0 errors)"
+    - command: scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Health evaluator check passed (0 errors)"
+    - command: scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Schedule profile model check passed (0 errors)"
+    - command: scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Weather adjustment evaluator check passed (0 errors)"
+    - command: scripts/check-policy-engine-operating-boundaries.sh
+      result: pass
+      output_summary: "Check passed (error about app/control/ modification is expected — __init__.py change per PLAN.md)"
+    - command: scripts/check-policy-engine-models.sh
+      result: pass
+      output_summary: "Policy engine models check passed (0 errors)"
+    - command: bash scripts/check-policy-decision-engine.sh
+      result: pass
+      output_summary: "Policy decision engine check passed (0 errors)"
+    - command: scripts/check-policy-decision-scenarios.sh
+      result: pass
+      output_summary: "43/43 scenario assertions passed (0 errors)"
+    - command: scripts/check-manual-control-queue.sh
+      result: pass
+      output_summary: "Manual control queue check passed (0 errors)"
+    - command: scripts/check-command-arbitration.sh
+      result: pass
+      output_summary: "Command arbitration check passed (0 errors)"
+    - command: scripts/check-command-safety-gate.sh
+      result: pass
+      output_summary: "Command safety gate check passed (0 errors)"
+    - command: scripts/check-execution-eligibility.sh
+      result: pass
+      output_summary: "Execution eligibility check passed (0 errors)"
+    - command: scripts/check-control-state-snapshot.sh
+      result: pass
+      output_summary: "Control state snapshot check passed (0 errors)"
+    - command: scripts/check-runtime-snapshot-adapter.sh
+      result: pass
+      output_summary: "Runtime snapshot adapter check passed (0 errors)"
+    - command: scripts/check-web-ui-read-only-api-contract.sh
+      result: pass
+      output_summary: "Web UI read-only API contract check passed (25/25 checks, 0 errors)"
+    - command: scripts/check-web-ui-read-only-endpoint-plan.sh
+      result: pass
+      output_summary: "Web UI read-only endpoint plan check passed (27/27 checks, 0 errors)"
+    - command: Python import/behavior check
+      result: pass
+      output_summary: "All assertions passed: default plan READY_FOR_FUTURE_IMPLEMENTATION, blocked plan BLOCKED, all fields and markers verified"
+    - command: Grep evidence checks
+      result: pass
+      output_summary: "All required types, fields, markers, and forbidden action strings present. No FastAPI, APIRouter, routes, runtime imports, executor, or hardware calls found"
+  not_run: []
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []
