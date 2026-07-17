@@ -1,0 +1,183 @@
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: >-
+      Case-sensitive grep for "no API endpoints" (lowercase) returned no match.
+      PLAN.md uses "No API endpoints" (capitalized) in section 12 heading context
+      and "add API endpoints" in section 2. Content is present and correct; only
+      the exact literal case differs.
+    recommendation: >-
+      No change required. The plan explicitly defers API endpoints across
+      sections 2, 12, and 14. The warning is noted for future checklist
+      case-sensitivity awareness.
+checks:
+  - name: plan-file-exists
+    result: pass
+    notes: "PLAN.md exists at .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md"
+  - name: branch-is-correct
+    result: pass
+    notes: "Branch is 0023-runtime-read-only-control-state-snapshot"
+  - name: dirty-tree-in-scope
+    result: pass
+    notes: "Working tree shows only untracked .project-memory/pr/0023-runtime-read-only-control-state-snapshot/ — expected for uncommitted plan review"
+  - name: control_state_snapshot.py-defined
+    result: pass
+    notes: "PLAN.md section 9 lists app/control/control_state_snapshot.py as Create"
+  - name: CONTROL_STATE_SNAPSHOT.md-defined
+    result: pass
+    notes: "Section 5 defines architecture document at .project-memory/CONTROL_STATE_SNAPSHOT.md"
+  - name: ControlStateSnapshotStatus-defined
+    result: pass
+    notes: "Section 7 Type 1 defines ControlStateSnapshotStatus enum with OK, DEGRADED, BLOCKED, UNKNOWN"
+  - name: LoadControlSnapshot-defined
+    result: pass
+    notes: "Section 7 Type 2 defines LoadControlSnapshot dataclass"
+  - name: ControlPipelineSnapshot-defined
+    result: pass
+    notes: "Section 7 Type 3 defines ControlPipelineSnapshot with policy_decision, command_proposal, safety_gate_result, execution_eligibility, manual_queue_snapshot fields"
+  - name: ControlModeSnapshot-defined
+    result: pass
+    notes: "Section 7 Type 4 defines ControlModeSnapshot with execution_allowed_now and eligible_for_future_executor"
+  - name: ControlStateSnapshotInput-defined
+    result: pass
+    notes: "Section 7 Type 5 defines ControlStateSnapshotInput aggregating all pipeline inputs"
+  - name: ControlStateSnapshot-defined
+    result: pass
+    notes: "Section 7 Type 6 defines ControlStateSnapshot output type"
+  - name: build_control_state_snapshot-defined
+    result: pass
+    notes: "Section 8 defines the pure function with 8 behavioral rules"
+  - name: execution_allowed_now-present
+    result: pass
+    notes: "ControlModeSnapshot (section 7 Type 4) has execution_allowed_now field; always false"
+  - name: eligible_for_future_executor-present
+    result: pass
+    notes: "ControlModeSnapshot (section 7 Type 4) has eligible_for_future_executor field"
+  - name: no-input-behavior
+    result: pass
+    notes: "Section 8 rule 1: if snapshot_input is None → status=UNKNOWN, reason=no-input"
+  - name: missing-pipeline-warnings
+    result: pass
+    notes: "Section 8 rule 7 collects warnings for missing pipeline pieces; required warning strings include missing-policy-decision, missing-command-proposal, missing-safety-gate-result, missing-execution-eligibility"
+  - name: safety-gate-blocked-behavior
+    result: pass
+    notes: "Section 8 rule 6: safety gate BLOCKED → snapshot status BLOCKED"
+  - name: execution-eligibility-blocked-behavior
+    result: pass
+    notes: "Section 8 rule 6: eligibility BLOCKED → snapshot status BLOCKED"
+  - name: review-required-behavior
+    result: pass
+    notes: "Section 8 rule 6: safety gate or eligibility requires review → DEGRADED"
+  - name: read-only-no-execution-documentation
+    result: pass
+    notes: "Section 5 architecture doc requirements: 'Control state snapshot is read-only', 'does not execute commands'; required warning strings include read-only-snapshot, no-execution"
+  - name: future-web-ui-visibility-purpose
+    result: pass
+    notes: "Sections 2, 3, 5, and 8 explicitly state purpose is future web UI, observability, and debugging"
+  - name: no-executor
+    result: pass
+    notes: "PLAN.md sections 2, 16, and boundary confirmations explicitly forbid executor. Validation checks enforce no CommandExecutor, no execute function"
+  - name: no-runtime-wiring
+    result: pass
+    notes: "PLAN.md sections 2, 16: 'does NOT wire into runtime', 'No runtime wiring'"
+  - name: no-api-endpoints
+    result: pass
+    notes: "PLAN.md sections 2, 12, 14: 'No API endpoints' and 'Deferred'"
+  - name: no-hardware-execution
+    result: pass
+    notes: "PLAN.md section 2: does NOT call Tuya/hardware; section 16: 'Does not call any switch/device/Tuya method'"
+  - name: no-direct-device-reads
+    result: pass
+    notes: "PLAN.md section 16: 'No device reads: Does not read hardware directly'"
+  - name: no-recompute-policy-decisions
+    result: pass
+    notes: "PLAN.md section 5: 'It does not recompute policy decisions'; section 8: 'Package the provided pipeline objects (do NOT recompute)'"
+  - name: no-weather-fetch
+    result: pass
+    notes: "PLAN.md section 2: does NOT fetch weather; module dependencies exclude app.weather"
+  - name: no-ml-control
+    result: pass
+    notes: "PLAN.md sections 2, 14, 16: ML control deferred per ADR-0003"
+  - name: no-automation-execution
+    result: pass
+    notes: "PLAN.md section 16: pump automation disabled per PR 0008; no automation enabled"
+  - name: no-deployment-gitops-changes
+    result: pass
+    notes: "PLAN.md section 10 forbids build-and-deploy.yml edits; section 16: Docker/GitOps boundary respected"
+  - name: additive-validate-yml-step
+    result: pass
+    notes: "Section 11 GitHub Actions Integration: additive step after existing execution eligibility check"
+  - name: validation-script-defined
+    result: pass
+    notes: "Section 11 defines scripts/check-control-state-snapshot.sh with 21 checks"
+  - name: allowed-implementation-scope
+    result: pass
+    notes: "Section 9 lists 8 allowed files matching specification exactly"
+  - name: forbidden-implementation-scope
+    result: pass
+    notes: "Section 10 lists all frozen modules and forbidden files including execution_eligibility.py (PR 0022); no unauthorized files permitted"
+  - name: roadmap-alignment
+    result: pass
+    notes: "ROADMAP.md Phase 2b lists PR 0022 as last checked item. PR 0023 continues on same path building on PR 0022's execution_eligibility"
+  - name: current-state-update
+    result: pass
+    notes: "Section 12 specifies CURRENT_STATE.md update text for PR 0023"
+  - name: roadmap-update
+    result: pass
+    notes: "Section 13 specifies ROADMAP.md update marking PR 0023 as completed"
+  - name: plan-structure-is-markdown
+    result: pass
+    notes: "PLAN.md is valid Markdown with 16 numbered sections"
+validation:
+  commands_run:
+    - command: test -f .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "File exists"
+    - command: grep -q "control_state_snapshot.py" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "control_state_snapshot.py referenced in plan"
+    - command: grep -q "ControlStateSnapshotStatus" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "ControlStateSnapshotStatus defined"
+    - command: grep -q "LoadControlSnapshot" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "LoadControlSnapshot defined"
+    - command: grep -q "ControlPipelineSnapshot" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "ControlPipelineSnapshot defined"
+    - command: grep -q "ControlModeSnapshot" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "ControlModeSnapshot defined"
+    - command: grep -q "build_control_state_snapshot" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "build_control_state_snapshot function defined"
+    - command: grep -q "read-only" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "read-only boundary stated"
+    - command: grep -q "future web UI" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "future web UI visibility purpose stated"
+    - command: grep -q "No API endpoints" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "No API endpoints statement present (alternate casing)"
+    - command: grep -q "ML control" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "ML control mentioned as deferred"
+    - command: grep -q "does not recompute\|recompute.*policy" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "Policy decision recomputation explicitly forbidden"
+    - command: grep -q "CONTROL_STATE_SNAPSHOT.md" .project-memory/pr/0023-runtime-read-only-control-state-snapshot/PLAN.md
+      result: pass
+      output_summary: "CONTROL_STATE_SNAPSHOT.md architecture doc referenced"
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No staged or unstaged changes to tracked files — only untracked PR 0023 planning artifact"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "Case-sensitive 'no API endpoints' grep mismatch resolved (surface-level only; content correct)"
