@@ -202,6 +202,13 @@ PR 0024 adds a pure runtime read-only control snapshot adapter in
 into ControlStateSnapshot. No runtime wiring. No API endpoints. No device reads.
 No execution.
 
+## PR 0025 — Web UI Read-Only Control State API Contract
+PR 0025 defines the future web UI read-only API contract in
+`app/control/web_ui_read_contract.py` with 4 types (WebUiReadContractStatus,
+WebUiReadEndpointContract, WebUiControlStateResponse, WebUiReadContract)
+and the pure function `build_web_ui_control_state_response()`.
+No FastAPI routes. No write API. No runtime wiring. No execution.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)

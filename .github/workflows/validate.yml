@@ -101,3 +101,6 @@ jobs:
 
       - name: 🔍 Runtime snapshot adapter check
         run: bash scripts/check-runtime-snapshot-adapter.sh
+
+      - name: 🔍 Web UI read-only API contract check
+        run: bash scripts/check-web-ui-read-only-api-contract.sh
