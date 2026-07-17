@@ -1,0 +1,61 @@
+TASK COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED:
+- app/control/control_state_snapshot.py (created) — 326 lines, 5 types + 1 enum + 1 pure function
+- app/control/__init__.py (modified) — +17 lines, 7 new exports
+- .project-memory/CONTROL_STATE_SNAPSHOT.md (created) — 10-section architecture document
+- scripts/check-control-state-snapshot.sh (created) — 24 static validation checks
+- .github/workflows/validate.yml (modified) — +3 lines, adds Control state snapshot check
+- .project-memory/CURRENT_STATE.md (modified) — +9 lines, PR 0023 section
+- .project-memory/ROADMAP.md (modified) — +1 line, PR 0023 [x]
+- .project-memory/pr/0023-runtime-read-only-control-state-snapshot/CODER_REPORT.txt (created) — this report
+
+BEHAVIOR IMPLEMENTED:
+- ControlStateSnapshotStatus enum: OK, DEGRADED, BLOCKED, UNKNOWN
+- LoadControlSnapshot: frozen dataclass with load_id, display_name, configured_load_watts, currently_on, controllable, is_life_support, roles, status, notes
+- ControlPipelineSnapshot: frozen dataclass packaging policy_decision, command_proposal, safety_gate_result, execution_eligibility, manual_queue_snapshot
+- ControlModeSnapshot: frozen dataclass with autonomous_enabled, operator_overrides_enabled, controlled_execution_enabled, dry_run_only, execution_allowed_now, eligible_for_future_executor
+- ControlStateSnapshotInput: frozen dataclass aggregating all pipeline state for snapshot construction
+- ControlStateSnapshot: frozen dataclass with status, loads, pipeline, mode, energy_budget, battery_window, notes, warnings
+- build_control_state_snapshot(): pure read-only packaging function:
+  1. None input → UNKNOWN with no-input warning
+  2. Converts LoadCandidates to LoadControlSnapshots
+  3. Packages pipeline snapshot (no recomputation)
+  4. Copies execution_allowed_now/eligible_for_future_executor from eligibility
+  5. Determines status: BLOCKED (safety/eligibility blocked), DEGRADED (review/missing pieces), OK (all present and clear)
+  6. Always includes read-only-snapshot and no-execution in notes
+
+TESTS ADDED OR UPDATED:
+Import/behavior check confirms 3 scenarios: unknown (None input), OK (full pipeline), BLOCKED (safety gate blocked).
+
+VALIDATION RUN:
+| Command | Result |
+|---|---|
+| python3 -m compileall -q . | PASS |
+| scripts/check-control-state-snapshot.sh | PASS (24/24) |
+| Import/behavior check | PASS (all assertions pass) |
+| grep evidence (types, fields, warnings, forbidden) | PASS |
+
+DEVIATIONS FROM PLAN:
+None. All PLAN.md requirements met exactly.
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: ROADMAP.md modified only as explicitly allowed
+- confirm: only PLAN.md-approved implementation paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: no evaluator/arbitrator calls (verified by check [19])
+- confirm: no executor introduced
+- confirm: no hardware execution, API endpoints, runtime wiring
+- confirm: all frozen modules unchanged
+
+NEXT REQUIRED ACTION:
+Run precommit-review agent to produce PRECOMMIT_REVIEW.yaml.

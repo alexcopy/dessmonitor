@@ -95,3 +95,6 @@ jobs:
 
       - name: 🔍 Execution eligibility check
         run: bash scripts/check-execution-eligibility.sh
+
+      - name: 🔍 Control state snapshot check
+        run: bash scripts/check-control-state-snapshot.sh
