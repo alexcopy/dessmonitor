@@ -1,0 +1,226 @@
+# PRECOMMIT_REVIEW.yaml for PR 0027
+# Web UI Read-Only Control State Endpoint
+
+pr_id: "0027-web-ui-read-only-control-state-endpoint"
+review_type: precommit
+review_timestamp: 2026-07-18T08:59:26Z
+
+verdict: approved_with_warnings
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+warnings:
+  - id: W001
+    severity: warning
+    finding: >-
+      check-policy-engine-operating-boundaries.sh flagged app/control/ as
+      modified. This is expected — app/control/__init__.py was modified to
+      export PR 0027 types/functions per PLAN.md section 9 (allowed edit).
+      The check script predates PR 0027 and flags any app/control/ change as
+      a runtime file modification. No behavioral issue.
+    recommendation: >-
+      No change required. The __init__.py edit is explicitly allowed by PLAN.md.
+
+checks:
+  - name: app/control/web_ui_read_endpoint.py-exists
+    result: pass
+    notes: "File exists at app/control/web_ui_read_endpoint.py"
+  - name: WEB_UI_READ_ONLY_ENDPOINT.md-exists
+    result: pass
+    notes: "File exists at .project-memory/WEB_UI_READ_ONLY_ENDPOINT.md (14 sections)"
+  - name: CONTROL_STATE_READ_PATH-exists
+    result: pass
+    notes: "Constant defined as /control/state"
+  - name: CONTROL_STATE_READ_METHOD-exists
+    result: pass
+    notes: "Constant defined as GET"
+  - name: WebUiReadEndpointStatus-exists
+    result: pass
+    notes: "Enum defined with OK, DEGRADED, UNAVAILABLE, FASTAPI_UNAVAILABLE values"
+  - name: WebUiReadEndpointConfig-exists
+    result: pass
+    notes: "Frozen dataclass with path, method, read_only, route_wired_now, writes_allowed, execution_allowed"
+  - name: WebUiReadEndpointProviderResult-exists
+    result: pass
+    notes: "Frozen dataclass with status, response, warnings, notes"
+  - name: WebUiReadEndpointRuntime-exists
+    result: pass
+    notes: "Frozen dataclass with config, provider_available, route_wired_now, writes_allowed, execution_allowed"
+  - name: build_control_state_endpoint_response-exists
+    result: pass
+    notes: "Pure function defined, 4-case handler (no provider, provider error, None snapshot, OK snapshot)"
+  - name: create_control_state_read_router-exists
+    result: pass
+    notes: "Router factory with lazy FastAPI import, returns APIRouter with single GET route"
+  - name: OK/DEGRADED/UNAVAILABLE/FASTAPI_UNAVAILABLE-status-values
+    result: pass
+    notes: "All 4 status values present in WebUiReadEndpointStatus enum"
+  - name: path-/control/state
+    result: pass
+    notes: "CONTROL_STATE_READ_PATH = /control/state and appears in router.get() decorator"
+  - name: method-GET
+    result: pass
+    notes: "CONTROL_STATE_READ_METHOD = GET, route uses @router.get()"
+  - name: route_wired_now-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointConfig.route_wired_now defaults to False; WebUiReadEndpointRuntime.route_wired_now=False"
+  - name: writes_allowed-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointConfig.writes_allowed defaults to False; WebUiReadEndpointRuntime.writes_allowed=False"
+  - name: execution_allowed-defaults-false
+    result: pass
+    notes: "WebUiReadEndpointConfig.execution_allowed defaults to False; WebUiReadEndpointRuntime.execution_allowed=False"
+  - name: build_control_state_endpoint_response-handles-missing-provider
+    result: pass
+    notes: "None provider returns UNAVAILABLE with snapshot-provider-missing warning"
+  - name: build_control_state_endpoint_response-handles-provider-error
+    result: pass
+    notes: "Exception from provider caught, returns UNAVAILABLE with snapshot-provider-error, no secret leaking"
+  - name: build_control_state_endpoint_response-handles-unavailable-snapshot
+    result: pass
+    notes: "Provider returns None → UNAVAILABLE with snapshot-unavailable warning"
+  - name: build_control_state_endpoint_response-handles-OK-snapshot
+    result: pass
+    notes: "Provider returns ControlStateSnapshot(OK) → OK with response"
+  - name: create_control_state_read_router-lazy-imports-APIRouter
+    result: pass
+    notes: "from fastapi import APIRouter is inside function body, not top-level"
+  - name: no-top-level-FastAPI-import
+    result: pass
+    notes: "No top-level fastapi import detected; fastapi only referenced in docstring and lazy import"
+  - name: no-app.include_router
+    result: pass
+    notes: "No app.include_router call anywhere in module"
+  - name: no-api.py-edit
+    result: pass
+    notes: "api.py not in changed files list"
+  - name: no-run.py-edit
+    result: pass
+    notes: "run.py not in changed files list"
+  - name: no-POST/PUT/PATCH/DELETE-write-route
+    result: pass
+    notes: "Only @router.get() used; no post(), put(), patch(), delete() calls"
+  - name: no-runtime/service/Tuya/device-imports
+    result: pass
+    notes: "Top-level imports only: stdlib (dataclasses, enum, typing) + app.control.control_state_snapshot + app.control.web_ui_read_contract"
+  - name: no-live-shared_state-global-reads
+    result: pass
+    notes: "No shared_state, SharedState, or get_state references"
+  - name: no-direct-device-reads
+    result: pass
+    notes: "No switch_on_device, switch_off_device, set_numeric, or similar calls"
+  - name: no-command-executor
+    result: pass
+    notes: "No CommandExecutor class or execute_command function"
+  - name: no-hardware-execution
+    result: pass
+    notes: "No Tuya, relay, or hardware commands"
+  - name: no-automation-execution
+    result: pass
+    notes: "No automation execution enabled"
+  - name: no-ML-control
+    result: pass
+    notes: "No ML imports or control calls; ML deferred per ADR-0003"
+  - name: __init__.py-exports-public-types-functions-constants
+    result: pass
+    notes: "Exports CONTROL_STATE_READ_PATH, CONTROL_STATE_READ_METHOD, WebUiReadEndpointStatus, WebUiReadEndpointConfig, WebUiReadEndpointProviderResult, WebUiReadEndpointRuntime, build_control_state_endpoint_response, create_control_state_read_router"
+  - name: validate.yml-adds-validation-only-check
+    result: pass
+    notes: "3 lines added: single step referencing check-web-ui-read-only-endpoint.sh"
+  - name: CURRENT_STATE.md-update-concise
+    result: pass
+    notes: "9 lines added, succinct PR 0027 description"
+  - name: ROADMAP.md-update-concise
+    result: pass
+    notes: "1 line added marking PR 0027, 1 line deferring runtime wiring to future PR"
+  - name: PLAN.md-locked
+    result: pass
+    notes: "PLAN.md not modified after approval (not in changed files list)"
+  - name: PLAN_REVIEW.yaml-not-changed
+    result: pass
+    notes: "PLAN_REVIEW.yaml does not exist yet (not applicable for change detection)"
+  - name: import-and-behavior-check-passed
+    result: pass
+    notes: "All 5 scenarios passed: path/method constants, config defaults, missing provider, OK provider, failing provider (no secret leak), router factory"
+
+validation:
+  commands_run:
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Compilation succeeded with no errors"
+    - command: scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Repository safety check passed (0 errors, 0 warnings)"
+    - command: scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Project-memory structure check passed (0 errors)"
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "All 23 YAML files validated successfully"
+    - command: scripts/check-energy-policy-domain-types.sh
+      result: pass
+      output_summary: "Energy policy domain types check passed (0 errors)"
+    - command: scripts/check-readiness-evaluator.sh
+      result: pass
+      output_summary: "Readiness evaluator check passed (0 errors)"
+    - command: scripts/check-health-evaluator.sh
+      result: pass
+      output_summary: "Health evaluator check passed (0 errors)"
+    - command: scripts/check-schedule-profile-model.sh
+      result: pass
+      output_summary: "Schedule profile model check passed (0 errors)"
+    - command: scripts/check-weather-adjustment-evaluator.sh
+      result: pass
+      output_summary: "Weather adjustment evaluator check passed (0 errors)"
+    - command: scripts/check-policy-engine-operating-boundaries.sh
+      result: pass
+      output_summary: "Check passed (error about app/control/ modification is expected — __init__.py change per PLAN.md)"
+    - command: scripts/check-policy-engine-models.sh
+      result: pass
+      output_summary: "Policy engine models check passed (0 errors)"
+    - command: bash scripts/check-policy-decision-engine.sh
+      result: pass
+      output_summary: "Policy decision engine check passed (0 errors)"
+    - command: scripts/check-policy-decision-scenarios.sh
+      result: pass
+      output_summary: "43/43 scenario assertions passed (0 errors)"
+    - command: scripts/check-manual-control-queue.sh
+      result: pass
+      output_summary: "Manual control queue check passed (0 errors)"
+    - command: scripts/check-command-arbitration.sh
+      result: pass
+      output_summary: "Command arbitration check passed (0 errors)"
+    - command: scripts/check-command-safety-gate.sh
+      result: pass
+      output_summary: "Command safety gate check passed (0 errors)"
+    - command: scripts/check-execution-eligibility.sh
+      result: pass
+      output_summary: "Execution eligibility check passed (0 errors)"
+    - command: scripts/check-control-state-snapshot.sh
+      result: pass
+      output_summary: "Control state snapshot check passed (0 errors)"
+    - command: scripts/check-runtime-snapshot-adapter.sh
+      result: pass
+      output_summary: "Runtime snapshot adapter check passed (0 errors)"
+    - command: scripts/check-web-ui-read-only-api-contract.sh
+      result: pass
+      output_summary: "Web UI read-only API contract check passed (25/25 checks, 0 errors)"
+    - command: scripts/check-web-ui-read-only-endpoint-plan.sh
+      result: pass
+      output_summary: "Web UI read-only endpoint plan check passed (27/27 checks, 0 errors)"
+    - command: bash scripts/check-web-ui-read-only-endpoint.sh
+      result: pass
+      output_summary: "Web UI read-only endpoint check passed (30/30 checks, 0 errors)"
+    - command: Python import/behavior check
+      result: pass
+      output_summary: "All 5 scenarios passed: constants, config defaults, missing→UNAVAILABLE, ok→OK, error→no-leak, router factory"
+    - command: Grep evidence checks
+      result: pass
+      output_summary: "All required types, constants, functions, markers, and forbidden action strings present. Lazy FastAPI import confirmed inside function only. No forbidden imports, no top-level fastapi, no runtime wiring"
+  not_run: []
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

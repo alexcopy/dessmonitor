@@ -1,0 +1,96 @@
+TASK COMPLETE
+=============
+YES
+
+BLOCKERS
+========
+None.
+
+WARNINGS
+========
+1. check-policy-engine-operating-boundaries.sh flags app/control/ as modified
+   (pre-existing check predates control-layer refactor; app/control/ is an
+   allowed modification scope per PLAN.md Section 9).
+
+2. scripts/check-web-ui-read-only-endpoint.sh is not executable on disk
+   (bash scripts/... invocation works; validate.yml uses bash prefix).
+
+FILES CHANGED
+=============
+
+Modified (tracked):
+  .github/workflows/validate.yml        — added validation step for PR 0027
+  .project-memory/CURRENT_STATE.md      — added PR 0027 status entry
+  .project-memory/ROADMAP.md            — marked PR 0027 active/complete
+  app/control/__init__.py               — added PR 0027 exports
+
+New (untracked):
+  app/control/web_ui_read_endpoint.py   — main endpoint module
+  scripts/check-web-ui-read-only-endpoint.sh — 30-check validation script
+  .project-memory/WEB_UI_READ_ONLY_ENDPOINT.md — architecture documentation
+
+VALIDATION RUN
+==============
+
+Compile:
+  python3 -m compileall -q . — passed (exit 0)
+
+Static checks (all passed):
+  bash scripts/check-repo-safety.sh — PASS
+  bash scripts/check-project-memory.sh — PASS
+  python3 scripts/validate-yaml.py — PASS (23 YAML files)
+  bash scripts/check-energy-policy-domain-types.sh — PASS
+  bash scripts/check-readiness-evaluator.sh — PASS
+  bash scripts/check-health-evaluator.sh — PASS
+  bash scripts/check-schedule-profile-model.sh — PASS
+  bash scripts/check-weather-adjustment-evaluator.sh — PASS
+  bash scripts/check-policy-engine-operating-boundaries.sh — FAIL (expected: app/control/ modified)
+  bash scripts/check-policy-engine-models.sh — PASS
+  bash scripts/check-policy-decision-engine.sh — PASS
+  bash scripts/check-policy-decision-scenarios.sh — PASS (43 passed)
+  bash scripts/check-manual-control-queue.sh — PASS
+  bash scripts/check-command-arbitration.sh — PASS
+  bash scripts/check-command-safety-gate.sh — PASS
+  bash scripts/check-execution-eligibility.sh — PASS
+  bash scripts/check-control-state-snapshot.sh — PASS
+  bash scripts/check-runtime-snapshot-adapter.sh — PASS
+  bash scripts/check-web-ui-read-only-api-contract.sh — PASS
+  bash scripts/check-web-ui-read-only-endpoint-plan.sh — PASS
+  bash scripts/check-web-ui-read-only-endpoint.sh — PASS (30/30)
+
+Python import/behavior test:
+  python3 - <<'PY' — PASS
+  web UI read-only endpoint import and behavior ok
+
+Grep evidence (all confirmed present):
+  - All public types, constants, functions in module + __init__.py + check script
+  - All required note strings
+  - All forbidden action strings
+  - No forbidden imports/content in module (only docstring refs + lazy import)
+
+DEVIATIONS FROM PLAN
+====================
+None. Implementation follows PLAN.md Section 6 (types), Section 7 (functions),
+Section 8 (note/warning strings), Section 9 (allowed files), Section 11 (CURRENT_STATE),
+Section 12 (ROADMAP), and Section 13 (validation script).
+
+Validation script required minor compatibility fixes (macOS head -n -1 replaced
+with awk; enum value check adjusted from quoted-string to member-name pattern).
+
+BOUNDARY CONFIRMATIONS
+======================
+- confirm: implementation followed approved PLAN.md — YES
+- confirm: no review artifact written — YES
+- confirm: PLAN.md not modified — YES
+- confirm: plan-review artifact not modified — YES
+- confirm: ROADMAP.md modified only per PLAN.md allowance — YES
+- confirm: post-0100 strategic direction files not modified — YES
+- confirm: only PLAN.md-approved implementation/test paths changed — YES
+- confirm: validation commands run and recorded — YES
+- confirm: no git mutation commands run — YES
+- confirm: no Docker commands run — YES
+
+NEXT REQUIRED ACTION
+====================
+Reviewer: execute precommit-review for PR 0027.
+Future PR: wire the read-only endpoint router into runtime (separate safety-reviewed PR).

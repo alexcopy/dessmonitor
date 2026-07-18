@@ -219,6 +219,15 @@ WebUiReadEndpointPlan) and the pure function
 endpoint boundaries and implementation steps. No real API endpoint added.
 No FastAPI routes. No runtime wiring. No execution.
 
+## PR 0027 — Web UI Read-Only Control State Endpoint
+PR 0027 adds an isolated read-only endpoint module in
+`app/control/web_ui_read_endpoint.py` with 4 types, 2 constants,
+2 functions (build_control_state_endpoint_response without FastAPI,
+create_control_state_read_router with lazy FastAPI import), and
+architecture document. Endpoint is NOT wired into runtime. No api.py
+or run.py changes. No write API. No execution. No direct shared_state
+or device reads. No automation execution. No ML control.
+
 ## Known Follow-Up Risks
 1. **Mutable `:latest` tag** in ArgoCD manifest — production risk (PR 0003)
 2. **Manifest sprawl** in `app/docker/` — multiple locations for K8s manifests (PR 0003)
