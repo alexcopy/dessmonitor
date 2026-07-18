@@ -49,7 +49,8 @@
 - [x] PR 0024 — Runtime read-only control snapshot adapter
 - [x] PR 0025 — Web UI read-only control state API contract
 - [x] PR 0026 — Web UI read-only control state endpoint implementation plan
-- [ ] Later — ML advisory
+- [x] PR 0027 — Web UI read-only control state endpoint
+- [ ] Later — runtime wiring for read-only endpoint (separate safety-reviewed PR)
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 
 **PR 0017 note:** Pure weather adjustment evaluator follows schedule profile model (PR 0016). Future PRs will add deterministic policy decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
