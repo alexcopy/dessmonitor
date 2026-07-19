@@ -1,0 +1,67 @@
+IMPLEMENTATION COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED
+- app/web_host.py (created)
+- .project-memory/WEB_HOST_BOOTSTRAP.md (created)
+- scripts/check-web-host-bootstrap.sh (created)
+- .github/workflows/validate.yml (edited — added web host bootstrap check step)
+- .project-memory/CURRENT_STATE.md (edited — added PR 0028b section)
+- .project-memory/ROADMAP.md (edited — marked PR 0028b active/complete, added PR 0029)
+
+VALIDATION RUN
+1. python3 -m compileall -q . → exit 0
+2. bash scripts/check-repo-safety.sh → exit 0 (all checks pass)
+3. bash scripts/check-project-memory.sh → exit 0 (all checks pass)
+4. python3 scripts/validate-yaml.py → exit 0 (23 YAML files validated)
+5. bash scripts/check-web-ui-read-only-endpoint.sh → exit 0 (30/30 checks pass)
+6. bash scripts/check-web-host-bootstrap.sh → exit 0 (21/21 checks pass)
+7. python3 import check → "web host bootstrap import and behavior ok"
+8. grep evidence → all required strings present; no forbidden imports/calls in app/web_host.py
+
+DEVIATIONS FROM PLAN
+None. Implementation follows PLAN.md exactly.
+
+BOUNDARY CONFIRMATIONS
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: ROADMAP.md modified only as explicitly allowed by PLAN.md (Sections 9-10)
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation/test paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: run.py not modified
+- confirm: api.py not modified (file does not exist)
+- confirm: app/control/web_ui_read_endpoint.py not modified
+- confirm: app/control/web_ui_read_contract.py not modified
+- confirm: app/service/** not modified
+- confirm: app/devices/** not modified
+- confirm: app/tuya/** not modified
+- confirm: app/monitoring/** not modified
+- confirm: app/ml/** not modified
+- confirm: app/weather/** not modified
+- confirm: no write API added (no POST/PUT/PATCH/DELETE)
+- confirm: no command executor added
+- confirm: no hardware execution added
+- confirm: no shared_state reads
+- confirm: no direct device reads
+- confirm: no Tuya/hardware calls
+- confirm: no ML control
+- confirm: no uvicorn.run or server start code
+- confirm: no build_runtime_control_snapshot or build_control_state_snapshot calls
+- confirm: WEB_HOST_READ_ONLY_MODE = True
+- confirm: placeholder provider returns None
+- confirm: GET /control/state returns UNAVAILABLE via placeholder provider
+- confirm: real runtime snapshot provider deferred to PR 0029
+- confirm: operator writes must go through control-layer intent/queue
+- confirm: hardware execution behind later safety-reviewed PR
+- confirm: ML control deferred per ADR-0003
+
+NEXT REQUIRED ACTION
+PR 0029 — Runtime read-only snapshot provider (real provider replacing placeholder)

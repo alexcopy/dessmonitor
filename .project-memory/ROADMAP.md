@@ -50,6 +50,8 @@
 - [x] PR 0025 — Web UI read-only control state API contract
 - [x] PR 0026 — Web UI read-only control state endpoint implementation plan
 - [x] PR 0027 — Web UI read-only control state endpoint
+- [x] PR 0028b — Minimal read-only FastAPI web host bootstrap
+- [ ] PR 0029 — Runtime read-only snapshot provider
 - [ ] Later — runtime wiring for read-only endpoint (separate safety-reviewed PR)
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 

@@ -1,0 +1,126 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: branch-matches-pr
+    result: pass
+    notes: "Branch is 0028b-bootstrap-read-only-web-host, matches PR identifier."
+  - name: working-tree-clean-for-pr
+    result: pass
+    notes: "Only untracked PR 0028b planning artifacts present. No dirty tracked files, no deletions from other PRs."
+  - name: plan-file-exists
+    result: pass
+    notes: ".project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md exists and was read."
+  - name: module-app-web-host-py
+    result: pass
+    notes: "PLAN.md defines app/web_host.py as the new module."
+  - name: create-app-defined
+    result: pass
+    notes: "PLAN.md defines create_app() returning FastAPI instance."
+  - name: placeholder-provider-defined
+    result: pass
+    notes: "PLAN.md defines create_placeholder_control_state_snapshot_provider() returning lambda: None."
+  - name: WEB_HOST_READ_ONLY_MODE-true
+    result: pass
+    notes: "PLAN.md defines WEB_HOST_READ_ONLY_MODE = True as module-level constant."
+  - name: create-control-state-read-router-included
+    result: pass
+    notes: "PLAN.md includes create_control_state_read_router via app.control.web_ui_read_endpoint."
+  - name: returns-unavailable
+    result: pass
+    notes: "PLAN.md confirms endpoint returns UNAVAILABLE because placeholder provider returns None."
+  - name: no-runtime-wiring
+    result: pass
+    notes: "PLAN.md explicitly forbids run.py and app/api.py edits (Section 4.12, Section 7)."
+  - name: no-server-start
+    result: pass
+    notes: "PLAN.md forbids uvicorn.run() and any server start code (Section 4.13)."
+  - name: no-write-api
+    result: pass
+    notes: "PLAN.md forbids POST/PUT/PATCH/DELETE routes (Section 4.7)."
+  - name: no-Docker-deployment-changes
+    result: pass
+    notes: "PLAN.md forbids Docker/deployment changes (Section 4.14, Section 7 forbidden files)."
+  - name: no-shared-state-read
+    result: pass
+    notes: "PLAN.md forbids shared_state imports or reads (Section 4.8)."
+  - name: no-direct-device-read
+    result: pass
+    notes: "PLAN.md forbids direct device reads (Section 4.9)."
+  - name: no-tuya-hardware-call
+    result: pass
+    notes: "PLAN.md forbids Tuya/hardware calls (Section 4.10)."
+  - name: no-command-execution
+    result: pass
+    notes: "PLAN.md forbids command execution (Section 4.11)."
+  - name: real-provider-deferred
+    result: pass
+    notes: "PLAN.md defers real runtime snapshot provider to PR 0029 (Section 4.15, Section 2)."
+  - name: no-ML-control
+    result: pass
+    notes: "PLAN.md defers ML control per ADR-0003 (Section 13 boundary confirmations)."
+  - name: documentation-planned
+    result: pass
+    notes: "PLAN.md plans WEB_HOST_BOOTSTRAP.md with 15 architecture principles (Section 5)."
+  - name: validation-script-planned
+    result: pass
+    notes: "PLAN.md plans scripts/check-web-host-bootstrap.sh with 20 checks (Section 8)."
+  - name: additive-validate-yml-step-planned
+    result: pass
+    notes: "PLAN.md plans one new step in .github/workflows/validate.yml (Section 8)."
+  - name: CURRENT_STATE-ROADMAP-update-planned
+    result: pass
+    notes: "PLAN.md plans edits to .project-memory/CURRENT_STATE.md and .project-memory/ROADMAP.md (Sections 9-10)."
+  - name: forbidden-dependencies-not-imported
+    result: pass
+    notes: "PLAN.md explicitly forbids importing app.service, app.devices, app.tuya, app.monitoring, app.ml, app.weather, shared_state, smart_home_controller, relay_tuya_controller (Section 4 Dependencies)."
+  - name: forbidden-functions-not-called
+    result: pass
+    notes: "PLAN.md explicitly forbids calling build_runtime_control_snapshot and build_control_state_snapshot (Section 4 Dependencies)."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "10518d5d8bf3f79acd2941ef9ac52dbda4318a33"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0028b-bootstrap-read-only-web-host (matches PR)"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0028b-bootstrap-read-only-web-host/ (only PR 0028b planning artifacts)"
+    - command: git diff HEAD --name-only
+      result: pass
+      output_summary: "No dirty tracked files — working tree is clean of runtime changes."
+    - command: test -f .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q "app/web_host.py" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "app/web_host.py defined"
+    - command: grep -q "create_app" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "create_app defined"
+    - command: grep -q "placeholder-provider" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "placeholder-provider defined"
+    - command: grep -q "returns-unavailable" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "returns-unavailable defined"
+    - command: grep -q "no-runtime-wiring" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "no-runtime-wiring defined"
+    - command: grep -q "real-provider-deferred" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "real-provider-deferred defined"
+    - command: grep -q "WEB_HOST_BOOTSTRAP.md" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "WEB_HOST_BOOTSTRAP.md planned"
+    - command: grep -q "ML control" .project-memory/pr/0028b-bootstrap-read-only-web-host/PLAN.md
+      result: pass
+      output_summary: "ML control referenced (deferred per ADR-0003)"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder: []
