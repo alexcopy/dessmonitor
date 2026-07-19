@@ -110,3 +110,6 @@ jobs:
 
       - name: 🔍 Web UI read-only endpoint check
         run: bash scripts/check-web-ui-read-only-endpoint.sh
+
+      - name: 🔍 Web host bootstrap check
+        run: bash scripts/check-web-host-bootstrap.sh

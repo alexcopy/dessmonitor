@@ -1,0 +1,144 @@
+# PRECOMMIT_REVIEW.yaml for PR 0028b
+# Minimal Read-Only FastAPI Web Host Bootstrap
+
+pr_id: "0028b-bootstrap-read-only-web-host"
+review_type: precommit
+review_timestamp: 2026-07-19T22:35:12Z
+
+verdict: approved
+head_verified: true
+branch_confirmed: true
+
+blockers: []
+warnings: []
+
+checks:
+  - name: app/web_host.py-exists
+    result: pass
+    notes: "File exists at app/web_host.py"
+  - name: WEB_HOST_READ_ONLY_MODE-exists-and-true
+    result: pass
+    notes: "WEB_HOST_READ_ONLY_MODE = True"
+  - name: create_app-exists
+    result: pass
+    notes: "def create_app() with lazy FastAPI import, creates FastAPI app with include_router"
+  - name: create_placeholder_control_state_snapshot_provider-exists
+    result: pass
+    notes: "def create_placeholder_control_state_snapshot_provider() returns lambda: None"
+  - name: create_control_state_read_router-imported
+    result: pass
+    notes: "Imported inside create_app() from app.control.web_ui_read_endpoint"
+  - name: include_router-usage-exists
+    result: pass
+    notes: "app.include_router(router) in create_app()"
+  - name: placeholder-provider-returns-None
+    result: pass
+    notes: "create_placeholder_control_state_snapshot_provider returns lambda: None"
+  - name: no-uvicorn.run
+    result: pass
+    notes: "No uvicorn.run call; only docstring reference as forbidden pattern"
+  - name: no-server-start-code
+    result: pass
+    notes: "No serve() or run() calls; create_app returns FastAPI app without starting it"
+  - name: no-run.py-edit
+    result: pass
+    notes: "run.py not in git diff --name-only HEAD"
+  - name: no-api.py-edit
+    result: pass
+    notes: "api.py not in git diff --name-only HEAD"
+  - name: no-Docker/deploy-edit
+    result: pass
+    notes: "No Docker or deploy files in changed files list"
+  - name: no-write-API
+    result: pass
+    notes: "write-api in forbidden actions; no POST/PUT/PATCH/DELETE routes"
+  - name: no-POST/PUT/PATCH/DELETE-route
+    result: pass
+    notes: "Only @router.get() from create_control_state_read_router"
+  - name: no-shared_state-read
+    result: pass
+    notes: "shared_state not referenced in app/web_host.py (only in docstring context)"
+  - name: no-direct-device-read
+    result: pass
+    notes: "No device read calls; no switch_on_device/switch_off_device/set_numeric"
+  - name: no-app.service-devices-tuya-import
+    result: pass
+    notes: "Top-level imports: only stdlib (typing); no app.service/app.devices/app.tuya"
+  - name: no-Tuya/hardware-call
+    result: pass
+    notes: "No Tuya or hardware calls"
+  - name: no-command-execution
+    result: pass
+    notes: "No executor or command execution"
+  - name: no-build_runtime_control_snapshot-call
+    result: pass
+    notes: "Only docstring reference as forbidden pattern; no actual call"
+  - name: no-build_control_state_snapshot-call
+    result: pass
+    notes: "Only docstring reference as forbidden pattern; no actual call"
+  - name: real-provider-deferred-to-PR-0029
+    result: pass
+    notes: "real-provider-deferred marker in module docstring and app description"
+  - name: WEB_HOST_BOOTSTRAP.md-exists
+    result: pass
+    notes: "File exists at .project-memory/WEB_HOST_BOOTSTRAP.md"
+  - name: check-web-host-bootstrap.sh-exists
+    result: pass
+    notes: "Script exists at scripts/check-web-host-bootstrap.sh"
+  - name: validate.yml-adds-validation-only-step
+    result: pass
+    notes: "3 lines added: single step referencing check-web-host-bootstrap.sh"
+  - name: CURRENT_STATE.md-update-concise
+    result: pass
+    notes: "9 lines added, succinct PR 0028b description"
+  - name: ROADMAP.md-update-concise
+    result: pass
+    notes: "2 lines added: PR 0028b [x] and PR 0029 placeholder"
+  - name: PLAN.md-locked
+    result: pass
+    notes: "PLAN.md not in changed files list"
+  - name: PLAN_REVIEW.yaml-locked
+    result: pass
+    notes: "PLAN_REVIEW.yaml not in changed files list"
+  - name: import-and-behavior-check-passed
+    result: pass
+    notes: "WEB_HOST_READ_ONLY_MODE is True, provider() returns None, create_app OK"
+  - name: check-web-host-bootstrap-passed
+    result: pass
+    notes: "21/21 checks passed with zero errors"
+  - name: check-web-ui-read-only-endpoint-passed
+    result: pass
+    notes: "30/30 checks passed on existing endpoint module"
+
+validation:
+  commands_run:
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "Compilation succeeded with no errors"
+    - command: scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "Repository safety check passed (0 errors, 0 warnings)"
+    - command: scripts/check-project-memory.sh
+      result: pass
+      output_summary: "Project-memory structure check passed (0 errors)"
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "All 23 YAML files validated successfully"
+    - command: bash scripts/check-web-ui-read-only-endpoint.sh
+      result: pass
+      output_summary: "Web UI read-only endpoint check passed (30/30 checks, 0 errors)"
+    - command: bash scripts/check-web-host-bootstrap.sh
+      result: pass
+      output_summary: "Web host bootstrap check passed (21/21 checks, 0 errors)"
+    - command: Python import/behavior check
+      result: pass
+      output_summary: "WEB_HOST_READ_ONLY_MODE=True, provider() returns None, create_app() succeeds (with lazy FastAPI import)"
+    - command: Grep evidence checks
+      result: pass
+      output_summary: "All required symbols, markers, and forbidden action strings present. No uvicorn.run, POST/PUT/PATCH/DELETE, shared_state, runtime imports, or snapshot builder calls found"
+  not_run: []
+
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

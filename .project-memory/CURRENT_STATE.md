@@ -219,6 +219,15 @@ WebUiReadEndpointPlan) and the pure function
 endpoint boundaries and implementation steps. No real API endpoint added.
 No FastAPI routes. No runtime wiring. No execution.
 
+## PR 0028b — Minimal Read-Only FastAPI Web Host Bootstrap
+PR 0028b adds a minimal isolated FastAPI web host module in
+`app/web_host.py` with `create_app()`, `create_placeholder_control_state_snapshot_provider()`,
+and `WEB_HOST_READ_ONLY_MODE`. The host includes the existing read-only
+GET /control/state endpoint with a placeholder provider that returns None
+(UNAVAILABLE response). The host is not wired into run.py. No server start.
+No write API. No execution. No shared_state or device reads. No hardware/Tuya.
+No ML control. Real runtime snapshot provider deferred to PR 0029.
+
 ## PR 0027 — Web UI Read-Only Control State Endpoint
 PR 0027 adds an isolated read-only endpoint module in
 `app/control/web_ui_read_endpoint.py` with 4 types, 2 constants,
