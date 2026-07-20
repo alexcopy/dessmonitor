@@ -1,0 +1,67 @@
+IMPLEMENTATION COMPLETE: yes
+
+HEAD: 4044182390aa0b4b229d7f669044e4394995d471
+BRANCH: 0030-runtime-read-only-web-host-startup
+
+FILES CHANGED (3 modified, 4 created):
+  Modified:
+    - .github/workflows/validate.yml (added check-web-host-startup.sh step)
+    - .project-memory/CURRENT_STATE.md (PR 0030 entry)
+    - .project-memory/ROADMAP.md (PR 0030 marked done)
+  Created:
+    - app/web_host_startup.py
+    - .project-memory/WEB_HOST_STARTUP.md
+    - scripts/check-web-host-startup.sh
+    - .project-memory/pr/0030-runtime-read-only-web-host-startup/CODER_REPORT.txt
+
+BEHAVIOR IMPLEMENTED:
+  - WEB_HOST_STARTUP_READ_ONLY_MODE = True
+  - DEFAULT_WEB_HOST = "0.0.0.0"
+  - DEFAULT_WEB_PORT = 8000
+  - create_startup_app(runtime_state_provider=None) delegates to app.web_host.create_app()
+  - run_read_only_web_host(host, port, runtime_state_provider) lazily imports uvicorn;
+    raises RuntimeError("uvicorn-unavailable") on import failure;
+    creates app and calls uvicorn.run(app, host=host, port=port)
+  - __main__ block calls run_read_only_web_host()
+  - 11 required markers present in module docstring
+  - No run.py/api.py modifications
+  - No Docker/deployment modifications
+  - No write routes (no POST/PUT/PATCH/DELETE)
+  - No hardware calls, no shared_state, no forbidden imports
+
+TESTS ADDED OR UPDATED:
+  - scripts/check-web-host-startup.sh: 20 checks (module, constants, functions,
+    lazy import, uvicorn-unavailable, __main__, no run.py/api.py edits,
+    no Docker/deploy edits, no write routes, no shared_state, no forbidden imports,
+    no hardware strings, doc exists, markers present)
+  - Behavior check via inline Python snippet
+
+VALIDATION RUN:
+  1. python3 -m compileall -q .           -> exit 0
+  2. scripts/check-repo-safety.sh          -> exit 0, PASS
+  3. scripts/check-project-memory.sh       -> exit 0, PASS
+  4. python3 scripts/validate-yaml.py      -> exit 0, 23 YAML files valid
+  5. scripts/check-web-host-bootstrap.sh   -> exit 0, PASS (21 checks)
+  6. scripts/check-web-control-state-provider.sh -> exit 0, PASS (28 checks)
+  7. scripts/check-web-host-startup.sh     -> exit 0, PASS (20 checks)
+  8. Python behavior snippet               -> "web host startup import and behavior ok"
+
+VALIDATION RESULTS: All 8 validation steps passed.
+
+DEVIATIONS FROM PLAN: None.
+
+BLOCKERS: None.
+
+WARNINGS: None.
+
+BOUNDARY CONFIRMATIONS:
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: ROADMAP.md modified only as explicitly allowed by PLAN.md
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation/test paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run

@@ -236,6 +236,13 @@ GET /control/state endpoint with a placeholder provider that returns None
 No write API. No execution. No shared_state or device reads. No hardware/Tuya.
 No ML control. Real runtime snapshot provider deferred to PR 0029.
 
+## PR 0030 — Runtime Read-Only Web Host Startup
+PR 0030 adds a standalone read-only web host startup module in
+`app/web_host_startup.py` with `create_startup_app()`,
+`run_read_only_web_host()`, and a `python -m` entry point.
+The startup module is manual/diagnostic only. No run.py/api.py wiring.
+No Docker/deployment changes. No write API. No execution.
+
 ## PR 0027 — Web UI Read-Only Control State Endpoint
 PR 0027 adds an isolated read-only endpoint module in
 `app/control/web_ui_read_endpoint.py` with 4 types, 2 constants,
