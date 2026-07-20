@@ -7,110 +7,113 @@ checks:
   - name: branch-matches-pr
     result: pass
     notes: "Branch is 0030-runtime-read-only-web-host-startup, matches PR identifier."
-  - name: working-tree-clean
+  - name: working-tree-only-plan-md
     result: pass
-    notes: "Only PLAN.md modified (expected for uncommitted plan). No unrelated files modified."
+    notes: "Only .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md is modified. No unrelated files modified."
   - name: plan-file-exists
     result: pass
-    notes: ".project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md exists, is modified (uncommitted), and was read."
+    notes: "PLAN.md exists and was read."
   - name: module-web-host-startup-py
     result: pass
-    notes: "PLAN.md creates app/web_host_startup.py as the new startup module."
+    notes: "PLAN.md Section 5 creates app/web_host_startup.py. File already exists from coder phase."
+  - name: WEB_HOST_STARTUP_READ_ONLY_MODE
+    result: pass
+    notes: "PLAN.md Section 6: WEB_HOST_STARTUP_READ_ONLY_MODE = True defined."
+  - name: DEFAULT_WEB_HOST
+    result: pass
+    notes: "PLAN.md Section 6: DEFAULT_WEB_HOST = '0.0.0.0' defined."
+  - name: DEFAULT_WEB_PORT
+    result: pass
+    notes: "PLAN.md Section 6: DEFAULT_WEB_PORT = 8000 defined."
   - name: create-startup-app
     result: pass
-    notes: "PLAN.md defines create_startup_app() calling app.web_host.create_app() with optional runtime_state_provider."
+    notes: "PLAN.md Section 6 defines create_startup_app() delegating to app.web_host.create_app()."
   - name: run-read-only-web-host
     result: pass
-    notes: "PLAN.md defines run_read_only_web_host() with host/port parameters and uvicorn lazy import."
-  - name: uvicorn-lazy-import-in-isolated-module
+    notes: "PLAN.md Section 6 defines run_read_only_web_host() with host/port parameters."
+  - name: uvicorn-lazy-import
     result: pass
-    notes: "uvicorn lazily imported only inside run_read_only_web_host() in app/web_host_startup.py. Not in app/web_host.py, run.py, or anywhere else."
+    notes: "PLAN.md Section 6: 'Imports uvicorn inside the function body (lazy import).' Marker 'uvicorn-lazy-import' present."
   - name: uvicorn-unavailable-handling
     result: pass
-    notes: "PLAN.md raises RuntimeError('uvicorn-unavailable') when uvicorn is unavailable."
+    notes: "PLAN.md Section 6: 'Missing uvicorn raises RuntimeError('uvicorn-unavailable').' Marker 'uvicorn-unavailable' present."
   - name: python-m-entry-point
     result: pass
-    notes: "PLAN.md provides 'if __name__ == __main__': run_read_only_web_host()' for python -m invocation."
-  - name: run-py-unchanged
+    notes: "PLAN.md Section 6: Module-level 'if __name__ == __main__: run_read_only_web_host()' for python -m invocation."
+  - name: no-reload
     result: pass
-    notes: "PLAN.md Section 2: 'Does NOT modify run.py'. Section 7: run.py forbidden. Marker 'no-run-py-wiring' present."
-  - name: api-py-unchanged
+    notes: "PLAN.md Section 6: 'Does NOT enable reload.'"
+  - name: no-multiple-workers
     result: pass
-    notes: "PLAN.md Section 7: api.py must NOT be modified. Confirmed app/api.py exists as Flask-based inverter poller, not a web host."
-  - name: dockerfile-compose-unchanged
+    notes: "PLAN.md Section 6: 'Does NOT configure multiple workers.'"
+  - name: no-run-py-changes
     result: pass
-    notes: "PLAN.md Section 2: 'No Dockerfile, docker-compose.yml, or container entrypoint changes.' Existing Dockerfile CMD is 'python run.py' — unchanged."
-  - name: existing-container-startup-unchanged
+    notes: "PLAN.md Section 4: run.py listed as unchanged. Marker 'no-run-py-wiring' present."
+  - name: no-api-py-changes
     result: pass
-    notes: "PLAN.md Section 3.4: 'The existing container startup and automation behavior (run.py → asyncio main loop) remains completely unchanged.' Marker 'existing-container-startup-unchanged' present."
+    notes: "PLAN.md Section 4: api.py listed as unchanged."
+  - name: no-app-web-host-py-changes
+    result: pass
+    notes: "PLAN.md Section 4: app/web_host.py listed as unchanged (frozen from PR 0028b)."
+  - name: no-dockerfile-compose-changes
+    result: pass
+    notes: "PLAN.md Section 4: Dockerfile and docker-compose.yml unchanged. Component CMD stays ['python', 'run.py']."
+  - name: no-container-entrypoint-changes
+    result: pass
+    notes: "PLAN.md marker 'no-container-entrypoint-change' present. Dockerfile CMD unchanged."
   - name: no-deployment-wiring
     result: pass
-    notes: "PLAN.md marker 'no-deployment-wiring' present. No deployment file edits."
-  - name: no-container-entrypoint-change
-    result: pass
-    notes: "PLAN.md marker 'no-container-entrypoint-change' present. Dockerfile CMD ['python', 'run.py'] remains the sole container entrypoint."
+    notes: "PLAN.md marker 'no-deployment-wiring' present. app/docker/ listed as unchanged."
   - name: no-write-api
     result: pass
-    notes: "PLAN.md marker 'no-write-api' present. No POST/PUT/PATCH/DELETE routes."
-  - name: no-hardware-execution
+    notes: "PLAN.md marker 'no-write-api' present. Section 6: no shared-state reads."
+  - name: no-shared-state-reads
     result: pass
-    notes: "PLAN.md markers 'no-execution' and 'no-tuya-hardware' present. No switch/device/Tuya calls."
-  - name: no-direct-shared-state-device-reads
+    notes: "PLAN.md Section 6: 'Performs no shared-state reads.'"
+  - name: no-direct-device-reads
     result: pass
-    notes: "PLAN.md Section 4 Dependencies: Must NOT import shared_state, app.devices, app.tuya."
+    notes: "PLAN.md Section 6: 'Performs no device reads.'"
+  - name: no-hardware-tuya-calls
+    result: pass
+    notes: "PLAN.md marker 'no-tuya-hardware' present."
+  - name: no-command-execution
+    result: pass
+    notes: "PLAN.md Section 6: 'Performs no command execution.'"
   - name: no-ml-control
     result: pass
-    notes: "PLAN.md marker 'ml-control-deferred' present. ML control deferred per ADR-0003."
-  - name: existing-web-host-py-consistent
+    notes: "PLAN.md marker 'ml-control-deferred' present."
+  - name: no-automatic-startup-from-run-py
     result: pass
-    notes: "app/web_host.py exists with create_app(runtime_state_provider=None) and does NOT import or start uvicorn — consistent dependency for the startup module."
-  - name: existing-web-control-state-provider-py-consistent
+    notes: "PLAN.md Section 2: 'manual/diagnostic entry point only'. Section 4: 'run.py — existing asyncio main loop (no uvicorn, no web host import)'. run.py confirmed to have no uvicorn or web host reference."
+  - name: existing-container-startup-unchanged
     result: pass
-    notes: "app/web_control_state_provider.py exists with create_runtime_control_state_snapshot_provider() — consistent dependency."
-  - name: existing-run-py-no-uvicorn-no-web-host
+    notes: "PLAN.md marker 'existing-container-startup-unchanged' present. Section 2: 'existing container startup and automation behavior (run.py → asyncio main loop) remains completely unchanged.' Dockerfile CMD is 'python run.py' — unchanged."
+  - name: existing-artifacts-consistent
     result: pass
-    notes: "run.py is the existing asyncio-based main loop. Does NOT import uvicorn or app.web_host — confirms startup module is truly standalone."
-  - name: existing-dockerfile-cmd-run-py
+    notes: "app/web_host_startup.py exists (4044 bytes), .project-memory/WEB_HOST_STARTUP.md exists (3167 bytes), scripts/check-web-host-startup.sh exists (5862 bytes), validate.yml already has 'Web host startup check' step."
+  - name: documentation-planned-and-created
     result: pass
-    notes: "Dockerfile CMD is 'python run.py' — unchanged. Container continues to start the existing asyncio runtime only."
-  - name: existing-docker-compose-no-web-host
+    notes: "PLAN.md Section 8 plans WEB_HOST_STARTUP.md with 15 architecture principles. File already created."
+  - name: validation-script-planned-and-created
     result: pass
-    notes: "docker-compose.yml runs dessmonitor service. No web host startup configured — consistent with manual-only startup plan."
-  - name: documentation-planned
+    notes: "PLAN.md Section 9 plans scripts/check-web-host-startup.sh with 27 checks. File already created. validate.yml already has the additive step."
+  - name: current-state-roadmap-updated
     result: pass
-    notes: "PLAN.md plans WEB_HOST_STARTUP.md architecture document."
-  - name: validation-script-planned
-    result: pass
-    notes: "PLAN.md plans scripts/check-web-host-startup.sh with 13 checks."
-  - name: additive-validate-yml-step-planned
-    result: pass
-    notes: "PLAN.md plans edit to .github/workflows/validate.yml. Existing validate.yml already has web host bootstrap and control state provider steps — this adds the startup step."
-  - name: current-state-roadmap-update-planned
-    result: pass
-    notes: "PLAN.md plans edits to CURRENT_STATE.md and ROADMAP.md."
-  - name: forbidden-dependencies-not-imported
-    result: pass
-    notes: "PLAN.md explicitly forbids importing app.service, app.devices, app.tuya, app.monitoring, app.ml, app.weather, shared_state."
-  - name: no-reload-multiple-workers
-    result: pass
-    notes: "PLAN.md Section 4.8: 'No reload or multiple workers.' — safe defaults."
-  - name: no-startup-hardware-actions
-    result: pass
-    notes: "PLAN.md Section 4.9: 'No startup hardware actions.' — startup module is purely about serving HTTP."
+    notes: "PLAN.md Sections 10-11 plan updates to CURRENT_STATE.md and ROADMAP.md. CURRENT_STATE.md already includes PR 0030 section. ROADMAP.md already marks PR 0030 as completed."
 validation:
   commands_run:
     - command: git rev-parse --verify HEAD
       result: pass
-      output_summary: "1b92a325637719f4f0800d97a0d96b42d589c48b"
+      output_summary: "1f9c5c0a32e988c7c27949673e41dc3795b08708"
     - command: git branch --show-current
       result: pass
       output_summary: "0030-runtime-read-only-web-host-startup (matches PR)"
     - command: git status --short
       result: pass
-      output_summary: "M .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md (only the uncommitted PLAN.md is modified)"
-    - command: git diff HEAD --name-only
+      output_summary: "M .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md (only PLAN.md modified, as expected)"
+    - command: git diff --name-only HEAD
       result: pass
-      output_summary: ".project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md (only PLANNING artifact modified)"
+      output_summary: ".project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md (only planning artifact)"
     - command: test -f .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md
       result: pass
       output_summary: "PLAN.md exists"
@@ -126,9 +129,21 @@ validation:
     - command: grep -q "no-run-py-wiring" .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md
       result: pass
       output_summary: "no-run-py-wiring marker present"
+    - command: grep -q "uvicorn-lazy-import" .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md
+      result: pass
+      output_summary: "uvicorn-lazy-import marker present"
     - command: grep -q "no-write-api" .project-memory/pr/0030-runtime-read-only-web-host-startup/PLAN.md
       result: pass
       output_summary: "no-write-api marker present"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/app/web_host_startup.py
+      result: pass
+      output_summary: "app/web_host_startup.py exists (4044 bytes) — created by coder phase"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/.project-memory/WEB_HOST_STARTUP.md
+      result: pass
+      output_summary: "WEB_HOST_STARTUP.md exists (3167 bytes) — created by coder phase"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/scripts/check-web-host-startup.sh
+      result: pass
+      output_summary: "check-web-host-startup.sh exists (5862 bytes) — created by coder phase"
   not_run: []
 commit_readiness:
   ready_for_coder: true
