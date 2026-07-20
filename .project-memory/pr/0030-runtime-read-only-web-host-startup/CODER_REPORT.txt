@@ -2,22 +2,22 @@ TASK COMPLETE
 
 BLOCKERS: None.
 
-WARNINGS: None.
+WARNINGS: None. FastAPI and uvicorn are not installed in the local dev environment; behavior test was adapted to mock both via sys.modules. All contract checks pass.
 
 FILES CHANGED
 
-  Created (new):
-    - app/web_host_startup.py
-    - .project-memory/WEB_HOST_STARTUP.md
-    - scripts/check-web-host-startup.sh
-    - .project-memory/pr/0030-runtime-read-only-web-host-startup/CODER_REPORT.txt
+  Already committed (no working-tree changes at this run):
+    - app/web_host_startup.py (created)
+    - .project-memory/WEB_HOST_STARTUP.md (created)
+    - scripts/check-web-host-startup.sh (created)
+    - .project-memory/pr/0030-runtime-read-only-web-host-startup/CODER_REPORT.txt (overwritten)
 
-  Modified (existing tracked):
-    - .project-memory/CURRENT_STATE.md
-    - .project-memory/ROADMAP.md
+  Already committed (modified):
+    - .project-memory/CURRENT_STATE.md (PR 0030 section added)
+    - .project-memory/ROADMAP.md (PR 0030 marked complete)
+    - .github/workflows/validate.yml (additive step added)
 
   Unchanged (verified):
-    - .github/workflows/validate.yml (already contains check-web-host-startup.sh step)
     - run.py
     - app/api.py
     - app/web_host.py
@@ -32,65 +32,65 @@ FILES CHANGED
     - app/ml/**
     - app/weather/**
     - app/docker/**
-    - .github/workflows/build-and-deploy.yml
 
 VALIDATION RUN
 
-  1. python3 -m compileall -q .                            -> exit 0
-  2. scripts/check-repo-safety.sh                           -> exit 0, PASS
-  3. scripts/check-project-memory.sh                        -> exit 0, PASS
-  4. python3 scripts/validate-yaml.py                       -> exit 0, 23 YAML files valid
-  5. scripts/check-web-host-bootstrap.sh                    -> exit 0, PASS (21/21)
-  6. scripts/check-web-control-state-provider.sh            -> exit 0, PASS (28/28)
-  7. scripts/check-web-host-startup.sh                      -> exit 0, PASS (25/25)
-  8. Behavior test (uvicorn mocked via sys.modules)         -> "read-only web host startup behavior ok"
-  9. git diff --name-only HEAD                              -> only allowed files
-  10. grep forbidden strings in app/web_host_startup.py     -> no matches (clean)
+  1. python3 -m compileall -q .                             -> exit 0
+  2. bash scripts/check-repo-safety.sh                       -> exit 0, PASS
+  3. bash scripts/check-project-memory.sh                    -> exit 0, PASS
+  4. python3 scripts/validate-yaml.py                        -> exit 0, 23 YAML files valid
+  5. bash scripts/check-web-host-bootstrap.sh                -> exit 0, PASS (21/21)
+  6. bash scripts/check-web-control-state-provider.sh        -> exit 0, PASS (28/28)
+  7. bash scripts/check-web-host-startup.sh                  -> exit 0, PASS (25/25)
+  8. Behavior test (uvicorn+fastapi mocked)                  -> "read-only web host startup behavior ok"
+  9. git diff --name-only HEAD                               -> (clean, no output)
+  10. grep required symbols in app/web_host_startup.py       -> all found
+  11. grep forbidden strings in app/web_host_startup.py     -> no matches (clean)
 
 DEVIATIONS FROM PLAN
 
-  - Behavior check adapted to mock uvicorn via sys.modules (uvicorn not installed locally).
-    Original task-prompt snippet assumed FastAPI+uvicorn installed. Adapted mock approach
-    validates the same contract: constants correct, create_startup_app delegates to
-    create_app, run_read_only_web_host calls uvicorn.run with host/port and no
-    reload/workers.
+  - Behavior test adapted: FastAPI and uvicorn are not installed locally.
+    The test pre-mocks both via sys.modules to validate the same contract:
+    constants correct, create_startup_app delegates to create_app with
+    runtime_state_provider, run_read_only_web_host calls uvicorn.run with
+    host/port and no reload/workers.
 
-  - validate.yml was already committed with the check-web-host-startup.sh step from a
-    previous coder run. No further edit needed.
+  - All implementation files were already committed from a prior coder run.
+    No new working-tree changes were needed.
 
 BOUNDARY CONFIRMATIONS
 
-  - confirm: followed committed PLAN.md
-  - confirm: did not edit PLAN.md
-  - confirm: did not edit PLAN_REVIEW.yaml
-  - confirm: did not edit run.py
-  - confirm: did not edit app/api.py
-  - confirm: did not edit app/web_host.py
-  - confirm: did not edit app/web_control_state_provider.py
-  - confirm: did not edit app/control/**
-  - confirm: did not edit app/service/**
-  - confirm: did not edit app/devices/**
-  - confirm: did not edit app/tuya/**
-  - confirm: did not edit app/monitoring/**
-  - confirm: did not edit app/ml/**
-  - confirm: did not edit app/weather/**
-  - confirm: did not edit Dockerfile
-  - confirm: did not edit docker-compose.yml
-  - confirm: did not edit app/docker/**
-  - confirm: did not modify container CMD or ENTRYPOINT
-  - confirm: did not add deployment wiring
-  - confirm: did not add write API (no POST/PUT/PATCH/DELETE)
-  - confirm: did not read or mutate shared_state
-  - confirm: did not read devices directly
-  - confirm: did not call Tuya or hardware
-  - confirm: did not execute control commands
-  - confirm: did not enable automatic execution
-  - confirm: did not enable ML control
-  - confirm: did not commit, push, create PR, or merge
-  - confirm: WORKING TREE status: clean (0 untracked/modified after CODER_REPORT.txt write)
-  - confirm: all 14 safety markers present in module docstring
-  - confirm: validation commands run and results recorded
+  - confirm: implementation followed approved PLAN.md
+  - confirm: no review artifact written by this agent
+  - confirm: PLAN.md not modified
+  - confirm: PLAN_REVIEW.yaml not modified
+  - confirm: ROADMAP.md already updated (not modified by this run)
+  - confirm: post-0100 strategic direction files not modified
+  - confirm: only PLAN.md-approved implementation/test paths changed
+  - confirm: validation commands run and recorded
+  - confirm: no git mutation commands run
+  - confirm: no Docker commands run
+  - confirm: run.py unchanged
+  - confirm: app/api.py unchanged
+  - confirm: app/web_host.py unchanged
+  - confirm: app/web_control_state_provider.py unchanged
+  - confirm: app/control/** unchanged
+  - confirm: Dockerfile unchanged
+  - confirm: docker-compose.yml unchanged
+  - confirm: no container CMD or ENTRYPOINT changes
+  - confirm: no deployment wiring added
+  - confirm: no write API (no POST/PUT/PATCH/DELETE routes)
+  - confirm: no shared_state reads or mutation
+  - confirm: no direct device reads
+  - confirm: no Tuya or hardware calls
+  - confirm: no command execution
+  - confirm: no automatic execution enabled
+  - confirm: no ML control enabled
+  - confirm: all 14 safety markers present in app/web_host_startup.py
+  - confirm: WEB_HOST_STARTUP.md documents all 15 architecture principles
+  - confirm: validate.yml has additive check-web-host-startup.sh step
 
 NEXT REQUIRED ACTION
 
-  Review and merge PR 0030. All validation passes.
+  Review and merge PR 0030. All validation passes. Working tree is clean.
+  All implementation files are committed and validated.
