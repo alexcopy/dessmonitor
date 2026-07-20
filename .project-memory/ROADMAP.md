@@ -53,8 +53,11 @@
 - [x] PR 0028b — Minimal read-only FastAPI web host bootstrap
 - [x] PR 0029 — Runtime read-only control state provider
 - [x] PR 0030 — Runtime read-only web host startup
-- [ ] Later — runtime wiring for read-only endpoint (separate safety-reviewed PR)
-- [ ] Much later — ML control (only after separate safety-reviewed approval)
+- [ ] Later — production exposure or runtime integration requires a separate PR
+- [ ] Later — container entrypoint must not silently change; requires separate safety-reviewed PR
+- [ ] Later — operator writes remain routed through control intent and queue
+- [ ] Later — guarded hardware execution remains deferred
+- [ ] Later — ML control (only after separate safety-reviewed approval)
 
 **PR 0017 note:** Pure weather adjustment evaluator follows schedule profile model (PR 0016). Future PRs will add deterministic policy decision engine, command proposal, controlled execution, and ML advisory. Runtime wiring remains deferred. ML control remains deferred behind safety-reviewed gates.
 

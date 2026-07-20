@@ -1,9 +1,12 @@
 """Standalone read-only web host startup module for dessmonitor.
 
-read-only-web-host-startup manual-startup-only no-run-py-wiring
-no-deployment-wiring no-write-api no-execution no-tuya-hardware
+read-only-web-host-startup manual-startup-only
+existing-container-startup-unchanged no-run-py-wiring
+no-container-entrypoint-change no-deployment-wiring
+no-write-api no-execution no-tuya-hardware
 uvicorn-lazy-import uvicorn-unavailable
-operator-writes-through-control-layer ml-control-deferred
+operator-writes-through-control-layer safety-gates-required
+ml-control-deferred
 
 This module provides a standalone, manual/diagnostic entry point for
 starting the read-only web host via ``python -m app.web_host_startup``.
@@ -13,9 +16,11 @@ optionally accepts a runtime state provider and provides a uvicorn-based
 entry point.
 
 The startup module is NOT wired into ``run.py`` or deployment.
-No Docker or deployment changes. No write API. No hardware execution.
-No direct device reads. No Tuya/hardware calls.
-No command execution. No ML control.
+No Dockerfile, docker-compose.yml, or container entrypoint changes.
+Existing container startup and automation behavior (``run.py`` asyncio
+main loop) remains completely unchanged.
+No write API. No hardware execution. No direct device reads.
+No Tuya/hardware calls. No command execution. No ML control.
 """
 
 from __future__ import annotations

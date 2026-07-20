@@ -9,64 +9,103 @@ checks:
     notes: "app/web_host_startup.py exists with create_startup_app, run_read_only_web_host, constants, and __main__ block"
   - name: WEB_HOST_STARTUP_READ_ONLY_MODE-true
     result: pass
-    notes: "Constant WEB_HOST_STARTUP_READ_ONLY_MODE = True confirmed by Python test"
-  - name: DEFAULT_WEB_HOST-exists
+    notes: "Confirmed by Python test: WEB_HOST_STARTUP_READ_ONLY_MODE is True"
+  - name: DEFAULT_WEB_HOST
     result: pass
-    notes: "DEFAULT_WEB_HOST = '0.0.0.0' confirmed by Python test"
-  - name: DEFAULT_WEB_PORT-exists
+    notes: "Confirmed by Python test: DEFAULT_WEB_HOST == '0.0.0.0'"
+  - name: DEFAULT_WEB_PORT
     result: pass
-    notes: "DEFAULT_WEB_PORT = 8000 confirmed by Python test"
+    notes: "Confirmed by Python test: DEFAULT_WEB_PORT == 8000"
   - name: create-startup-app-exists
     result: pass
-    notes: "create_startup_app(runtime_state_provider=None) delegates to app.web_host.create_app()"
+    notes: "create_startup_app(runtime_state_provider=None) delegates to app.web_host.create_app() - confirmed by Python test"
+  - name: runtime-state-provider-pass-through
+    result: pass
+    notes: "runtime_state_provider parameter accepted and passed through to create_app() - confirmed by Python test"
   - name: run-read-only-web-host-exists
     result: pass
-    notes: "run_read_only_web_host(host, port, runtime_state_provider) lazily imports uvicorn and calls uvicorn.run"
+    notes: "run_read_only_web_host(host, port, runtime_state_provider) exists with uvicorn lazy import"
   - name: uvicorn-lazy-import
     result: pass
-    notes: "uvicorn imported inside run_read_only_web_host() not at module level"
+    notes: "grep confirms 'import uvicorn' is inside run_read_only_web_host function body, not at module level"
   - name: uvicorn-unavailable-handled
     result: pass
-    notes: "ImportError raises RuntimeError('uvicorn-unavailable') confirmed by Python test"
-  - name: __main__-manual-startup
+    notes: "ImportError raises RuntimeError('uvicorn-unavailable') from None - grep confirms string present in module"
+  - name: uvicorn-run-no-reload
     result: pass
-    notes: "if __name__ == '__main__': run_read_only_web_host() block present for python -m invocation"
-  - name: no-run-py-edits
+    notes: "uvicorn.run(app, host=host, port=port) contains no reload parameter - verified by grep"
+  - name: uvicorn-run-no-workers
     result: pass
-    notes: "git diff --name-only HEAD confirms run.py not modified"
-  - name: no-api-py-edits
+    notes: "uvicorn.run(app, host=host, port=port) contains no workers parameter - verified by grep"
+  - name: main-block-exists
     result: pass
-    notes: "git diff --name-only HEAD confirms api.py not modified"
-  - name: no-docker-deploy-edits
+    notes: "if __name__ == '__main__': run_read_only_web_host() block exists for python -m invocation"
+  - name: no-server-start-during-import
     result: pass
-    notes: "check script check [13] confirms Dockerfile and docker-compose.yml not modified"
+    notes: "No uvicorn.run at module level; only inside run_read_only_web_host() function"
+  - name: run-py-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms run.py not modified. Validation script check [19] confirms."
+  - name: api-py-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms api.py not modified. Validation script check [20] confirms."
+  - name: web-host-py-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms app/web_host.py not modified"
+  - name: web-control-state-provider-py-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms app/web_control_state_provider.py not modified"
+  - name: dockerfile-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms Dockerfile not modified. Validation script check [21] confirms."
+  - name: docker-compose-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms docker-compose.yml not modified. Validation script check [22] confirms."
+  - name: container-startup-unchanged
+    result: pass
+    notes: "Container CMD is 'python run.py' in Dockerfile; run.py not modified. Startup module is manual/diagnostic only."
+  - name: no-deployment-wiring
+    result: pass
+    notes: "No deployment files, CI/CD, K8s manifests, or ArgoCD config modified. Marker 'no-deployment-wiring' present."
   - name: no-write-api
     result: pass
-    notes: "grep for post(/put(/patch(/delete( returns no results in startup module"
-  - name: no-shared-state-reads
+    notes: "grep confirms no post(/put(/patch(/delete( patterns in startup module. Validation script check [18] confirms."
+  - name: no-shared-state-access
     result: pass
-    notes: "grep for shared_state returns no results in startup module (only marker comments)"
-  - name: no-device-tuya-hardware-calls
+    notes: "grep for shared_state returns no matches. Validation script check [15] confirms."
+  - name: no-device-access
     result: pass
-    notes: "grep for app.service, app.devices, app.tuya, app.monitoring, app.ml, app.weather imports returns no results; grep for send_commands/switch_on_device/switch_off_device/set_numeric returns no results"
+    notes: "grep for app.service, app.devices, app.tuya imports returns no matches. Validation script check [16] confirms."
+  - name: no-tuya-hardware-calls
+    result: pass
+    notes: "grep for send_commands, switch_on_device, switch_off_device, set_numeric returns no matches. Validation script check [17] confirms."
   - name: no-command-execution
     result: pass
-    notes: "No subprocess, os.system, or command execution patterns present"
+    notes: "No subprocess, os.system, exec, or control command execution patterns. Marker 'no-execution' present."
   - name: no-ml-control
     result: pass
-    notes: "Marker 'ml-control-deferred' present; no ML imports or calls"
+    notes: "Marker 'ml-control-deferred' present. No ML imports or calls."
   - name: documentation-exists
     result: pass
-    notes: ".project-memory/WEB_HOST_STARTUP.md exists with architecture documentation"
+    notes: ".project-memory/WEB_HOST_STARTUP.md exists with architecture documentation. Validation script check [23] confirms."
   - name: validation-script-exists
     result: pass
-    notes: "scripts/check-web-host-startup.sh exists with 20 checks, all pass (exit 0)"
-  - name: required-markers-present
+    notes: "scripts/check-web-host-startup.sh exists with 25 checks, all pass (exit 0)"
+  - name: validate-yml-adds-only-one-step
     result: pass
-    notes: "All 11 required markers present: read-only-web-host-startup, manual-startup-only, no-run-py-wiring, no-deployment-wiring, no-write-api, no-execution, no-tuya-hardware, uvicorn-lazy-import, uvicorn-unavailable, operator-writes-through-control-layer, ml-control-deferred"
+    notes: ".github/workflows/validate.yml contains exactly 1 check-web-host-startup step (already committed). Not modified in this diff."
+  - name: current-state-roadmoap-concise
+    result: pass
+    notes: "CURRENT_STATE.md update is 5 lines (paragraph). ROADMAP.md update is 5 lines (4 new later tasks + 1 existing marked done). Both concise and within scope."
   - name: plan-and-review-locked
     result: pass
-    notes: "PLAN.md (08:21) and PLAN_REVIEW.yaml (08:22) both predate CODER_REPORT.txt (08:27); not modified after approval"
+    notes: "PLAN.md (13:35) and PLAN_REVIEW.yaml (13:42) both predate CODER_REPORT.txt (13:47); not modified after approval."
+  - name: required-markers-present
+    result: pass
+    notes: "All 14 required safety markers present in module docstring (check [24] passed): read-only-web-host-startup, manual-startup-only, existing-container-startup-unchanged, no-run-py-wiring, no-container-entrypoint-change, no-deployment-wiring, no-write-api, no-execution, no-tuya-hardware, uvicorn-lazy-import, uvicorn-unavailable, operator-writes-through-control-layer, safety-gates-required, ml-control-deferred"
+  - name: python-behavior-check
+    result: pass
+    notes: "Mocked uvicorn run: all assertions passed (constants, create_startup_app delegates, run_read_only_web_host calls uvicorn.run with correct host/port, no reload, no workers)"
 validation:
   commands_run:
     - command: python3 -m compileall -q .
@@ -81,6 +120,9 @@ validation:
     - command: python3 scripts/validate-yaml.py
       result: pass
       output_summary: "exit 0, all 23 YAML files validated"
+    - command: bash scripts/check-web-ui-read-only-endpoint.sh
+      result: pass
+      output_summary: "exit 0, 30/30 checks passed"
     - command: bash scripts/check-web-host-bootstrap.sh
       result: pass
       output_summary: "exit 0, 21/21 checks passed"
@@ -89,7 +131,13 @@ validation:
       output_summary: "exit 0, 28/28 checks passed"
     - command: bash scripts/check-web-host-startup.sh
       result: pass
-      output_summary: "exit 0, 20/20 checks passed"
+      output_summary: "exit 0, 25/25 checks passed"
+    - command: python behavior check (uvicorn mocked)
+      result: pass
+      output_summary: "All assertions passed: constants, create_startup_app delegation, uvicorn.run with correct host/port, no reload, no workers"
+    - command: grep forbidden strings in app/web_host_startup.py
+      result: pass
+      output_summary: "No matches for shared_state, app.service, app.devices, app.tuya, send_commands, switch_on_device, switch_off_device, set_numeric"
   not_run: []
 commit_readiness:
   ready_for_commit: true
