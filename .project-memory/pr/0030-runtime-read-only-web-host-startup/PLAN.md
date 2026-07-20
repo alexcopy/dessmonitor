@@ -4,7 +4,7 @@
 
 | Check | Command | Output |
 |---|---|---|
-| HEAD | `git rev-parse --verify HEAD` | `4982e8de28fdc27004a1cddb8b2e6ff0d5146bf1` |
+| HEAD | `git rev-parse --verify HEAD` | `1b92a325637719f4f0800d97a0d96b42d589c48b` |
 | Branch | `git branch --show-current` | `0030-runtime-read-only-web-host-startup` |
 | Working tree | `git status --short` | clean (no local changes) |
 
@@ -13,20 +13,21 @@ The precondition passes. Branch is `0030-runtime-read-only-web-host-startup` and
 ## 2. Purpose
 
 PR 0030 adds a **standalone read-only web host startup module** (`app/web_host_startup.py`)
-that can be invoked manually via `python -m app.web_host_startup`. It wraps the existing
+that can be invoked manually via `python -m app/web_host_startup`. It wraps the existing
 `app.web_host.create_app()` with a startup function that optionally accepts a runtime state
 provider, and provides a uvicorn-based entry point.
 
-This PR does NOT modify `run.py`, `api.py`, Docker, or deployment files. The startup module
-is a manual/diagnostic entry point only — production deployment wiring requires a separate
-safety-reviewed PR.
+This PR does NOT modify `run.py`, `api.py`, Docker, deployment, or container startup files.
+The startup module is a manual/diagnostic entry point only — production deployment wiring
+requires a separate safety-reviewed PR.
 
 ## 3. Product Context
 
 1. PR 0028b created `app/web_host.py` with `create_app()`.
 2. PR 0029 added the injectable runtime state provider.
 3. PR 0030 adds `app/web_host_startup.py` for manual/diagnostic server startup.
-4. A future PR may wire this into production deployment.
+4. The existing container startup and automation behavior (`run.py` → asyncio main loop)
+   remains completely unchanged.
 
 ## 4. Required Module Design
 
@@ -71,10 +72,13 @@ if __name__ == "__main__":
    - Creates the app via `create_startup_app(runtime_state_provider)`.
    - Calls `uvicorn.run(app, host=host, port=port)`.
 3. No `run.py`/`api.py` wiring.
-4. No Docker/deployment changes.
+4. No Dockerfile, docker-compose.yml, or container entrypoint changes.
 5. No write routes.
 6. No hardware execution.
 7. No direct `shared_state`/device reads.
+8. No reload or multiple workers.
+9. No startup hardware actions.
+10. Existing autonomous container behavior (`run.py` → asyncio main loop) remains unchanged.
 
 ### Dependencies
 
@@ -89,14 +93,15 @@ Must NOT import: `app.service`, `app.devices`, `app.tuya`, `app.monitoring`,
 
 - `"read-only-web-host-startup"`
 - `"manual-startup-only"`
+- `"existing-container-startup-unchanged"`
 - `"no-run-py-wiring"`
+- `"no-container-entrypoint-change"`
 - `"no-deployment-wiring"`
 - `"no-write-api"`
 - `"no-execution"`
 - `"no-tuya-hardware"`
 - `"uvicorn-lazy-import"`
 - `"uvicorn-unavailable"`
-- `"operator-writes-through-control-layer"`
 - `"ml-control-deferred"`
 
 ## 6. Allowed Implementation Files
@@ -140,7 +145,9 @@ PR 0030 adds a standalone read-only web host startup module in
 `app/web_host_startup.py` with `create_startup_app()`,
 `run_read_only_web_host()`, and a `python -m` entry point.
 The startup module is manual/diagnostic only. No run.py/api.py wiring.
-No Docker/deployment changes. No write API. No execution.
+No Dockerfile, docker-compose.yml, or container entrypoint changes.
+Existing container startup and automation behavior unchanged.
+No write API. No execution.
 ```
 
 ## 10. ROADMAP.md Update
