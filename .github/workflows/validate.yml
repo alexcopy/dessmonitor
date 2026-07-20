@@ -116,3 +116,6 @@ jobs:
 
       - name: 🔍 Web control state provider check
         run: bash scripts/check-web-control-state-provider.sh
+
+      - name: 🔍 Web host startup check
+        run: bash scripts/check-web-host-startup.sh

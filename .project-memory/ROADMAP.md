@@ -52,6 +52,7 @@
 - [x] PR 0027 — Web UI read-only control state endpoint
 - [x] PR 0028b — Minimal read-only FastAPI web host bootstrap
 - [x] PR 0029 — Runtime read-only control state provider
+- [x] PR 0030 — Runtime read-only web host startup
 - [ ] Later — runtime wiring for read-only endpoint (separate safety-reviewed PR)
 - [ ] Much later — ML control (only after separate safety-reviewed approval)
 
