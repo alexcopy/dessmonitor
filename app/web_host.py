@@ -13,11 +13,16 @@ UNAVAILABLE.
 
 The host is NOT wired into run.py. It does NOT start a server.
 A real runtime snapshot provider is deferred to PR 0029.
+
+PR 0029 adds an injectable ``runtime_state_provider`` parameter to
+``create_app()``. When provided, the host uses
+``create_runtime_control_state_snapshot_provider`` to build real
+control state snapshots from caller-provided runtime data.
 """
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 # ---------------------------------------------------------------------------
 # Module-level constant
@@ -54,15 +59,18 @@ def create_placeholder_control_state_snapshot_provider() -> Callable[[], None]:
 # ---------------------------------------------------------------------------
 
 
-def create_app():
+def create_app(
+    runtime_state_provider: Callable[[], dict[str, Any] | None] | None = None,
+):
     """Create a minimal FastAPI application with the read-only GET /control/state endpoint.
 
     FastAPI is imported inside this function so that ``app.web_host``
     remains import-safe even if FastAPI is not installed.
 
     Behavior:
-      1. Creates a placeholder snapshot provider via
-         :func:`create_placeholder_control_state_snapshot_provider`.
+      1. If ``runtime_state_provider`` is provided, uses
+         ``create_runtime_control_state_snapshot_provider`` for real snapshots.
+         Otherwise uses :func:`create_placeholder_control_state_snapshot_provider`.
       2. Imports ``create_control_state_read_router`` from
          ``app.control.web_ui_read_endpoint``.
       3. Creates a ``FastAPI`` instance with a descriptive title.
@@ -81,6 +89,10 @@ def create_app():
       - call ``build_runtime_control_snapshot``
       - call ``build_control_state_snapshot``
 
+    Args:
+        runtime_state_provider: Optional callable that returns a runtime
+            state mapping or None. When provided, real snapshots are built.
+
     Returns:
         A ``FastAPI`` application instance.
 
@@ -95,7 +107,12 @@ def create_app():
 
     from app.control.web_ui_read_endpoint import create_control_state_read_router  # noqa: PLC0415
 
-    provider = create_placeholder_control_state_snapshot_provider()
+    if runtime_state_provider is not None:
+        from app.web_control_state_provider import create_runtime_control_state_snapshot_provider  # noqa: PLC0415
+        provider = create_runtime_control_state_snapshot_provider(runtime_state_provider)
+    else:
+        provider = create_placeholder_control_state_snapshot_provider()
+
     router = create_control_state_read_router(provider)
 
     app = FastAPI(

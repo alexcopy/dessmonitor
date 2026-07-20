@@ -1,0 +1,179 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: provider-module-exists
+    result: pass
+    notes: "app/web_control_state_provider.py exists with create_runtime_control_state_snapshot_provider and build_control_state_snapshot_from_runtime_state"
+  - name: web-host-supports-injection
+    result: pass
+    notes: "app/web_host.py create_app() accepts optional runtime_state_provider parameter; uses create_runtime_control_state_snapshot_provider when provided"
+  - name: create-runtime-control-state-snapshot-provider-exists
+    result: pass
+    notes: "Defined in app/web_control_state_provider.py, returns Callable[[], Any | None]"
+  - name: build-control-state-snapshot-from-runtime-state-exists
+    result: pass
+    notes: "Defined in app/web_control_state_provider.py, calls build_runtime_control_snapshot via RuntimeControlSnapshotAdapterInput"
+  - name: build-runtime-control-snapshot-used
+    result: pass
+    notes: "build_runtime_control_snapshot imported from app.control.runtime_snapshot_adapter and used in build_control_state_snapshot_from_runtime_state"
+  - name: no-direct-build-control-state-snapshot-call
+    result: pass
+    notes: "grep confirms no direct build_control_state_snapshot( call in provider module"
+  - name: no-shared-state-read
+    result: pass
+    notes: "grep for shared_state in app/web_control_state_provider.py and app/web_host.py returns no results (excluding marker comments)"
+  - name: no-device-read
+    result: pass
+    notes: "grep for app.service, app.devices, app.tuya, app.monitoring, app.ml, app.weather imports returns no results"
+  - name: no-tuya-hardware
+    result: pass
+    notes: "grep for send_commands, switch_on_device, switch_off_device, set_numeric returns no results"
+  - name: no-write-api
+    result: pass
+    notes: "grep for POST/PUT/PATCH/DELETE route registrations and post(/put(/patch(/delete( calls returns no results"
+  - name: no-server-start
+    result: pass
+    notes: "grep for uvicorn.run returns only docstring/comment reference in web_host.py listing excluded behaviors"
+  - name: no-execution
+    result: pass
+    notes: "grep for subprocess, os.system returns no results"
+  - name: no-ml-control
+    result: pass
+    notes: "No ML imports or calls in provider or host modules"
+  - name: run-py-api-py-unchanged
+    result: pass
+    notes: "git diff --name-only HEAD confirms run.py and api.py are not modified"
+  - name: default-provider-returns-unavailable
+    result: pass
+    notes: "create_runtime_control_state_snapshot_provider(None) returns lambda that returns None (backward-compatible)"
+  - name: empty-provider-returns-None
+    result: pass
+    notes: "Provider returning None or empty dict results in None from wrapper"
+  - name: valid-mapping-returns-snapshot
+    result: pass
+    notes: "build_control_state_snapshot_from_runtime_state builds RuntimeControlSnapshotAdapterInput and calls build_runtime_control_snapshot"
+  - name: provider-errors-hidden
+    result: pass
+    notes: "Exception in runtime_state_provider caught via except Exception, returns None; Python behavior test confirms no text leak"
+  - name: partial-mapping-tolerated
+    result: pass
+    notes: "_parse_loads silently skips invalid entries; dict conversion wrapped in try/except TypeError/ValueError"
+  - name: no-exception-text-leak
+    result: pass
+    notes: "Python behavior test verified ValueError('sensitive-error-details-should-not-leak') returns None without traceback or error text"
+  - name: documentation-exists
+    result: pass
+    notes: ".project-memory/WEB_CONTROL_STATE_PROVIDER.md exists with architecture documentation"
+  - name: validation-script-exists
+    result: pass
+    notes: "scripts/check-web-control-state-provider.sh exists with 28 checks, exit 0 on pass"
+  - name: required-markers-present
+    result: pass
+    notes: "All 10 required markers present in provider module: runtime-read-only-provider, caller-provided-runtime-state, no-shared-state-read, no-device-read, no-tuya-hardware, no-execution, no-write-api, real-provider-injected, provider-errors-hidden, operator-writes-through-control-layer"
+  - name: plan-and-review-locked
+    result: pass
+    notes: "PLAN.md (19 Jul 23:52) and PLAN_REVIEW.yaml (19 Jul 23:59) both predate CODER_REPORT.txt (20 Jul 08:06); not modified after approval"
+validation:
+  commands_run:
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "exit 0, no output (all modules compiled cleanly)"
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: "exit 0, 0 errors, 0 warnings"
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: "exit 0, all required governance files and PR 0003 artifacts present"
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: "exit 0, all 23 YAML files validated successfully"
+    - command: bash scripts/check-web-ui-read-only-endpoint.sh
+      result: pass
+      output_summary: "exit 0, 30/30 checks passed"
+    - command: bash scripts/check-web-host-bootstrap.sh
+      result: pass
+      output_summary: "exit 0, 21/21 checks passed"
+    - command: bash scripts/check-web-control-state-provider.sh
+      result: pass
+      output_summary: "exit 0, 28/28 checks passed"
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []
+evidence_ledger:
+  - field: branch is correct
+    exact_observed_evidence: "git branch --show-current returned '0029-runtime-read-only-control-state-provider' which matches PR identifier"
+  - field: dirty tree is within scope
+    exact_observed_evidence: "Modified files: .github/workflows/validate.yml, .project-memory/CURRENT_STATE.md, .project-memory/ROADMAP.md, app/web_host.py. Untracked: .project-memory/WEB_CONTROL_STATE_PROVIDER.md, .project-memory/pr/0029-runtime-read-only-control-state-provider/CODER_REPORT.txt, app/web_control_state_provider.py, scripts/check-web-control-state-provider.sh. All within PLAN.md Section 6 allowed list. run.py and api.py confirmed not modified."
+  - field: all changed files were read
+    exact_observed_evidence: "Read: app/web_control_state_provider.py, app/web_host.py (diff viewed), scripts/check-web-control-state-provider.sh, .project-memory/WEB_CONTROL_STATE_PROVIDER.md, .project-memory/pr/0029-runtime-read-only-control-state-provider/CODER_REPORT.txt"
+  - field: required validation passed
+    exact_observed_evidence: "All 7 validation commands exited 0: compileall, check-repo-safety, check-project-memory, validate-yaml, check-web-ui-read-only-endpoint, check-web-host-bootstrap, check-web-control-state-provider"
+  - field: feature-specific behavior exists
+    exact_observed_evidence: "create_runtime_control_state_snapshot_provider returns Callable[[], Any | None]; build_control_state_snapshot_from_runtime_state builds snapshot from caller-provided mapping; create_app() accepts optional runtime_state_provider"
+  - field: forbidden behavior is absent
+    exact_observed_evidence: "No shared_state reads (grep clean). No app.service/app.devices/app.tuya imports (grep clean). No hardware calls (grep clean). No write routes (grep clean). No uvicorn.run (only docstring comment). No build_control_state_snapshot direct call. No exception text leak (Python test verified). No run.py/api.py modification."
+  - field: artifact physically written
+    exact_observed_evidence: "Wrote to .project-memory/pr/0029-runtime-read-only-control-state-provider/PRECOMMIT_REVIEW.yaml at 2026-07-20T07:12:23Z"
+  - field: artifact read back
+    exact_observed_evidence: "test -f confirmed file exists at path"
+scope_check:
+  only_allowed_files_modified: true
+  forbidden_files_modified: []
+  files_read_cover_changed: true
+plan_compliance_check:
+  follows_plan: true
+  deviations: []
+implementation_check:
+  provider_exists: true
+  host_injection_exists: true
+  empty_provider_returns_none: true
+  empty_mapping_returns_none: true
+  valid_mapping_returns_snapshot: true
+  failing_provider_returns_none: true
+  no_error_leak: true
+executable_first_check:
+  has_executable_behavior: true
+  is_docs_only: false
+  is_schemas_only: false
+  is_review_only: false
+validation_completeness_check:
+  all_plan_validation_run: true
+  validation_script_passed: true
+evidence_completeness_check:
+  all_evidence_collected: true
+diff_completeness_check:
+  all_diffs_reviewed: true
+dirty_tree_check:
+  dirty_files_are_allowed: true
+  unexpected_dirty_files: []
+artifact_write_readback_check:
+  written: true
+  read_back: true
+boundary_confirmations:
+  - name: No shared_state global reads
+    confirmed: true
+  - name: No device reads
+    confirmed: true
+  - name: No Tuya/hardware calls
+    confirmed: true
+  - name: No write API (POST/PUT/PATCH/DELETE)
+    confirmed: true
+  - name: No server start (uvicorn.run)
+    confirmed: true
+  - name: No command execution
+    confirmed: true
+  - name: No ML control
+    confirmed: true
+  - name: No exception text leaked
+    confirmed: true
+  - name: run.py not modified
+    confirmed: true
+  - name: api.py not modified
+    confirmed: true
+  - name: PLACEHOLDER/TODO/TBD absent
+    confirmed: true

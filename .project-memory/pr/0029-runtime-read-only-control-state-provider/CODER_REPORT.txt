@@ -1,0 +1,84 @@
+IMPLEMENTATION COMPLETE: yes
+
+BLOCKERS: none
+
+WARNINGS: none
+
+FILES CHANGED
+- app/web_control_state_provider.py (created)
+- app/web_host.py (edited — added optional runtime_state_provider parameter to create_app())
+- .project-memory/WEB_CONTROL_STATE_PROVIDER.md (created)
+- scripts/check-web-control-state-provider.sh (created)
+- .github/workflows/validate.yml (edited — added web control state provider check step)
+- .project-memory/CURRENT_STATE.md (edited — added PR 0029 section)
+- .project-memory/ROADMAP.md (edited — marked PR 0029 active/complete)
+
+BEHAVIOR IMPLEMENTED
+- create_runtime_control_state_snapshot_provider(runtime_state_provider=None):
+  - Returns lambda: None when runtime_state_provider is None (backward-compatible)
+  - Returns provider that returns None when runtime_state_provider returns None/empty
+  - Silently hides exceptions (returns None, no leak)
+  - Calls build_control_state_snapshot_from_runtime_state for valid state
+- build_control_state_snapshot_from_runtime_state(runtime_state):
+  - Returns None for None or empty mapping
+  - Parses "loads"/"load_states" best-effort (RuntimeLoadState objects pass through, dicts converted)
+  - Passes through pipeline objects (policy_decision, command_proposal, etc.)
+  - Calls build_runtime_control_snapshot via the PR 0024 adapter
+  - Returns result.snapshot
+  - Tolerates missing/partial mappings without crashing
+- app/web_host.py create_app(runtime_state_provider=None):
+  - Default create_app() still works (backward-compatible with PR 0028b)
+  - When runtime_state_provider provided, imports and uses create_runtime_control_state_snapshot_provider
+  - No change to non-injected path
+
+VALIDATION RUN
+1. python3 -m compileall -q . → exit 0
+2. bash scripts/check-repo-safety.sh → exit 0
+3. bash scripts/check-project-memory.sh → exit 0
+4. python3 scripts/validate-yaml.py → exit 0 (23 YAML files)
+5. bash scripts/check-web-host-bootstrap.sh → exit 0 (21/21)
+6. bash scripts/check-web-control-state-provider.sh → exit 0 (28/28)
+7. Python behavior check → "runtime read-only provider behavior ok"
+
+VALIDATION RESULTS: All passed.
+
+DEVIATIONS FROM PLAN
+None. Implementation follows PLAN.md exactly.
+
+BOUNDARY CONFIRMATIONS
+- confirm: implementation followed approved PLAN.md
+- confirm: no review artifact written
+- confirm: PLAN.md not modified
+- confirm: PLAN_REVIEW.yaml not modified
+- confirm: ROADMAP.md modified only as explicitly allowed by PLAN.md
+- confirm: post-0100 strategic direction files not modified
+- confirm: only PLAN.md-approved implementation/test paths changed
+- confirm: validation commands run and recorded
+- confirm: no git mutation commands run
+- confirm: no Docker commands run
+- confirm: run.py not modified
+- confirm: api.py not modified
+- confirm: app/control/** not modified (except allowed web_host.py)
+- confirm: app/service/** not modified
+- confirm: app/devices/** not modified
+- confirm: app/tuya/** not modified
+- confirm: app/monitoring/** not modified
+- confirm: app/ml/** not modified
+- confirm: app/weather/** not modified
+- confirm: no write API added
+- confirm: no command executor added
+- confirm: no hardware execution added
+- confirm: no shared_state reads (only marker "no-shared-state-read")
+- confirm: no direct device reads
+- confirm: no Tuya/hardware calls
+- confirm: no ML control
+- confirm: no uvicorn.run or server start code
+- confirm: no direct build_control_state_snapshot call (uses build_runtime_control_snapshot via adapter)
+- confirm: provider errors hidden (no exception text leaked)
+- confirm: default create_app() backward-compatible with PR 0028b
+- confirm: operator writes must go through control-layer intent/queue
+- confirm: hardware execution behind later safety-reviewed PR
+- confirm: ML control deferred per ADR-0003
+
+NEXT REQUIRED ACTION
+Later PR — Runtime wiring: integrate a real runtime_state_provider that reads actual device/inverter state and passes it to create_app().

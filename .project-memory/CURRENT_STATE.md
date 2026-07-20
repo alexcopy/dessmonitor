@@ -219,6 +219,14 @@ WebUiReadEndpointPlan) and the pure function
 endpoint boundaries and implementation steps. No real API endpoint added.
 No FastAPI routes. No runtime wiring. No execution.
 
+## PR 0029 — Runtime Read-Only Control State Provider
+PR 0029 replaces the placeholder-only path in `app/web_host.py` with an
+injectable runtime state provider in `app/web_control_state_provider.py`.
+The provider adapts caller-provided runtime state mappings into
+ControlStateSnapshot via build_runtime_control_snapshot(). Default behavior
+returns UNAVAILABLE when no provider is injected. No shared_state reads.
+No device reads. No Tuya/hardware calls.
+
 ## PR 0028b — Minimal Read-Only FastAPI Web Host Bootstrap
 PR 0028b adds a minimal isolated FastAPI web host module in
 `app/web_host.py` with `create_app()`, `create_placeholder_control_state_snapshot_provider()`,

@@ -1,0 +1,135 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: branch-matches-pr
+    result: pass
+    notes: "Branch is 0029-runtime-read-only-control-state-provider, matches PR identifier."
+  - name: working-tree-clean
+    result: pass
+    notes: "Only untracked PR 0029 planning artifacts. No dirty tracked files."
+  - name: plan-file-exists
+    result: pass
+    notes: ".project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md exists and was read."
+  - name: module-web-control-state-provider-py
+    result: pass
+    notes: "PLAN.md creates app/web_control_state_provider.py as the new provider module."
+  - name: web-host-py-update-planned
+    result: pass
+    notes: "PLAN.md updates app/web_host.py to accept optional runtime_state_provider in create_app()."
+  - name: create-runtime-control-state-snapshot-provider
+    result: pass
+    notes: "PLAN.md defines create_runtime_control_state_snapshot_provider() returning Callable[[], ControlStateSnapshot | None]."
+  - name: build-control-state-snapshot-from-runtime-state
+    result: pass
+    notes: "PLAN.md defines build_control_state_snapshot_from_runtime_state() calling build_runtime_control_snapshot internally."
+  - name: uses-build-runtime-control-snapshot-only
+    result: pass
+    notes: "PLAN.md uses build_runtime_control_snapshot (from PR 0024 adapter). Explicitly forbids direct build_control_state_snapshot call."
+  - name: no-shared-state-global-read
+    result: pass
+    notes: "PLAN.md marker 'no-shared-state-read' present. Must NOT import shared_state."
+  - name: no-device-read
+    result: pass
+    notes: "PLAN.md marker 'no-device-read' present. Must NOT import app.devices."
+  - name: no-tuya-hardware
+    result: pass
+    notes: "PLAN.md marker 'no-tuya-hardware' present. Must NOT import app.tuya."
+  - name: no-execution
+    result: pass
+    notes: "PLAN.md marker 'no-execution' present. No command execution."
+  - name: no-write-api
+    result: pass
+    notes: "PLAN.md marker 'no-write-api' present. No POST/PUT/PATCH/DELETE."
+  - name: no-run-py-api-py-edits
+    result: pass
+    notes: "PLAN.md Section 7: run.py and api.py must NOT be modified."
+  - name: no-docker-deployment-changes
+    result: pass
+    notes: "PLAN.md follows standard frozen list — Docker/deployment files forbidden."
+  - name: no-server-start
+    result: pass
+    notes: "PLAN.md Section 13: No server start, no uvicorn.run()."
+  - name: no-ml-control
+    result: pass
+    notes: "PLAN.md Section 13: ML control deferred per ADR-0003."
+  - name: errors-hidden
+    result: pass
+    notes: "PLAN.md Section 4.1: 'If runtime_state_provider raises an exception, the returned provider returns None and does not leak exception text.'"
+  - name: partial-mapping-tolerated
+    result: pass
+    notes: "PLAN.md Section 4.2: 'Best-effort parse', 'Tolerates missing/partial mapping without crashing.'"
+  - name: provider-is-injected-caller-provided
+    result: pass
+    notes: "PLAN.md uses runtime_state_provider parameter injected by caller. No global reads."
+  - name: default-provider-returns-unavailable
+    result: pass
+    notes: "PLAN.md Section 4.1: If runtime_state_provider is None, returns provider that always returns None (backward-compatible with PR 0028b placeholder)."
+  - name: real-runtime-wiring-remains-separate
+    result: pass
+    notes: "PLAN.md Section 3: 'A future PR may wire a real runtime state callback.' Section 13: 'No runtime wiring.'"
+  - name: existing-web-host-py-consistent
+    result: pass
+    notes: "app/web_host.py exists with create_placeholder_control_state_snapshot_provider() and create_app() — consistent with PR 0028b. Plan correctly updates create_app() to accept optional runtime_state_provider."
+  - name: existing-adapter-consistent
+    result: pass
+    notes: "app/control/runtime_snapshot_adapter.py exists with build_runtime_control_snapshot() — consistent dependency for the new provider."
+  - name: existing-endpoint-consistent
+    result: pass
+    notes: "app/control/web_ui_read_endpoint.py exists with create_control_state_read_router() accepting snapshot_provider — consistent with the provider chain."
+  - name: documentation-planned
+    result: pass
+    notes: "PLAN.md plans WEB_CONTROL_STATE_PROVIDER.md architecture document."
+  - name: validation-script-planned
+    result: pass
+    notes: "PLAN.md plans scripts/check-web-control-state-provider.sh with 15 checks."
+  - name: additive-validate-yml-step-planned
+    result: pass
+    notes: "PLAN.md plans one new step in .github/workflows/validate.yml."
+  - name: current-state-roadmap-update-planned
+    result: pass
+    notes: "PLAN.md plans edits to CURRENT_STATE.md and ROADMAP.md."
+  - name: forbidden-dependencies-not-imported
+    result: pass
+    notes: "PLAN.md explicitly forbids importing app.service, app.devices, app.tuya, app.monitoring, app.ml, app.weather, shared_state, smart_home_controller."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "bca6ed8062ef6e4d1e0b9cc5493b69eb5a115301"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0029-runtime-read-only-control-state-provider (matches PR)"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0029-runtime-read-only-control-state-provider/ (only PR 0029 planning artifacts)"
+    - command: git diff HEAD --name-only
+      result: pass
+      output_summary: "No dirty tracked files — working tree is clean."
+    - command: test -f .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q "app/web_control_state_provider.py" .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "app/web_control_state_provider.py defined"
+    - command: grep -q "create_runtime_control_state_snapshot_provider" .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "create_runtime_control_state_snapshot_provider defined"
+    - command: grep -q "build_control_state_snapshot_from_runtime_state" .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "build_control_state_snapshot_from_runtime_state defined"
+    - command: grep -q "caller-provided-runtime-state" .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "caller-provided-runtime-state marker present"
+    - command: grep -q "no-shared-state-read" .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "no-shared-state-read marker present"
+    - command: grep -q "no-execution" .project-memory/pr/0029-runtime-read-only-control-state-provider/PLAN.md
+      result: pass
+      output_summary: "no-execution marker present"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder: []

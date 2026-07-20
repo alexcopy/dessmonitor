@@ -113,3 +113,6 @@ jobs:
 
       - name: 🔍 Web host bootstrap check
         run: bash scripts/check-web-host-bootstrap.sh
+
+      - name: 🔍 Web control state provider check
+        run: bash scripts/check-web-control-state-provider.sh
