@@ -396,7 +396,6 @@ async def start_runtime_read_only_web_host(
         host=host,
         port=port,
         log_level="info",
-        install_signal_handlers=False,
     )
     # Ensure no reload, no workers
     config.reload = False
