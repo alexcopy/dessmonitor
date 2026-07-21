@@ -250,11 +250,23 @@ async def main():
         # Give the server a moment
         await asyncio.sleep(0.5)
 
-        # HTTP GET
+        # HTTP GET — offloaded to a thread so uvicorn can use the event loop
         url = f'http://127.0.0.1:{free_port}/control/state'
-        resp = urllib.request.urlopen(url, timeout=3)
-        body = resp.read().decode('utf-8')
-        assert resp.status == 200, f"expected 200 got {resp.status}"
+
+        def perform_request():
+            with urllib.request.urlopen(url, timeout=5) as response:
+                return (
+                    response.status,
+                    response.headers.get_content_type(),
+                    response.read(),
+                )
+
+        status, content_type, body_bytes = await asyncio.to_thread(perform_request)
+        body = body_bytes.decode('utf-8')
+        assert status == 200, f"expected 200 got {status}"
+        assert 'application/json' in (content_type or ''), (
+            f"expected JSON content type, got {content_type}"
+        )
         data = json.loads(body)
         # check fake load id present
         assert 'fake-http-1' in body, "fake load id not in response"
