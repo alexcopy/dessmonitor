@@ -26,8 +26,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
+import traceback
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -309,26 +311,26 @@ _STARTUP_TIMEOUT: float = 5.0
 _SHUTDOWN_TIMEOUT: float = 5.0
 
 
-class _SignalSafeServer:
-    """Mixin / wrapper to disable Uvicorn signal handling.
-
-    When Uvicorn's ``Server`` is created, this class overrides
-    ``install_signal_handlers`` and ``capture_signals`` so that
-    ``run.py`` remains the sole signal owner.
-    """
-
-
 def _make_signal_safe_server(uvicorn_module: Any) -> type:
-    """Create a Uvicorn Server subclass with signal handling disabled."""
+    """Create a Uvicorn Server subclass with signal handling disabled.
+
+    uvicorn 0.51.0 uses ``with self.capture_signals():`` (a synchronous
+    context manager).  Returning an async context manager causes a
+    runtime ``TypeError`` inside ``Server.serve()``.
+    """
 
     class SignalSafeServer(uvicorn_module.Server):
         def install_signal_handlers(self) -> None:
             """No-op: run.py owns all signal handlers."""
             return
 
-        @asynccontextmanager
-        async def capture_signals(self):  # type: ignore[override]
-            """No-op: do not capture signals inside uvicorn."""
+        @contextmanager
+        def capture_signals(self):  # type: ignore[override]
+            """No-op: do not capture signals inside uvicorn.
+
+            Must be a **synchronous** context manager — uvicorn 0.51.0
+            calls ``with self.capture_signals():``, not ``async with``.
+            """
             yield
 
     return SignalSafeServer
@@ -413,10 +415,19 @@ async def start_runtime_read_only_web_host(
 
     # Wait for startup (or detect early failure)
     try:
-        await asyncio.wait_for(_wait_for_startup(server), timeout=_STARTUP_TIMEOUT)
+        await asyncio.wait_for(
+            _wait_for_startup(server, server_task),
+            timeout=_STARTUP_TIMEOUT,
+        )
     except asyncio.TimeoutError:
+        # Startup timed out — check whether the task already died
+        if server_task.done():
+            exc = server_task.exception()
+            _log_startup_failure(logger, exc)
+            server.should_exit = True
+            raise RuntimeError("web-host-task-exited-early") from exc
         if logger is not None:
-            logger.warning("[WEB] Web host startup timed out")
+            logger.warning("[WEB] Web host startup timed out after %.0fs", _STARTUP_TIMEOUT)
         server.should_exit = True
         server_task.cancel()
         try:
@@ -424,14 +435,6 @@ async def start_runtime_read_only_web_host(
         except (asyncio.TimeoutError, asyncio.CancelledError):
             pass
         raise RuntimeError("web-host-startup-timeout")
-
-    # Check if task exited prematurely
-    if server_task.done():
-        exc = server_task.exception()
-        if logger is not None:
-            logger.warning(f"[WEB] Web host task exited before startup: {exc}")
-        server.should_exit = True
-        raise RuntimeError("web-host-task-exited-early")
 
     if logger is not None:
         logger.info(f"[WEB] Read-only web host ready on {host}:{port}")
@@ -444,10 +447,33 @@ async def start_runtime_read_only_web_host(
     )
 
 
-async def _wait_for_startup(server: Any) -> None:
-    """Poll until ``server.started`` is ``True``."""
+async def _wait_for_startup(server: Any, server_task: asyncio.Task[Any]) -> None:
+    """Poll until ``server.started`` is ``True``.
+
+    If *server_task* finishes before ``server.started`` becomes true,
+    the task's exception is re-raised immediately instead of waiting
+    for the full startup timeout.
+    """
     while not getattr(server, "started", False):
+        if server_task.done():
+            exc = server_task.exception()
+            if exc is not None:
+                raise exc
+            raise RuntimeError("web-host-task-exited-early")
         await asyncio.sleep(0.1)
+
+
+def _log_startup_failure(
+    logger: logging.Logger | None,
+    exc: BaseException | None,
+) -> None:
+    """Log the complete traceback of a startup failure."""
+    msg = f"[WEB] Web host task exited before startup: {exc}"
+    if logger is not None:
+        logger.warning(msg)
+    print(msg, file=sys.stderr)
+    if exc is not None:
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

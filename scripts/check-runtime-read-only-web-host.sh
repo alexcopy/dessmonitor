@@ -195,11 +195,13 @@ print('OK')
 # 8 — Real embedded server test (requires fastapi + uvicorn)
 # -------------------------------------------------------------------
 echo -n " [19] Real embedded server HTTP test ... "
-python3 - <<'PY' 2>&1 || echo "SKIP (fastapi/uvicorn not available)"
+python3 - <<'PY'
 import asyncio
 import json
 import socket
 import urllib.request
+import sys
+import traceback
 from app.web_runtime_integration import (
     is_runtime_web_host_enabled,
     start_runtime_read_only_web_host,
@@ -233,22 +235,23 @@ def find_free_port():
 
 async def main():
     free_port = find_free_port()
-    handle = await start_runtime_read_only_web_host(
-        devices_provider=get_devs,
-        environ={
-            'WEB_HOST_ENABLED': '1',
-            'WEB_HOST_BIND': '127.0.0.1',
-            'WEB_HOST_PORT': str(free_port),
-        },
-    )
-    assert handle is not None, "handle should not be None"
-
-    # Give the server a moment
-    await asyncio.sleep(0.5)
-
-    # HTTP GET
-    url = f'http://127.0.0.1:{free_port}/control/state'
+    handle = None
     try:
+        handle = await start_runtime_read_only_web_host(
+            devices_provider=get_devs,
+            environ={
+                'WEB_HOST_ENABLED': '1',
+                'WEB_HOST_BIND': '127.0.0.1',
+                'WEB_HOST_PORT': str(free_port),
+            },
+        )
+        assert handle is not None, "handle should not be None"
+
+        # Give the server a moment
+        await asyncio.sleep(0.5)
+
+        # HTTP GET
+        url = f'http://127.0.0.1:{free_port}/control/state'
         resp = urllib.request.urlopen(url, timeout=3)
         body = resp.read().decode('utf-8')
         assert resp.status == 200, f"expected 200 got {resp.status}"
@@ -260,18 +263,21 @@ async def main():
         assert 'KEY-HTTP-SECRET' not in body, "control_key leaked"
         assert 'API-HTTP-SECRET' not in body, "api_key leaked"
     finally:
-        pass
+        if handle is not None:
+            await stop_runtime_read_only_web_host(handle)
+            # Wait for task to finish
+            try:
+                await asyncio.wait_for(handle.task, timeout=3)
+            except asyncio.TimeoutError:
+                pass
+            assert handle.task.done(), "server task should be done"
 
-    await stop_runtime_read_only_web_host(handle)
-    # Wait for task to finish
-    try:
-        await asyncio.wait_for(handle.task, timeout=3)
-    except asyncio.TimeoutError:
-        pass
-    assert handle.task.done(), "server task should be done"
-
-asyncio.run(main())
-print("OK")
+try:
+    asyncio.run(main())
+    print("OK")
+except Exception:
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 PY
 echo ""
 

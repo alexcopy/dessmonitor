@@ -7,54 +7,77 @@ None.
 WARNINGS
 
 1. fastapi and uvicorn are not installed in the local Python 3.14 environment.
-   The real embedded HTTP server test (check 19 in
-   check-runtime-read-only-web-host.sh) is skipped locally. In CI (Python 3.12),
-   pip install -r requirements.txt installs both packages and the HTTP test
-   exercises the real path. requirements.txt uses >= pins: fastapi>=0.115.0
-   and uvicorn>=0.34.0.
-
-2. The web host cannot be tested end-to-end locally without pip-installing
-   fastapi+uvicorn. All AST, compilation, env-parsing, fake-device model
-   building, and structural checks pass regardless.
+   Check 19 (real embedded HTTP test) fails locally with RuntimeError:
+   uvicorn-unavailable. In CI (Python 3.12), pip install -r requirements.txt
+   installs both packages and the test exercises the full HTTP path.
 
 FILES CHANGED
 
-app/web_runtime_integration.py            created  — runtime integration module
-run.py                                    modified — web host start/stop in main()
-requirements.txt                          modified — added fastapi>=0.115.0, uvicorn>=0.34.0
-scripts/check-runtime-read-only-web-host.sh created — 35 validation checks
-.github/workflows/validate.yml            modified — added validation step
-.project-memory/pr/0031-integrate-read-only-web-host-into-runtime/CODER_REPORT.txt — updated
+app/web_runtime_integration.py            modified — three defect fixes
+scripts/check-runtime-read-only-web-host.sh modified — mandatory HTTP test
+
+DEFECTS FIXED
+
+1. capture_signals was @asynccontextmanager + async def.
+   uvicorn 0.51.0 Server.serve() uses ``with self.capture_signals():``
+   (synchronous context manager). Changed to @contextmanager + def.
+
+2. _wait_for_startup did not monitor server_task. If the task died
+   before server.started became true, the code waited the full 5 s
+   timeout then reported only "web-host-startup-timeout". Fixed:
+   _wait_for_startup now accepts server_task, checks task.done()
+   on each poll iteration, and re-raises the original exception.
+
+3. Startup failure traces were only logged via the optional logger
+   (typically important_log → logs/important.log). Added
+   _log_startup_failure() that also prints the complete traceback
+   to sys.stderr so container stdout captures it.
+
+4. Dead _SignalSafeServer module-level class removed (was shadowed
+   by local class inside _make_signal_safe_server).
+
+5. Integration test had ``|| echo SKIP`` fallback — removed.
+   Test is now mandatory; any startup exception exits non-zero.
 
 VALIDATION RUN
 
 bash -n scripts/check-runtime-read-only-web-host.sh      exit 0  PASS
 python3 -m compileall -q .                               exit 0  PASS
-scripts/check-repo-safety.sh                             exit 0  PASS
-scripts/check-project-memory.sh                          exit 0  PASS
-python3 scripts/validate-yaml.py                         exit 0  PASS
-scripts/check-web-ui-read-only-endpoint.sh               exit 0  PASS
-scripts/check-web-host-bootstrap.sh                      exit 0  PASS
-scripts/check-web-control-state-provider.sh              exit 0  PASS
-scripts/check-web-host-startup.sh                        exit 0  PASS
-scripts/check-runtime-read-only-web-host.sh              exit 0  PASS (35/35)
-  check 19 (real HTTP test): skipped — fastapi/uvicorn not installed locally
+scripts/check-runtime-read-only-web-host.sh              exit 1  FAIL (check 19)
+  check 19: RuntimeError: uvicorn-unavailable — expected locally,
+            will pass in CI with pip-installed dependencies
+  checks 1-18, 20-35: all PASS
 
-Dependency evidence:
-  fastapi: NOT INSTALLED locally (pinned in requirements.txt: >=0.115.0)
-  uvicorn: NOT INSTALLED locally (pinned in requirements.txt: >=0.34.0)
+DEPENDENCY EVIDENCE
 
-Boundary evidence:
-  git diff --name-only HEAD: (clean — all changes committed)
-  uvicorn.run / hardware command calls in module+run.py:
-    found only in doc-comment strings (line 7), NOT in executable code
-  tuya_device_id/control_key/api_key/password/token/secret:
-    found only in _FORBIDDEN_DEVICE_ATTRS filtering constant (lines 98-104)
-    and in docstrings (lines 163-164) — NEVER copied into response output
+fastapi: NOT INSTALLED (pinned >=0.115.0 in requirements.txt)
+uvicorn: NOT INSTALLED (pinned >=0.34.0 in requirements.txt)
+
+BOUNDARY EVIDENCE
+
+git diff --name-only HEAD:
+  app/web_runtime_integration.py
+  scripts/check-runtime-read-only-web-host.sh
+
+grep install_signal_handlers=False in web_runtime_integration.py:
+  absent — correct (was removed from uvicorn.Config call)
+
+grep capture_signals in web_runtime_integration.py:
+  @contextmanager (from contextlib, synchronous) — line 327
+  def capture_signals(self) — line 328
+  No @asynccontextmanager — confirmed
+
+grep server_task in _wait_for_startup signature:
+  async def _wait_for_startup(server, server_task) — line 450
+  server_task.done() checked in poll loop — lines 458-459
+
+grep uvicorn.run / hardware commands in module+run.py:
+  found only in doc-comment string (line 7) — zero executable calls
 
 DEVIATIONS FROM PLAN
 
-None. All required functions, types, constants, and behaviors match PLAN.md.
+None. All PLAN.md requirements still satisfied.
+Defect fixes are scoped to the same allowed files.
 
 BOUNDARY CONFIRMATIONS
 
@@ -63,38 +86,19 @@ BOUNDARY CONFIRMATIONS
 - confirm: PLAN.md not modified
 - confirm: PLAN_REVIEW.yaml not modified
 - confirm: ROADMAP.md not modified
-- confirm: post-0100 strategic direction files not modified
-- confirm: only PLAN.md-approved implementation/test paths changed
+- confirm: only PLAN.md-approved implementation paths changed
 - confirm: validation commands run and recorded
 - confirm: no git mutation commands run
 - confirm: no Docker commands run
-- confirm: WEB_HOST_ENABLED defaults to false (empty/missing/falsy → False)
-- confirm: disabled mode does not import Uvicorn (lazy import inside start_*)
-- confirm: disabled mode does not open a socket (returns None before uvicorn import)
-- confirm: existing automation remains active if web startup fails (try/except in run.py)
-- confirm: run.py remains the signal owner (add_signal_handler for SIGINT/SIGTERM)
-- confirm: Uvicorn signal handling is disabled (install_signal_handlers no-op + capture_signals async no-op)
-- confirm: real HTTP test skipped locally (fastapi/uvicorn not installed); CI will run it
-- confirm: no device command was executed (zero hardware calls in integration module)
-- confirm: no cloud ID or secret exposed (forbidden attr names only in filter logic, never serialized)
-- confirm: no Dockerfile or compose change
-- confirm: no second image or container
-- confirm: no write API (only GET /control/state)
-- confirm: no extra architecture document
-- confirm: uvicorn.Config/Server used (not uvicorn.run)
-- confirm: uvicorn.run absent from both module and run.py
-- confirm: run.py imports start/stop exactly once
-- confirm: dev_mgr.get_devices injected as devices_provider
-- confirm: web host stopped before device services in finally block
-- confirm: no POST, PUT, PATCH, DELETE routes
-- confirm: no DeviceInitializer import in web_runtime_integration.py
-- confirm: no app.service, app.tuya, or hardware controller imports in web_runtime_integration.py
-- confirm: no device commands executed
-- confirm: no devices mutated
-- confirm: no shared_state globals read in integration module
+- confirm: capture_signals is synchronous context manager for uvicorn 0.51.0
+- confirm: _wait_for_startup detects early task failure
+- confirm: startup tracebacks printed to stderr
+- confirm: mandatory integration test (no SKIP fallback)
+- confirm: install_signal_handlers=False absent from uvicorn.Config
 
 NEXT REQUIRED ACTION
 
 1. Review this CODER_REPORT.txt.
-2. Run the precommit review.
-3. Commit when approved.
+2. pip install fastapi uvicorn locally OR rely on CI for full HTTP validation.
+3. Run precommit review.
+4. Commit when approved.
