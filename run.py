@@ -19,6 +19,11 @@ from app.tuya.relay_tuya_controller import RelayTuyaController
 from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
 from app.tuya.tuya_authorisation import TuyaAuthorisation
 from app.weather.openweather_service import OpenWeatherService
+from app.web_runtime_integration import (
+    RuntimeWebHostHandle,
+    start_runtime_read_only_web_host,
+    stop_runtime_read_only_web_host,
+)
 from service.inverter_monitor import InverterMonitor
 
 
@@ -90,6 +95,9 @@ async def main() -> None:
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop_event.set)
+
+    # ─── 6b. OPTIONAL WEB HOST ──────────────────────────────────
+    web_host_handle: RuntimeWebHostHandle | None = None
 
     # ─── 7. DUAL ML DATA COLLECTORS (CSV + TimescaleDB) ────────
     # CSV/JSON коллектор (бэкап)
@@ -196,6 +204,15 @@ async def main() -> None:
     else:
         ml_db_task = None
 
+    # ─── 7b. OPTIONAL EMBEDDED WEB HOST START ───────────────────
+    try:
+        web_host_handle = await start_runtime_read_only_web_host(
+            devices_provider=dev_mgr.get_devices,
+            logger=important_log,
+        )
+    except Exception as exc:
+        important_log.warning(f"[WEB] Read-only host not started: {exc}")
+
     # ─── 8. ОСНОВНОЙ ЦИКЛ ──────────────────────────────────────
     try:
         important_log.info("All services started. Running main loop...")
@@ -239,6 +256,10 @@ async def main() -> None:
     finally:
         # ─── 9. ОСТАНОВКА ВСЕХ СЕРВИСОВ ───────────────────────
         important_log.info("Shutting down...")
+
+        # Останавливаем web-хост перед device-сервисами
+        if web_host_handle is not None:
+            await stop_runtime_read_only_web_host(web_host_handle, logger=important_log)
 
         # Останавливаем фоновые сервисы
         updater.stop()

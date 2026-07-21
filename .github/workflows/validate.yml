@@ -119,3 +119,6 @@ jobs:
 
       - name: 🔍 Web host startup check
         run: bash scripts/check-web-host-startup.sh
+
+      - name: 🔍 Runtime read-only web host check
+        run: bash scripts/check-runtime-read-only-web-host.sh
