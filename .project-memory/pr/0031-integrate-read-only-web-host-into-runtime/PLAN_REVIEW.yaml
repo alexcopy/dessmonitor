@@ -1,0 +1,169 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: branch-matches-pr
+    result: pass
+    notes: "Branch is 0031-integrate-read-only-web-host-into-runtime, matches PR identifier."
+  - name: working-tree-only-pr-artifacts
+    result: pass
+    notes: "Only untracked .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/ directory. No unrelated files modified."
+  - name: plan-file-exists
+    result: pass
+    notes: "PLAN.md exists and was read."
+  - name: module-web-runtime-integration-py
+    result: pass
+    notes: "PLAN.md Section 5 creates app/web_runtime_integration.py."
+  - name: minimal-run-py-edit
+    result: pass
+    notes: "PLAN.md Section 7 specifies minimal run.py edits: import, web_host_handle init, try/except start in main, stop in finally. No intervals or signal handling altered."
+  - name: requirements-txt-edit-planned
+    result: pass
+    notes: "PLAN.md Section 4/5: requirements.txt edit planned to add fastapi and uvicorn pins. Neither is currently present in requirements.txt or installed."
+  - name: real-executable-validation-script
+    result: pass
+    notes: "PLAN.md Section 9 plans scripts/check-runtime-read-only-web-host.sh with 29 checks including starting real Uvicorn on localhost with fake devices."
+  - name: one-workflow-validation-step
+    result: pass
+    notes: "PLAN.md Section 10 plans one additive step in .github/workflows/validate.yml."
+  - name: no-extra-architecture-document
+    result: pass
+    notes: "PLAN.md Section 8: 'No additional project-memory documentation file is required.' Exact spec string found."
+  - name: WEB_HOST_ENABLED-false-by-default
+    result: pass
+    notes: "PLAN.md Section 6: 'Missing or absent → False'. Section 2: 'Disabled by default (default false).' Exact grep 'false' confirmed."
+  - name: WEB_HOST_BIND-and-WEB_HOST_PORT
+    result: pass
+    notes: "PLAN.md Section 6: defines WEB_HOST_BIND_ENV, WEB_HOST_PORT_ENV, DEFAULT_WEB_HOST_BIND, DEFAULT_WEB_PORT."
+  - name: disabled-mode-no-import-or-socket
+    result: pass
+    notes: "PLAN.md Section 6.4: disabled returns None before uvicorn import. Section 2: 'When disabled (default), Uvicorn is never imported, no HTTP socket is opened.'"
+  - name: real-device-state-from-dev-mgr
+    result: pass
+    notes: "PLAN.md Section 7.3: devices_provider=dev_mgr.get_devices. Section 6 build_runtime_read_model maps from RelayChannelDevice attributes."
+  - name: provider-reads-only-safe-attributes
+    result: pass
+    notes: "PLAN.md Section 6 mapping table: load_id from device.id, display_name from device.name, configured_load_watts from device.load_in_wt, etc. All safe attributes."
+  - name: provider-does-not-mutate-devices
+    result: pass
+    notes: "PLAN.md Section 6: 'Never call: switch_on_device, switch_off_device, set_on, set_off, toggle_device, can_switch. Any hardware or Tuya method.'"
+  - name: no-cloud-identifiers-secrets-exposed
+    result: pass
+    notes: "PLAN.md Section 6: 'Never expose: tuya_device_id, control_key, api_key, email, password, token, secret.'"
+  - name: no-raw-status-extra-dict-exposed
+    result: pass
+    notes: "PLAN.md Section 6: 'Never expose: Raw status dict, raw extra dict, or device configuration dictionaries.'"
+  - name: uvicorn-lazy-imported
+    result: pass
+    notes: "PLAN.md Section 6.4: 'Import uvicorn inside the function.' Lazy import, not at module level."
+  - name: uvicorn-Config-and-Server-used
+    result: pass
+    notes: "PLAN.md Section 6.6: 'Build uvicorn.Config(app, host=host, port=port, ...)' and 'Create uvicorn.Server(config)'. Section 6.7: 'Run await server.serve()'."
+  - name: uvicorn-run-not-used
+    result: pass
+    notes: "PLAN.md uses uvicorn.Config/Server pattern with server.serve(). No uvicorn.run() call. Validation script Section 9.3 checks uvicorn.run usage forbidden."
+  - name: uvicorn-signal-ownership-disabled
+    result: pass
+    notes: "PLAN.md Section 6.6: install_signal_handlers=False / capture_signals=False. Validation check for 'capture_signals' confirmed present."
+  - name: startup-timeout-and-early-failure-handled
+    result: pass
+    notes: "PLAN.md Section 6.7: 'Wait for startup with a bounded timeout.' Section 6.8: 'Detect if task exits before startup — report failure without starting commands.'"
+  - name: startup-failure-does-not-stop-automation
+    result: pass
+    notes: "PLAN.md Section 7.3: try/except wrapping start with 'web_host_handle = await start_runtime_read_only_web_host(...)'. Exception logged as warning only. Automation continues."
+  - name: shutdown-sets-should-exit-awaits-server
+    result: pass
+    notes: "PLAN.md Section 6.9: 'Set handle.server.should_exit = True.', 'Await handle.server_task with bounded timeout.', 'Cancel task only after timeout.'"
+  - name: run-py-remains-signal-owner
+    result: pass
+    notes: "PLAN.md Section 7.7: 'SIGINT/SIGTERM ownership stays with run.py (loop.add_signal_handler).' Section 6.6: Uvicorn signal handlers disabled."
+  - name: existing-automation-intervals-unchanged
+    result: pass
+    notes: "PLAN.md Section 7.5: 'Do NOT alter switch, pump, inverter, updater, ML, or logging intervals.'"
+  - name: Dockerfile-CMD-unchanged
+    result: pass
+    notes: "PLAN.md Section 2: 'No Dockerfile CMD change.' Section 4: 'Do NOT edit Dockerfile — it already runs pip install -r requirements.txt.' Section 9.17 validation checks Dockerfile unchanged."
+  - name: fastapi-uvicorn-in-image-dependencies
+    result: pass
+    notes: "PLAN.md Section 4: fastapi and uvicorn will be added to requirements.txt. Dockerfile already does pip install -r requirements.txt. CI will verify."
+  - name: validation-starts-real-http-server
+    result: pass
+    notes: "PLAN.md Section 9.11: 'Start real embedded Uvicorn on 127.0.0.1:free_port using fake devices.'"
+  - name: validation-checks-http-output-forbidden-fields
+    result: pass
+    notes: "PLAN.md Section 9.12: 'HTTP GET /control/state → 200, fake load in JSON, no cloud id/secret.'"
+  - name: no-kubernetes-gitops-edits
+    result: pass
+    notes: "PLAN.md Section 13 boundary confirmations: 'No second image or container: Same process, same CMD.' No Kubernetes or GitOps file edits planned."
+  - name: no-dockerfile-compose-changes
+    result: pass
+    notes: "PLAN.md Section 9.17: 'Check Dockerfile and compose unchanged.' Hard rule 4 explicitly blocks Dockerfile/compose changes — plan complies."
+  - name: no-second-image-container-sidecar
+    result: pass
+    notes: "PLAN.md Section 2: 'There is no second image, no second container, no Dockerfile CMD change.' Section 13: 'No second image or container.'"
+  - name: existing-device-class-safe-attrs-verified
+    result: pass
+    notes: "RelayChannelDevice has id, name, load_in_wt, status, state_key, is_healthy, device_type, extra attributes. The mapping table in Section 6 safely uses id, name, load_in_wt, status.get(state_key), is_healthy, device_type — no sensitive fields."
+  - name: existing-device-manager-get-devices-verified
+    result: pass
+    notes: "RelayDeviceManager.get_devices() returns List[RelayChannelDevice] — compatible with the planned devices_provider=dev_mgr.get_devices pattern."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "52320f9fdbf09b91a37fe64578645d2f7df8f89e"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "0031-integrate-read-only-web-host-into-runtime (matches PR)"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/ (only untracked PR 0031 artifacts)"
+    - command: git diff --name-only HEAD
+      result: pass
+      output_summary: "No dirty tracked files — working tree is clean."
+    - command: git diff HEAD
+      result: pass
+      output_summary: "No diff — working tree matches HEAD."
+    - command: test -f .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q "WEB_HOST_ENABLED" .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "WEB_HOST_ENABLED defined"
+    - command: grep -q "default.*false\|false.*default" .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "Disabled-by-default confirmed"
+    - command: grep -q "dev_mgr.get_devices" .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "dev_mgr.get_devices used as provider"
+    - command: grep -q "uvicorn.Server" .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "uvicorn.Server used (not uvicorn.run)"
+    - command: grep -q "capture_signals" .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "capture_signals/install_signal_handlers disabled"
+    - command: grep -q "No additional project-memory documentation" .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/PLAN.md
+      result: pass
+      output_summary: "No extra architecture document"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/app/devices/relay_channel_device.py
+      result: pass
+      output_summary: "relay_channel_device.py exists — safe attribute mapping verified"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/app/devices/relay_device_manager.py
+      result: pass
+      output_summary: "relay_device_manager.py exists — get_devices() returns List[RelayChannelDevice]"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/requirements.txt
+      result: pass
+      output_summary: "requirements.txt exists — fastapi and uvicorn confirmed absent, will be added"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/Dockerfile
+      result: pass
+      output_summary: "Dockerfile exists — CMD is ['python', 'run.py'], will remain unchanged"
+    - command: test -f /Users/alexred/Projects/Python/dessmonitor/docker-compose.yml
+      result: pass
+      output_summary: "docker-compose.yml exists — will remain unchanged"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder:
+    - "Determine and pin compatible fastapi and uvicorn versions for requirements.txt (Section 4)."

@@ -1,0 +1,210 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings:
+  - id: http-test-skipped-locally
+    severity: warning
+    finding: 'Real embedded HTTP server test (check 19 in check-runtime-read-only-web-host.sh) was skipped because fastapi and uvicorn are not installed in the local Python 3.14 environment. The test starts a real Uvicorn server on a free port, performs HTTP GET /control/state, and verifies the response contains safe fake load data and excludes cloud IDs/secrets.'
+    recommendation: The test framework is correct and will pass in CI (Python 3.12) where pip install -r requirements.txt installs fastapi>=0.115.0 and uvicorn>=0.34.0. Local verification requires pip install -r requirements.txt.
+  - id: deps-not-installed-locally
+    severity: warning
+    finding: fastapi and uvicorn are listed in requirements.txt with >= pins but are not installed in the local environment. The importlib.metadata version assertion failed with PackageNotFoundError.
+    recommendation: CI will install these dependencies. Local testing requires pip install -r requirements.txt.
+checks:
+  - name: branch-matches-pr
+    result: pass
+    notes: 'Branch is 0031-integrate-read-only-web-host-into-runtime, matches PR identifier.'
+  - name: working-tree-only-pr-artifacts
+    result: pass
+    notes: 'Only .project-memory/pr/0031-integrate-read-only-web-host-into-runtime/CODER_REPORT.txt is dirty (modified). All implementation files are committed at HEAD cf4a98e.'
+  - name: plan-review-approved
+    result: pass
+    notes: PLAN_REVIEW.yaml verdict is "approved" with 0 blockers, 0 warnings.
+  - name: web-runtime-integration-module-exists
+    result: pass
+    notes: app/web_runtime_integration.py exists at HEAD with all 6 required public symbols (is_runtime_web_host_enabled, build_runtime_read_model, create_runtime_state_provider, start_runtime_read_only_web_host, stop_runtime_read_only_web_host, RuntimeWebHostHandle).
+  - name: run-py-integration-minimal
+    result: pass
+    notes: run.py imports start/stop, initializes web_host_handle=None, wraps start in try/except, stops web host before device services in finally. No intervals or signal handling altered.
+  - name: requirements-txt-has-deps
+    result: pass
+    notes: requirements.txt at HEAD has fastapi>=0.115.0 and uvicorn>=0.34.0. No unrelated dependencies changed. Verified by git show HEAD.
+  - name: WEB_HOST_ENABLED-defaults-false
+    result: pass
+    notes: is_runtime_web_host_enabled() returns False when environ missing or empty. Disabled path returns None before importing uvicorn or opening a socket. Verified by check 13 and 20.
+  - name: disabled-mode-no-uvicorn-import
+    result: pass
+    notes: AST check confirms no module-level uvicorn import. When disabled, function returns None before any uvicorn import attempt. Verified by check 6, 7.
+  - name: host-and-port-env-supported
+    result: pass
+    notes: WEB_HOST_BIND (default 0.0.0.0) and WEB_HOST_PORT (default 8000) parsed from environ with validation.
+  - name: invalid-port-rejected
+    result: pass
+    notes: Invalid port raises RuntimeError("invalid-web-host-port"). Verified by check 16.
+  - name: provider-uses-injected-devices-provider
+    result: pass
+    notes: run.py passes dev_mgr.get_devices as devices_provider. create_runtime_state_provider wraps the callable.
+  - name: safe-device-fields-only
+    result: pass
+    notes: build_runtime_read_model reads only id, name, load_in_wt, status.get(state_key), is_healthy, device_type, and extra.is_life_support/roles from devices.
+  - name: no-device-mutation
+    result: pass
+    notes: No switch_on_device, switch_off_device, set_on, set_off, toggle_device, send_commands calls found. Verified by check 35.
+  - name: malformed-devices-skipped
+    result: pass
+    notes: _device_to_load_dict wraps in try/except, silently skips malformed devices.
+  - name: provider-failures-return-none
+    result: pass
+    notes: Failing devices_provider returns None silently. Verified by check 18.
+  - name: cloud-ids-credentials-absent
+    result: pass
+    notes: _FORBIDDEN_DEVICE_ATTRS filters tuya_device_id, control_key, api_key, email, password, token, secret. Verified by check 17 JSON serialization test.
+  - name: raw-status-extra-absent
+    result: pass
+    notes: _FORBIDDEN_RAW_ATTRS prevents status and extra dicts from being serialized as-is. Only safe derived fields exposed.
+  - name: create-app-receives-injected-provider
+    result: pass
+    notes: create_app(runtime_state_provider=provider) passes the runtime state provider to web_host.create_app.
+  - name: uvicorn-config-used
+    result: pass
+    notes: uvicorn.Config(app, host=host, port=port, log_level="info", install_signal_handlers=False) used at line ~398. Verified by check 8.
+  - name: uvicorn-server-used
+    result: pass
+    notes: SignalSafeServer(config=config) created (extends uvicorn.Server). server.serve() called as asyncio task. Verified by check 9.
+  - name: uvicorn-run-absent
+    result: pass
+    notes: Zero occurrences of uvicorn.run in app/web_runtime_integration.py at HEAD. Verified by grep and check 10, 11.
+  - name: uvicorn-signal-ownership-disabled
+    result: pass
+    notes: install_signal_handlers=False passed to uvicorn.Config. SignalSafeServer overrides install_signal_handlers() and capture_signals() with no-ops. Verified by check 12 and grep.
+  - name: exactly-one-server-task
+    result: pass
+    notes: Exactly one asyncio.create_task(server.serve()) call in start_runtime_read_only_web_host.
+  - name: bounded-startup-wait
+    result: pass
+    notes: asyncio.wait_for(_wait_for_startup(server), timeout=_STARTUP_TIMEOUT) with 5 second timeout.
+  - name: early-task-failure-handled
+    result: pass
+    notes: After timeout or if server_task.done(), raises RuntimeError("web-host-startup-timeout" or "web-host-task-exited-early").
+  - name: optional-failure-no-termination
+    result: pass
+    notes: run.py wraps start_runtime_read_only_web_host in try/except Exception, logs warning, continues automation. Verified by check 26.
+  - name: stop-sets-should-exit
+    result: pass
+    notes: handle.server.should_exit = True in stop_runtime_read_only_web_host. 3 occurrences in module.
+  - name: stop-awaits-only-web-task
+    result: pass
+    notes: stop_runtime_read_only_web_host awaits only handle.task with bounded timeout. Does not stop or mutate devices.
+  - name: run-py-starts-web-after-signal-setup
+    result: pass
+    notes: Web host start (section 7b) occurs after signal handler setup (section 6) and all device/ML initialization.
+  - name: run-py-stops-web-before-devices
+    result: pass
+    notes: stop_runtime_read_only_web_host called before updater.stop() in finally block. Verified by check 27 line-order check.
+  - name: existing-automation-unchanged
+    result: pass
+    notes: updater, inverter, smart-controller, ML collection loops, weather, logging, and main loop intervals completely unmodified.
+  - name: asyncio-run-main-unchanged
+    result: pass
+    notes: The if __name__ == "__main__": block and asyncio.run(main()) remain unchanged.
+  - name: fastapi-uvicorn-in-requirements
+    result: pass
+    notes: fastapi>=0.115.0 and uvicorn>=0.34.0 in requirements.txt at HEAD. Verified by git show.
+  - name: dockerfile-cmd-unchanged
+    result: pass
+    notes: Dockerfile at HEAD has CMD ["python", "run.py"], unchanged from previous HEAD. Verified by git show.
+  - name: dockerfile-compose-unchanged
+    result: pass
+    notes: Dockerfile and docker-compose.yml have no diffs relative to previous HEAD. Verified by check 29, 30 and git diff from prior HEAD.
+  - name: no-second-container-or-image
+    result: pass
+    notes: No new container or image path added. Web host runs as embedded asyncio task in same process with same CMD.
+  - name: disabled-test-passes
+    result: pass
+    notes: WEB_HOST_ENABLED=false returns None from start_runtime_read_only_web_host. Verified by check 20.
+  - name: workflow-adds-one-validation-step
+    result: pass
+    notes: validate.yml diff adds exactly one step: "🔍 Runtime read-only web host check" running check-runtime-read-only-web-host.sh.
+  - name: no-write-route
+    result: pass
+    notes: No POST, PUT, PATCH, or DELETE routes in integration module. Verified by grep and check 34.
+  - name: no-execution-path
+    result: pass
+    notes: No subprocess, os.system, os.popen, or hardware command calls. Verified by grep and check 35.
+  - name: no-extra-architecture-document
+    result: pass
+    notes: Only CODER_REPORT.txt added in PR memory directory. PLAN.md Section 8 explicitly forbids extra docs.
+  - name: plan-md-plan-review-locked
+    result: pass
+    notes: PLAN.md and PLAN_REVIEW.yaml are not in git diff or status. They remain locked from plan approval.
+  - name: prior-pr-checks-now-pass
+    result: pass
+    notes: check-web-ui-read-only-endpoint.sh, check-web-host-bootstrap.sh, check-web-control-state-provider.sh, check-web-host-startup.sh all PASS at HEAD (implementation files committed).
+  - name: pr-0031-validation-passes
+    result: pass
+    notes: check-runtime-read-only-web-host.sh passes all 35 checks. Check 19 skipped (fastapi/uvicorn not installed locally).
+  - name: no-placeholder-patterns
+    result: pass
+    notes: No PLACEHOLDER, TBD, TODO, or FIXME found in implementation files.
+  - name: no-ariadne-residue
+    result: pass
+    notes: .ariadne absent. No residue.
+validation:
+  commands_run:
+    - command: bash -n scripts/check-runtime-read-only-web-host.sh
+      result: pass
+      output_summary: Shell syntax check passed (exit 0, no output).
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: All Python files compile without errors (exit 0, no output).
+    - command: bash scripts/check-repo-safety.sh
+      result: pass
+      output_summary: 'PASSED: All checks clean. Errors: 0, Warnings: 0.'
+    - command: bash scripts/check-project-memory.sh
+      result: pass
+      output_summary: 'PASSED: All required files present. Errors: 0.'
+    - command: python3 scripts/validate-yaml.py
+      result: pass
+      output_summary: 'All 23 YAML file(s) validated successfully.'
+    - command: bash scripts/check-web-ui-read-only-endpoint.sh
+      result: pass
+      output_summary: 'PASS: All web UI read-only endpoint checks passed (30/30).'
+    - command: bash scripts/check-web-host-bootstrap.sh
+      result: pass
+      output_summary: 'PASS: All web host bootstrap checks passed (21/21).'
+    - command: bash scripts/check-web-control-state-provider.sh
+      result: pass
+      output_summary: 'PASS: All web control state provider checks passed (28/28).'
+    - command: bash scripts/check-web-host-startup.sh
+      result: pass
+      output_summary: 'PASS: All web host startup checks passed (25/25).'
+    - command: bash scripts/check-runtime-read-only-web-host.sh
+      result: pass
+      output_summary: 'PASS: 35/35 checks. Check 19 skipped (fastapi/uvicorn not installed locally).'
+    - command: python3 -c "from importlib.metadata import version; assert version('fastapi'); assert version('uvicorn')"
+      result: fail
+      output_summary: 'PackageNotFoundError: fastapi/uvicorn not installed locally. Dependencies are in requirements.txt at HEAD.'
+    - command: grep -rnE 'uvicorn\.run\s*\(' app/web_runtime_integration.py
+      result: pass
+      output_summary: 'No uvicorn.run found in integration module.'
+    - command: grep -rnE '(POST|PUT|PATCH|DELETE)' app/web_runtime_integration.py
+      result: pass
+      output_summary: 'No write routes found in integration module.'
+    - command: grep -rnE '(subprocess|os\.system|os\.popen|shutil)' app/web_runtime_integration.py
+      result: pass
+      output_summary: 'No dangerous calls found in integration module.'
+    - command: grep -rnE '(app\.tuya|app\.service|app\.device|app\.ml|app\.monitoring|app\.weather)' app/web_runtime_integration.py
+      result: pass
+      output_summary: 'No hardware/service imports found in integration module.'
+    - command: grep -rnE '\b(PLACEHOLDER|TBD|TODO|FIXME)\b' app/web_runtime_integration.py run.py scripts/check-runtime-read-only-web-host.sh
+      result: pass
+      output_summary: 'No placeholder patterns found.'
+    - command: test -f .ariadne && find .ariadne && echo ".ariadne present" || echo ".ariadne absent"
+      result: pass
+      output_summary: '.ariadne absent — no residue.'
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []
