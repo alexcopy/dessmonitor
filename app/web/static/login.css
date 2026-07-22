@@ -1,0 +1,189 @@
+/* login.css — minimal login page styling for dessmonitor */
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #1a1a2e;
+    background: #f0f2f5;
+    min-height: 100vh;
+}
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 1rem;
+}
+
+.login-container {
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    padding: 2rem;
+    width: 100%;
+    max-width: 400px;
+}
+
+.login-container h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    color: #1a1a2e;
+    text-align: center;
+}
+
+.login-container .subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 0.25rem;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fafbfc;
+    color: #1a1a2e;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    background: #ffffff;
+}
+
+.form-group input::placeholder {
+    color: #9ca3af;
+}
+
+.btn {
+    display: block;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: #ffffff;
+    background: #2563eb;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.btn:hover {
+    background: #1d4ed8;
+}
+
+.btn:active {
+    background: #1e40af;
+}
+
+.btn:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+.error-message {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    color: #991b1b;
+    font-size: 0.875rem;
+    padding: 0.625rem 0.75rem;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.footer {
+    margin-top: 1rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #9ca3af;
+}
+
+/* dark mode support */
+@media (prefers-color-scheme: dark) {
+    html {
+        color: #e5e7eb;
+        background: #111827;
+    }
+
+    .login-container {
+        background: #1f2937;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .login-container h1 {
+        color: #f9fafb;
+    }
+
+    .login-container .subtitle {
+        color: #9ca3af;
+    }
+
+    .form-group label {
+        color: #d1d5db;
+    }
+
+    .form-group input {
+        border-color: #4b5563;
+        background: #374151;
+        color: #f9fafb;
+    }
+
+    .form-group input:focus {
+        border-color: #60a5fa;
+        background: #1f2937;
+        box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+    }
+
+    .form-group input::placeholder {
+        color: #6b7280;
+    }
+
+    .btn {
+        background: #3b82f6;
+    }
+
+    .btn:hover {
+        background: #2563eb;
+    }
+
+    .error-message {
+        background: #450a0a;
+        border-color: #7f1d1d;
+        color: #fca5a5;
+    }
+
+    .footer {
+        color: #6b7280;
+    }
+}

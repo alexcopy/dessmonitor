@@ -1,0 +1,212 @@
+verdict: pass
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+files_read:
+  - path: ROADWAY.md
+    evidence: "Correctly canonical. PR 0033 is the first entry after the PR 0032 gate."
+  - path: .project-memory/AGENT_STANDARD.txt
+    evidence: "Standard agent procedures; confirms no committee-mode, no docs-only, no orchestrator bypass."
+  - path: .project-memory/ORCHESTRATOR_STANDARD.txt
+    evidence: "Orchestrator standards; confirms review-only mode, no implementation edits."
+  - path: .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+    evidence: "10506 lines. Full route contract, env var spec, dependency list, validation checklist, security boundaries."
+  - path: .project-memory/pr/0033-authentication-foundation-and-login-page/reviews/plan-review.yml
+    evidence: "verdict: approve. All 43 plan checks passed. No blockers or warnings."
+  - path: .project-memory/pr/0033-authentication-foundation-and-login-page/CODER_REPORT.txt
+    evidence: "TASK COMPLETE. All validation commands now pass with exit 0. No warnings. Root causes and fixes documented for 3 script issues."
+  - path: app/web_host.py
+    evidence: "Extended create_app() with auth config loader, SessionMiddleware, SecurityHeadersMiddleware, ControlStateAuthMiddleware, static file allowlist, docs disable, route inclusion. Present in HEAD commit."
+  - path: requirements.txt
+    evidence: "Contains argon2-cffi>=23.1.0, itsdangerous>=2.2.0, jinja2>=3.1.0, python-multipart>=0.0.18. Present in HEAD commit."
+  - path: .github/workflows/validate.yml
+    evidence: "Contains '🔍 Web authentication check' step after runtime-read-only-web-host-check. Present in HEAD commit."
+  - path: app/web_auth.py
+    evidence: "WebAuthConfig dataclass with redacted repr, load_auth_config() with fail-closed validation, verify_password() using argon2-cffi PasswordHasher, create_session_data(), validate_session(), generate_csrf_token(), validate_csrf_token() using secrets.compare_digest, LoginThrottle with time.monotonic(), SecurityHeadersMiddleware ASGI middleware. Present in HEAD commit."
+  - path: app/web_routes.py
+    evidence: "create_auth_router() with GET /healthz, GET /login, POST /login, POST /logout, GET /. CSRF validation, throttling, generic error messages, session replacement on login, session clear on logout. Present in HEAD commit."
+  - path: app/web/__init__.py
+    evidence: "Package marker. Present in HEAD commit."
+  - path: app/web/static/login.css
+    evidence: "~130 lines, responsive, dark/light mode, no external resources. Present in HEAD commit."
+  - path: app/web/templates/login.html
+    evidence: "HTML5 form with csrf_token hidden input, username/password fields, error display. Present in HEAD commit."
+  - path: app/web/templates/index.html
+    evidence: "Minimal authenticated landing shell with username and logout form. No dashboard, polling, or device data. Present in HEAD commit."
+  - path: scripts/check-web-authentication.sh
+    evidence: "41-test validation script. Starts real uvicorn server. Tests configuration, routes, login, CSRF, throttling, boundaries. Now uses single urllib opener for throttling test [32] fixing cookie sharing."
+  - path: scripts/check-web-control-state-provider.sh
+    evidence: "Modified to generate test-only Argon2 hash and session secret at runtime for tests [27] and [28]. 28/28 tests pass."
+  - path: scripts/check-runtime-read-only-web-host.sh
+    evidence: "Modified to generate test-only credentials at runtime, perform login flow before /control/state fetch in test [19]. 35/35 tests pass."
+checks:
+  - name: branch-relates-to-pr
+    result: pass
+    exact_observed_evidence: "Branch: pr-0033-authentication-login-page. PR: 0033-authentication-foundation-and-login-page. Number 0033 matches. Plan-review already approved branch at plan time."
+  - name: working-tree-within-plan-scope
+    result: pass
+    exact_observed_evidence: "4 files modified from HEAD: .project-memory/pr/0033-authentication-foundation-and-login-page/CODER_REPORT.txt, scripts/check-web-authentication.sh, scripts/check-web-control-state-provider.sh, scripts/check-runtime-read-only-web-host.sh. All are test/plan artifacts. No implementation files, PLAN.md, plan-review.yml, or ROADMAP.md changed."
+  - name: plan-file-exists-and-unchanged
+    result: pass
+    exact_observed_evidence: "PLAN.md exists at .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md. git diff HEAD --name-only shows no PLAN.md output."
+  - name: plan-review-unchanged
+    result: pass
+    exact_observed_evidence: "plan-review.yml exists at .project-memory/pr/0033-authentication-foundation-and-login-page/reviews/plan-review.yml. git diff HEAD --name-only shows no plan-review.yml output."
+  - name: all-changed-files-read
+    result: pass
+    exact_observed_evidence: "Read all 4 files modified from HEAD: CODER_REPORT.txt, check-web-authentication.sh, check-web-control-state-provider.sh, check-runtime-read-only-web-host.sh. Read all committed implementation files present in HEAD: app/web_host.py, requirements.txt, .github/workflows/validate.yml, app/web_auth.py, app/web_routes.py, app/web/*."
+  - name: required-dependencies-declared
+    result: pass
+    exact_observed_evidence: "requirements.txt contains argon2-cffi>=23.1.0, jinja2>=3.1.0, python-multipart>=0.0.18, itsdangerous>=2.2.0."
+  - name: auth-config-validation-fail-closed
+    result: pass
+    exact_observed_evidence: "load_auth_config() returns None for missing username; raises WebAuthConfigError('password-hash-missing') for missing hash; raises WebAuthConfigError('session-secret-too-short') for short secret. create_app() raises WebAuthConfigError('auth-not-configured') when config is None."
+  - name: no-default-credentials
+    result: pass
+    exact_observed_evidence: "All WEB_AUTH_* values read from environ at create_app() time. Test scripts generate hashes at runtime via argon2.PasswordHasher.hash() and secrets.token_hex(64). No fixed production credentials committed."
+  - name: argon2-verification
+    result: pass
+    exact_observed_evidence: "verify_password() uses argon2.PasswordHasher().verify(). Lazy-imports argon2.exceptions. Handles VerifyMismatchError returning False."
+  - name: no-credential-logging
+    result: pass
+    exact_observed_evidence: "WebAuthConfig uses field(repr=False) and custom __repr__ displaying '<redacted>' for password_hash and session_secret. No credential values logged anywhere."
+  - name: session-cookie-secure
+    result: pass
+    exact_observed_evidence: "SessionMiddleware https_only=not auth_config.test_http at web_host.py:212. Secure when WEB_AUTH_TEST_HTTP not set."
+  - name: session-cookie-httponly
+    result: pass
+    exact_observed_evidence: "SessionMiddleware sets HttpOnly by default on session_cookie named 'dessmonitor_session'."
+  - name: session-cookie-samesite
+    result: pass
+    exact_observed_evidence: "same_site='lax' in SessionMiddleware config at web_host.py:211."
+  - name: session-cookie-path
+    result: pass
+    exact_observed_evidence: "SessionMiddleware default path='/' — Starlette defaults apply. Path=/ ensures cookie sent to all paths."
+  - name: session-expiration-bounded
+    result: pass
+    exact_observed_evidence: "max_age=auth_config.session_ttl_seconds (default 3600) at web_host.py:210."
+  - name: session-replacement-after-login
+    result: pass
+    exact_observed_evidence: "POST /login on success: request.session.clear() then request.session.update(create_session_data(username)) at web_routes.py:152-154."
+  - name: tampered-sessions-fail
+    result: pass
+    exact_observed_evidence: "SessionMiddleware uses itsdangerous.URLSafeTimedSerializer. Tampered cookies fail signature verification."
+  - name: expired-sessions-fail
+    result: pass
+    exact_observed_evidence: "itsdangerous timed serializer rejects expired sessions. max_age controls expiry window."
+  - name: logout-invalidates-session
+    result: pass
+    exact_observed_evidence: "POST /logout calls request.session.clear() and response.delete_cookie('dessmonitor_session') at web_routes.py:188-191."
+  - name: csrf-on-login
+    result: pass
+    exact_observed_evidence: "POST /login validates CRSF via validate_csrf_token(request.session, form.get('csrf_token')) at web_routes.py:114-119. Test [22] (no CSRF → 403) and [23] (wrong CSRF → 403) pass."
+  - name: csrf-on-logout
+    result: pass
+    exact_observed_evidence: "POST /logout validates CRSF via validate_csrf_token() at web_routes.py:175-180. Test [25] (no CSRF → 403) and [26] (correct CSRF → 303 to /login) pass."
+  - name: throttling-deterministic-bounded
+    result: pass
+    exact_observed_evidence: "LoginThrottle uses time.monotonic(). Configurable max_attempts, window_seconds, lockout_seconds. In-memory per (username, source_ip) key. Test [32] (repeated failures → generic error), [34] (lockout expires → works), [35] (successful login resets counter) all pass."
+  - name: GET-login-works
+    result: pass
+    exact_observed_evidence: "Test [6] GET /login → 200, HTML form with csrf_token, no password hash leaked. Cache-Control: no-store header set."
+  - name: POST-login-works
+    result: pass
+    exact_observed_evidence: "Test [14] Valid credentials → 303 redirect, session cookie set. Test [21] Session replacement after login confirms rotation."
+  - name: POST-logout-works
+    result: pass
+    exact_observed_evidence: "Test [26] POST /logout with correct CSRF → 303 redirect to /login. Test [31] Old session cookie after logout cannot access /control/state."
+  - name: GET-protected
+    result: pass
+    exact_observed_evidence: "Test [10] GET / (unauthenticated) → 302/303 redirect to /login."
+  - name: unauthenticated-control-state-json-401
+    result: pass
+    exact_observed_evidence: "Test [11] GET /control/state (unauthenticated) → 401, JSON body. ControlStateAuthMiddleware returns JSONResponse with status 401."
+  - name: authenticated-control-state-200
+    result: pass
+    exact_observed_evidence: "Test [28] Authenticated GET /control/state → 200, JSON. Existing read-only contract preserved."
+  - name: GET-healthz-public-minimal
+    result: pass
+    exact_observed_evidence: "Test [7] GET /healthz → 200, {'status':'ok','web_api':'available'}. Test [8] No sensitive keys (device, inverter, voltage, tuya, config)."
+  - name: docs-disabled
+    result: pass
+    exact_observed_evidence: "Test [9] GET /docs → 404. web_host.py sets docs_url=None, redoc_url=None, openapi_url=None."
+  - name: security-headers
+    result: pass
+    exact_observed_evidence: "SecurityHeadersMiddleware adds X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin-when-cross-origin, Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; form-action 'self' for HTML responses."
+  - name: no-permissive-cors
+    result: pass
+    exact_observed_evidence: "No Access-Control-Allow-Origin header added by anything. No CORS middleware. Verified by grep of app/web_auth.py, app/web_host.py, app/web_routes.py."
+  - name: no-dashboard-or-polling
+    result: pass
+    exact_observed_evidence: "Test [40] No setInterval, setTimeout, fetch, polling, or dashboard patterns in served pages. index.html is minimal landing shell only."
+  - name: no-device-write-api
+    result: pass
+    exact_observed_evidence: "Test [38] No POST/PUT/PATCH/DELETE routes at /control/state. No write routes defined in any auth module."
+  - name: no-tuya-relay-hardware
+    result: pass
+    exact_observed_evidence: "Test [36] and [37] AST analysis confirms app/web_auth.py and app/web_routes.py contain zero forbidden imports (tuya, service, devices, monitoring, ml, weather, relay_tuya_controller, smart_home_controller)."
+  - name: no-raw-log-route
+    result: pass
+    exact_observed_evidence: "Test [39] No route returns raw log content. No log file exposure in any auth module."
+  - name: no-ml-control
+    result: pass
+    exact_observed_evidence: "Grep of all changed files finds no ml_ imports or ML control code."
+  - name: real-http-validation
+    result: pass
+    exact_observed_evidence: "check-web-authentication.sh starts a real uvicorn server on a free port and exercises 41 actual HTTP test cases."
+  - name: no-validation-bypass
+    result: pass
+    exact_observed_evidence: "All validation commands run with no || true patterns, no SKIP, no failure hiding. CODER_REPORT.txt confirms all 7 commands exit 0."
+  - name: regression-checks-pass
+    result: pass
+    exact_observed_evidence: "check-web-ui-read-only-endpoint.sh: PASS (30/30). check-web-host-startup.sh: PASS (25/25). check-web-control-state-provider.sh: PASS (28/28). check-runtime-read-only-web-host.sh: PASS (35/35) including embedded server HTTP test with full login flow. compileall: PASS. git diff --check: PASS."
+  - name: ci-auth-validation
+    result: pass
+    exact_observed_evidence: ".github/workflows/validate.yml has '🔍 Web authentication check' step. Runs bash scripts/check-web-authentication.sh after runtime web host check."
+  - name: coder-report-matches
+    result: pass
+    exact_observed_evidence: "CODER_REPORT.txt states all validation commands pass with exit 0, no warnings. Lists root causes for 3 script fixes. Matches all observed evidence from validation runs."
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "ce775bd24f7dbb8966bd7df6617c4ef45819a860"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "pr-0033-authentication-login-page"
+    - command: git status --short
+      result: pass
+      output_summary: "4 files modified from HEAD: CODER_REPORT.txt, check-web-authentication.sh, check-web-control-state-provider.sh, check-runtime-read-only-web-host.sh. No untracked files."
+    - command: git diff --name-only
+      result: pass
+      output_summary: "4 files: CODER_REPORT.txt, check-runtime-read-only-web-host.sh, check-web-authentication.sh, check-web-control-state-provider.sh"
+    - command: git ls-files --others --exclude-standard
+      result: pass
+      output_summary: "No untracked files."
+    - command: git diff --check
+      result: pass
+      output_summary: "No whitespace errors."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "No output (exit 0)."
+    - command: bash scripts/check-web-ui-read-only-endpoint.sh
+      result: pass
+      output_summary: "30/30 PASS"
+    - command: bash scripts/check-web-host-startup.sh
+      result: pass
+      output_summary: "25/25 PASS"
+    - command: bash scripts/check-web-control-state-provider.sh
+      result: pass
+      output_summary: "28/28 PASS (with venv Python providing argon2-cffi)"
+    - command: bash scripts/check-runtime-read-only-web-host.sh
+      result: pass
+      output_summary: "35/35 PASS (with venv Python). Test [19] shows full login flow: GET /login→200, POST /login→303, GET /→200, GET /control/state→200."
+    - command: bash scripts/check-web-authentication.sh
+      result: pass
+      output_summary: "41/41 PASS. Includes throttling test [32] now passing with proper cookie sharing."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []

@@ -164,27 +164,45 @@ assert build_control_state_snapshot_from_runtime_state({}) is None
 " && echo "OK" || { echo "FAIL"; ERRORS=$((ERRORS + 1)); }
 
 # 27
-echo -n " [27] create_app() works with runtime_state_provider ... "
+echo -n " [27] create_app() works with runtime_state_provider (with auth env) ... "
 python3 -c "
 from app.web_host import create_app
+# Generate test-only credentials — never hardcode real secrets
+from argon2 import PasswordHasher
+ph = PasswordHasher()
+test_hash = ph.hash(b'test-password-regression-0027')
+import os, secrets
+os.environ['WEB_AUTH_USERNAME'] = 'test-operator'
+os.environ['WEB_AUTH_PASSWORD_HASH'] = test_hash
+os.environ['WEB_AUTH_SESSION_SECRET'] = secrets.token_hex(64)
+os.environ['WEB_AUTH_TEST_HTTP'] = '1'
 try:
     app = create_app(runtime_state_provider=lambda: {'snapshot_id': 's1'})
     assert app is not None
+    print('ok')
 except RuntimeError as exc:
-    assert str(exc) == 'fastapi-unavailable'
-print('ok')
+    assert str(exc) == 'fastapi-unavailable', f'unexpected: {exc}'
 " > /dev/null && echo "OK" || { echo "FAIL"; ERRORS=$((ERRORS + 1)); }
 
 # 28
-echo -n " [28] create_app() still works without runtime_state_provider ... "
+echo -n " [28] create_app() still works without runtime_state_provider (with auth env) ... "
 python3 -c "
 from app.web_host import create_app
+from argon2 import PasswordHasher
+ph = PasswordHasher()
+test_hash = ph.hash(b'test-password-regression-0028')
+import os, secrets
+os.environ['WEB_AUTH_USERNAME'] = 'test-operator'
+os.environ['WEB_AUTH_PASSWORD_HASH'] = test_hash
+os.environ['WEB_AUTH_SESSION_SECRET'] = secrets.token_hex(64)
+os.environ['WEB_AUTH_TEST_HTTP'] = '1'
 try:
     app = create_app()
     assert app is not None
+    print('ok')
 except RuntimeError as exc:
-    assert str(exc) == 'fastapi-unavailable'
-" && echo "OK" || { echo "FAIL"; ERRORS=$((ERRORS + 1)); }
+    assert str(exc) == 'fastapi-unavailable', f'unexpected: {exc}'
+" > /dev/null && echo "OK" || { echo "FAIL"; ERRORS=$((ERRORS + 1)); }
 
 echo ""
 [ "$ERRORS" -eq 0 ] && echo "=== PASS: All web control state provider checks passed ===" && exit 0

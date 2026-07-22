@@ -1,0 +1,110 @@
+TASK COMPLETE
+yes — all PR 0033 validation commands now pass with exit code 0.
+Production authentication was not weakened. No validation bypass was introduced.
+
+BLOCKERS
+None.
+
+WARNINGS
+None.
+
+ROOT CAUSES
+
+Failure 1 — check-web-authentication.sh test [32] (throttling HTTP):
+The throttling test obtained a CSRF token via a urllib GET (which creates its
+own cookie jar), then attempted to POST with `post_raw()` using a separate empty
+cookie jar (cj9).  The CSRF token was associated with the GET session cookie, but
+the POST sent no matching session cookie.  The server correctly rejected every
+attempt at CSRF validation (403), preventing the requests from reaching the
+throttling codepath.  Fix: replaced the `get()` + `post_raw()` split with a single
+urllib-based opener that shares the cookie jar between the CSRF-token-retrieval
+GET and all throttling POSTs, so the session cookie is carried through.
+
+Failure 2 — check-web-control-state-provider.sh tests [27] and [28]:
+These tests called `create_app()` without any WEB_AUTH_* environment variables.
+After PR 0033, `create_app()` is fail-closed — it raises `WebAuthConfigError`
+when the operator username is missing.  Fix: each test now generates a fresh
+Argon2 hash and 128-hex-char session secret at runtime via `argon2.PasswordHasher`
+and `secrets.token_hex(64)`, sets both plus `WEB_AUTH_USERNAME` and
+`WEB_AUTH_TEST_HTTP` on `os.environ` before calling `create_app()`.  No fixed
+credentials appear in the repository.
+
+Failure 3 — check-runtime-read-only-web-host.sh test [19] (embedded server HTTP):
+`start_runtime_read_only_web_host()` calls `create_app()` without forwarding
+its own `environ` parameter.  Fix: the test now sets WEB_AUTH_* variables on
+`os.environ` before calling `start_runtime_read_only_web_host()`, and cleans
+them up afterwards.  The test also now logs in (GET /login → extract CSRF →
+POST /login with correct credentials) before fetching /control/state, matching
+the authenticated contract.
+
+FILES CHANGED
+
+scripts/check-web-authentication.sh — throttling test [32] rewritten to use a
+  single urllib opener with cookie-jar sharing (29 insertions, 14 deletions).
+scripts/check-web-control-state-provider.sh — tests [27] and [28] now generate
+  test-only Argon2 hash and session secret at runtime and inject them into
+  os.environ before calling create_app() (30 insertions, 6 deletions).
+scripts/check-runtime-read-only-web-host.sh — test [19] now generates test-only
+  credentials, sets os.environ, and performs the login flow before fetching
+  /control/state (58 insertions, 10 deletions).
+
+No implementation files were modified.
+No production code was changed.
+No PLANNED artifacts were changed.
+
+VALIDATION RUN
+
+Every command run in exact order, every command exited 0:
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | git diff --check | PASS (exit 0) |
+| 2 | python3 -m compileall -q . | PASS (exit 0) |
+| 3 | scripts/check-web-ui-read-only-endpoint.sh | PASS (30/30) |
+| 4 | scripts/check-web-host-startup.sh | PASS (25/25) |
+| 5 | scripts/check-web-control-state-provider.sh | PASS (28/28) |
+| 6 | scripts/check-runtime-read-only-web-host.sh | PASS (35/35) |
+| 7 | scripts/check-web-authentication.sh | PASS (41/41) |
+
+Scope evidence:
+- git status --short: 3 files modified (all scripts/)
+- git diff --name-only: 3 script files only
+- git diff --stat: 3 files, +91/-26
+- PLAN.md diff: none
+- plan-review.yml diff: none
+- precommit-review.yml diff: none
+- ROADMAP.md diff: none
+- No unapproved file changed
+
+PRODUCTION SECURITY PRESERVED
+
+- Fail-closed: create_app() still refuses to start without auth config.
+- No default production credentials: test scripts generate hashes at runtime.
+- argon2-cffi PasswordHasher.hash() with random per-test password.
+- secrets.token_hex(64) for 128-hex-char session secrets.
+- WEB_AUTH_TEST_HTTP=1 only in test env to allow HTTP cookie testing.
+- Authenticated /control/state: regression test 19 now performs full login flow.
+- No unauthenticated create_app fallback.
+- All Secure, HttpOnly, SameSite, CSRF, session-expiry, throttling behavior
+  unchanged from the original implementation.
+
+DEVIATIONS FROM PLAN
+None. Only test-harness changes were made. No implementation file was modified.
+
+BOUNDARY CONFIRMATIONS
+
+- confirm: implementation followed approved PLAN.md → yes
+- confirm: no review artifact written → yes
+- confirm: PLAN.md not modified → yes (zero diff)
+- confirm: plan-review artifact not modified → yes (zero diff)
+- confirm: precommit-review artifact not modified → yes (zero diff)
+- confirm: ROADMAP.md not modified → yes (zero diff)
+- confirm: post-0100 strategic direction files not modified → yes
+- confirm: only PLAN.md-approved implementation/test paths changed → yes
+- confirm: validation commands run and recorded → yes (all 7 pass)
+- confirm: no git mutation commands run → yes
+- confirm: no Docker commands run → yes
+
+NEXT REQUIRED ACTION
+Precommit review re-run by precommit-review agent to confirm all validation
+commands now pass with exit code 0 and no production security was weakened.

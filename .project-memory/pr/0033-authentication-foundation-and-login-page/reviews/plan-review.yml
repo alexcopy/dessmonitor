@@ -1,0 +1,198 @@
+verdict: approve
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: branch-relates-to-pr
+    result: pass
+    exact_observed_evidence: "Branch is pr-0033-authentication-login-page, PR is 0033-authentication-foundation-and-login-page. Branch number 0033 matches. Branch is clearly related to PR 0033."
+  - name: working-tree-only-pr-artifacts
+    result: pass
+    exact_observed_evidence: "git status --short shows only '?? .project-memory/pr/0033-authentication-foundation-and-login-page/'. git diff --name-only shows no output. No unrelated files modified or untracked."
+  - name: plan-file-exists
+    result: pass
+    exact_observed_evidence: ".project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md exists, is untracked, and was read in full (10506 lines)."
+  - name: roadmap-md-exists
+    result: pass
+    exact_observed_evidence: "ROADMAP.md exists at root. Canonical active roadmap with PR 0033 as the first incomplete Current Milestone after PR 0032 gate."
+  - name: PR-0033-only-no-PR-0034-dashboard
+    result: pass
+    exact_observed_evidence: "Section 2 Purpose: 'PR 0033 introduces authentication before the currently exposed read-only FastAPI operator endpoint is expanded into a full frontend.' Section 3 Out of Scope: 'Live dashboard with short polling (PR 0034).'"
+  - name: exact-implementation-paths
+    result: pass
+    exact_observed_evidence: "Section 7 lists exact paths: app/web_auth.py, app/web_routes.py, app/web/templates/login.html, app/web/templates/index.html, app/web/static/login.css, app/web/__init__.py (create). app/web_host.py, requirements.txt (edit). scripts/check-web-authentication.sh, .github/workflows/validate.yml (create/edit)."
+  - name: exact-direct-dependencies
+    result: pass
+    exact_observed_evidence: "Section 9: argon2-cffi>=23.1.0, jinja2>=3.1.0, python-multipart>=0.0.18, itsdangerous>=2.2.0. These are the only new dependencies. No frontend package manager, no database driver, no Redis."
+  - name: one-configured-operator
+    result: pass
+    exact_observed_evidence: "Section 4.1: 'One operator account. Username is validated against the WEB_AUTH_USERNAME environment variable (case-sensitive comparison).'"
+  - name: argon2-password-verification
+    result: pass
+    exact_observed_evidence: "Section 4.2: 'argon2.PasswordHasher is used for verification. No custom hash implementation. The WEB_AUTH_PASSWORD_HASH environment variable holds the full Argon2 hash string.' Section 9: argon2-cffi>=23.1.0."
+  - name: no-plaintext-production-password
+    result: pass
+    exact_observed_evidence: "Section 4.2: 'The plaintext password is never persisted, logged, or stored beyond the verification call.' Section 11: 'Does not commit any password hash, session secret, or credential value.' Section 11.1: GitOps Secret with stringData."
+  - name: stable-WEB-AUTH-env-contract
+    result: pass
+    exact_observed_evidence: "Section 6: Full environment contract table with 7 variables (WEB_AUTH_USERNAME, WEB_AUTH_PASSWORD_HASH, WEB_AUTH_SESSION_SECRET, WEB_AUTH_SESSION_TTL_SECONDS, WEB_AUTH_MAX_ATTEMPTS, WEB_AUTH_ATTEMPT_WINDOW_SECONDS, WEB_AUTH_LOCKOUT_SECONDS). Each with Required/Validation/Default/Failure mode."
+  - name: adequate-session-secret-validation
+    result: pass
+    exact_observed_evidence: "Section 6: 'WEB_AUTH_SESSION_SECRET must be at least 32 bytes (64 hex characters) after stripping whitespace. Shorter values raise WebAuthConfigError(session-secret-too-short).' Test [4] covers this."
+  - name: fail-closed-missing-invalid-config
+    result: pass
+    exact_observed_evidence: "Section 4.7: 'Missing WEB_AUTH_USERNAME → create_app() raises WebAuthConfigError(auth-not-configured). The web host startup fails; run.py catches the exception and continues the automation process without any HTTP listener. No route, including /healthz and /control/state, is exposed.'"
+  - name: no-authentication-bypass
+    result: pass
+    exact_observed_evidence: "Section 4.7: 'No fallback leaves /control/state publicly readable.' Section 5: All routes except /healthz, /login GET, and /static/login.css are authenticated. /docs, /redoc, /openapi.json return 404."
+  - name: Secure-HttpOnly-SameSite-expiring-cookie
+    result: pass
+    exact_observed_evidence: "Section 4.4: Secure=True, HttpOnly=True, SameSite=Lax, Max-Age=WEB_AUTH_SESSION_TTL_SECONDS (default 3600), Path=/, cookie name=dessmonitor_session. Deletion on logout via response.delete_cookie()."
+  - name: session-replacement-after-login
+    result: pass
+    exact_observed_evidence: "Section 4.5.4: 'The token is rotated on every successful login.' Section 8 Step 4c: 'On success: ... create_session_data(); write session; rotate csrf_token.' Test [20]: 'Successful login replaces prior session (session_id or csrf_token changes).'"
+  - name: tampered-expired-cookie-rejection
+    result: pass
+    exact_observed_evidence: "Section 4.3: 'Starlette's SessionMiddleware uses itsdangerous.URLSafeTimedSerializer with the WEB_AUTH_SESSION_SECRET as the signing key.' Tampered cookies fail signature verification. Expired cookies fail timed-serializer verification (itsdangerous)."
+  - name: explicit-logout-invalidation
+    result: pass
+    exact_observed_evidence: "Section 5: 'POST /logout: Auth + CSRF. Clears session, deletes cookie, redirect 303 to /login.' Test [29]: 'POST /logout (authenticated) → redirect to /login.' Test [30]: 'Old session cookie after logout → cannot access /control/state (401 or redirect).'"
+  - name: CSRF-on-login
+    result: pass
+    exact_observed_evidence: "Section 4.5: Synchronizer token pattern. Token in login form. Validated on POST /login. Test [21]: 'POST /login without CSRF token → 403.' Test [22]: 'POST /login with wrong CSRF token → 403.'"
+  - name: CSRF-on-logout
+    result: pass
+    exact_observed_evidence: "Section 4.5: CSRF validated on every POST/PUT/PATCH/DELETE including logout. Test [24]: 'POST /logout without CSRF token → 403.' Test [25]: 'POST /logout with correct CSRF token → 303 redirect to /login.'"
+  - name: deterministic-bounded-throttling-monotonic-time
+    result: pass
+    exact_observed_evidence: "Section 4.6: 'In-memory deterministic throttling using time.monotonic(). Key: (username, source_ip). Window: WEB_AUTH_ATTEMPT_WINDOW_SECONDS (default 300). Max attempts: WEB_AUTH_MAX_ATTEMPTS (default 5). Lockout: WEB_AUTH_LOCKOUT_SECONDS (default 900).' Test [31]-[34] cover throttling."
+  - name: GET-login
+    result: pass
+    exact_observed_evidence: "Section 5: '/login GET: Public. Renders login.html. Authenticated users redirected (303) to /. Cache-Control: no-store. CSRF token form field.'"
+  - name: POST-login
+    result: pass
+    exact_observed_evidence: "Section 5: '/login POST: Public + CSRF. Validates username (env), Argon2 hash. Generic error on any failure. Creates session on success, redirect 303 to /. Throttling applied.'"
+  - name: POST-logout
+    result: pass
+    exact_observed_evidence: "Section 5: '/logout POST: Auth + CSRF. Clears session, deletes cookie, redirect 303 to /login.' Section 4.5: 'Logout also rotates the token (though the session is cleared immediately after).'"
+  - name: protected-GET-slash
+    result: pass
+    exact_observed_evidence: "Section 5: '/ GET: Auth. Renders index.html minimal landing shell. No dashboard, no polling. Shows operator username.' Test [10]: 'GET / → 303 redirect to /login' (unauthenticated). Test [26]: 'Authenticated GET / → 200, HTML, contains test-operator.'"
+  - name: protected-GET-control-state
+    result: pass
+    exact_observed_evidence: "Section 5: '/control/state GET: Auth. Existing read-only contract. JSON 401 for unauthenticated (no redirect). No write methods.' Test [11]: 'GET /control/state → 401, JSON, no device data in body.' Test [27]: 'Authenticated GET /control/state → 200, JSON.'"
+  - name: JSON-401-for-unauthenticated-control-state
+    result: pass
+    exact_observed_evidence: "Section 5: '/control/state: JSON 401 for unauthenticated (no redirect).' ROADMAP invariant A9: 'JSON API routes return 401.'"
+  - name: minimal-public-GET-healthz
+    result: pass
+    exact_observed_evidence: "Section 5: '/healthz GET: Public. Returns {\"status\":\"ok\",\"web_api\":\"available\"}. No device/inverter/config data.' Test [7]: 'GET /healthz → 200, JSON, contains status:ok.' Test [8]: '/healthz response contains NONE of: device, inverter, voltage, tuya, config.'"
+  - name: disabled-or-protected-docs-redoc-openapi
+    result: pass
+    exact_observed_evidence: "Section 5: '/docs GET → Returns 404 (disabled). /redoc GET → Returns 404 (disabled). /openapi.json GET → Returns 404 (disabled).' Test [9]: 'GET /docs → 404.' Section 8 Step 5.7: 'Set app.docs_url = None, app.redoc_url = None, app.openapi_url = None.'"
+  - name: security-headers
+    result: pass
+    exact_observed_evidence: "Section 4.8: Cache-Control: no-store (login, /), X-Content-Type-Options: nosniff (all HTML+JSON), Referrer-Policy: strict-origin-when-cross-origin (all), Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; form-action 'self' (all HTML), Access-Control-Allow-Origin: NOT SET (all)."
+  - name: no-permissive-CORS
+    result: pass
+    exact_observed_evidence: "Section 4.8: 'Access-Control-Allow-Origin: NOT SET. No permissive CORS headers are added.'"
+  - name: real-HTTP-authentication-validation
+    result: pass
+    exact_observed_evidence: "Section 10.2: 40 test cases using Python subprocess. Test server setup on free port with test credentials. Includes CONFIGURATION (5), PUBLIC ROUTES (4), UNAUTHENTICATED ACCESS (4), LOGIN (7), CSRF (5), AUTHENTICATED ACCESS (3), LOGOUT (2), THROTTLING (4), BOUNDARIES (6) tests."
+  - name: all-existing-regression-checks
+    result: pass
+    exact_observed_evidence: "Section 10.3: 'bash scripts/check-web-ui-read-only-endpoint.sh; bash scripts/check-web-host-startup.sh; bash scripts/check-web-control-state-provider.sh; bash scripts/check-runtime-read-only-web-host.sh; bash scripts/check-web-authentication.sh; python3 -m compileall -q .; git diff --check'"
+  - name: mandatory-CI-invocation
+    result: pass
+    exact_observed_evidence: "Section 10.4: 'The new step in .github/workflows/validate.yml: - name: 🔍 Web authentication check; run: bash scripts/check-web-authentication.sh. Placed after check-runtime-read-only-web-host.sh.'"
+  - name: no-SKIP-or-failure-bypass
+    result: pass
+    exact_observed_evidence: "Section 10: 'All commands must be runnable by coder and precommit-review. No command uses SKIP, || true, or a fallback that hides failure.'"
+  - name: no-external-network-Tuya-relay-hardware
+    result: pass
+    exact_observed_evidence: "Section 3 Out of Scope: 'Direct Tuya, relay, or inverter calls.' Section 12: 'No Tuya, relay, or hardware call from any auth/web module.' Validation script test [35]: checks for forbidden Tuya/device imports."
+  - name: no-device-write-API
+    result: pass
+    exact_observed_evidence: "Section 3 Out of Scope: 'No hardware execution.' Section 12: 'No device write (no switch_on, switch_off, set_numeric).' Validation script test [37]: 'No POST, PUT, PATCH, DELETE route accessible at /control/state or /devices.'"
+  - name: no-dashboard-polling
+    result: pass
+    exact_observed_evidence: "Section 3 Out of Scope: 'Live dashboard with short polling (PR 0034).' Section 8 Step 2: 'No dashboard, no polling, no device data, no control widgets' (index.html). Test [39]: 'No polling JavaScript or dashboard code exists in any served page.'"
+  - name: no-raw-log-route
+    result: pass
+    exact_observed_evidence: "Section 3 Out of Scope: 'Raw log file exposure.' Section 12 Boundary 5: 'No raw log file exposure — grep for /logs, file routes.' Test [38]: 'No route returns raw log content.'"
+  - name: no-ML-control
+    result: pass
+    exact_observed_evidence: "Section 3 Out of Scope: 'ML control (deferred per ADR-0003).' Section 12 Boundary 6: 'No ML control — no ml_ imports.'"
+  - name: external-GitOps-Secret-secretKeyRef
+    result: pass
+    exact_observed_evidence: "Section 11.1: Kubernetes Secret definition with stringData (web-auth-username, web-auth-password-hash, web-auth-session-secret) and Deployment secretKeyRef env var references."
+  - name: immutable-image-digest-rollout
+    result: pass
+    exact_observed_evidence: "Section 11.2 Step 2: 'Fixed application image is built; an immutable digest is available.' Step 5: 'GitOps: update the Deployment image to the new immutable digest.' ROADMAP invariant DP2: 'Production deployment uses an immutable image reference or digest.'"
+  - name: deployment-order-no-public-exposure
+    result: pass
+    exact_observed_evidence: "Section 11.2: 'The window between Secret creation and image update must not expose /control/state without authentication — the existing web_host startup does not read auth env vars, so it remains unchanged until the image is updated.'"
+  - name: no-placeholders-or-unresolved-decisions
+    result: pass
+    exact_observed_evidence: "Section 14: 'No unresolved architectural decisions remain for the coder. All design choices are locked in this PLAN.md: dependency versions, file paths, route contracts, session design, CSRF pattern, throttling algorithm, fail-closed behavior, security headers, and validation test cases. No blockers.'"
+validation:
+  commands_run:
+    - command: git rev-parse --verify HEAD
+      result: pass
+      output_summary: "bce927547ea89aff6435db4ab243fa999704fc14"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "pr-0033-authentication-login-page (relates to PR 0033)"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0033-authentication-foundation-and-login-page/ (only PR 0033 artifacts)"
+    - command: git diff --name-only
+      result: pass
+      output_summary: "No dirty tracked files"
+    - command: git ls-files --others --exclude-standard
+      result: pass
+      output_summary: ".project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md (only untracked file)"
+    - command: test -f .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+    - command: grep -q "Argon2" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "Argon2 found"
+    - command: grep -q "WEB_AUTH_USERNAME" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "WEB_AUTH_USERNAME defined"
+    - command: grep -q "WEB_AUTH_PASSWORD_HASH" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "WEB_AUTH_PASSWORD_HASH defined"
+    - command: grep -q "WEB_AUTH_SESSION_SECRET" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "WEB_AUTH_SESSION_SECRET defined"
+    - command: grep -q "Secure" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "Secure cookie attribute found"
+    - command: grep -q "HttpOnly" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "HttpOnly cookie attribute found"
+    - command: grep -q "SameSite" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "SameSite cookie attribute found"
+    - command: grep -q "CSRF" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "CSRF found"
+    - command: grep -qi "throttl" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "throttl(e/ing) found"
+    - command: grep -q "/healthz" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "/healthz endpoint defined"
+    - command: grep -q "/control/state" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "/control/state endpoint referenced"
+    - command: grep -q "check-web-authentication.sh" .project-memory/pr/0033-authentication-foundation-and-login-page/PLAN.md
+      result: pass
+      output_summary: "check-web-authentication.sh validation script defined"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder: []
