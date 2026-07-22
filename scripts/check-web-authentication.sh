@@ -12,49 +12,10 @@ TEST_PASSWORD="test-password-0033"
 TEST_HASH='$argon2id$v=19$m=65536,t=3,p=4$8lzDU3IGGDBN8aippFWVaw$Z++IewWgJyrTqg5rdCu88RF9YpK9xWttUjUu05HRiYg'
 TEST_SESSION_SECRET="a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
 
-# -------------------------------------------------------------------
-# Interpreter discovery — deterministic, single-variable, no assumptions
-# -------------------------------------------------------------------
-discover_python() {
-    # 1. Explicit PYTHON_BIN env var
-    if [ -n "${PYTHON_BIN:-}" ] && [ -x "$PYTHON_BIN" ]; then
-        echo "$PYTHON_BIN"
-        return 0
-    fi
-    # 2. Repository-local .venv3
-    if [ -x "$PROJECT_DIR/.venv3/bin/python3" ]; then
-        echo "$PROJECT_DIR/.venv3/bin/python3"
-        return 0
-    fi
-    # 3. Repository-local .venv
-    if [ -x "$PROJECT_DIR/.venv/bin/python3" ]; then
-        echo "$PROJECT_DIR/.venv/bin/python3"
-        return 0
-    fi
-    # 4. python3 from PATH
-    if cmd=$(command -v python3) && [ -n "$cmd" ]; then
-        echo "$cmd"
-        return 0
-    fi
-    # 5. python from PATH (final fallback)
-    if cmd=$(command -v python) && [ -n "$cmd" ]; then
-        echo "$cmd"
-        return 0
-    fi
-    # 6. Nothing usable
-    return 1
-}
-
-PYTHON="$(discover_python)" || {
-    echo "ERROR: no usable Python interpreter found" >&2
-    exit 127
-}
-
 echo "=== PR 0033 web authentication check ==="
-echo "  interpreter: $PYTHON"
 
 find_free_port() {
-    "$PYTHON" -c "
+    "$PROJECT_DIR/.venv3/bin/python3" -c "
 import socket
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind(('127.0.0.1', 0))
@@ -69,7 +30,7 @@ echo "Starting test server on 127.0.0.1:${free_port}..."
 WEB_AUTH_USERNAME="$TEST_USER" \
 WEB_AUTH_PASSWORD_HASH="$TEST_HASH" \
 WEB_AUTH_SESSION_SECRET="$TEST_SESSION_SECRET" \
-WEB_AUTH_TEST_HTTP=1 "$PYTHON" -c "
+WEB_AUTH_TEST_HTTP=1 "$PROJECT_DIR/.venv3/bin/python3" -c "
 import asyncio
 from app.web_host import create_app
 import uvicorn
@@ -83,7 +44,7 @@ SERVER_PID=$!
 sleep 2
 
 # Run tests via Python (pass PROJECT_DIR as extra arg)
-"$PYTHON" - "$free_port" "$TEST_USER" "$TEST_PASSWORD" "$TEST_HASH" "$TEST_SESSION_SECRET" "$PROJECT_DIR" <<'PYEOF'
+"$PROJECT_DIR/.venv3/bin/python3" - "$free_port" "$TEST_USER" "$TEST_PASSWORD" "$TEST_HASH" "$TEST_SESSION_SECRET" "$PROJECT_DIR" <<'PYEOF'
 import http.cookiejar
 import http.client
 import json
