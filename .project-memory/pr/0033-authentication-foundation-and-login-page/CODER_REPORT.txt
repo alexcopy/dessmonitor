@@ -8,6 +8,88 @@ None.
 WARNINGS
 None.
 
+ROOT CAUSE
+The script hardcoded three absolute references to
+"$PROJECT_DIR/.venv3/bin/python3".  GitHub Actions uses setup-python which
+provides python3 through PATH but creates no .venv3 directory.  The script
+exited before any authentication test ran:
+
+  scripts/check-web-authentication.sh: line 18:
+  .venv3/bin/python3: No such file or directory
+
+This was a validation-runner defect: the authentication implementation and all
+41 test assertions were correct.
+
+FILES CHANGED
+scripts/check-web-authentication.sh — +42/-3
+  Replaced three hardcoded "$PROJECT_DIR/.venv3/bin/python3" references with
+  a single "$PYTHON" variable populated by a deterministic discover_python()
+  function.
+
+INTERPRETER DISCOVERY
+
+Added discover_python() function immediately after the TEST_* variable block.
+Selection order:
+
+  1. $PYTHON_BIN       — explicit override (env var), must be executable
+  2. .venv3/bin/python3 — repository-local venv, must be executable
+  3. .venv/bin/python3  — repository-local venv, must be executable
+  4. python3            — from PATH (command -v)
+  5. python             — from PATH, final fallback
+  6. exit 127           — clear failure when nothing is usable
+
+The selected interpreter is stored in one variable ($PYTHON) and used for all
+three Python invocations:
+
+  - find_free_port()      (line 57)
+  - uvicorn test server   (line 72)
+  - test harness heredoc  (line 86)
+
+The script prints the selected interpreter near startup:
+  interpreter: /Users/.../.venv3/bin/python3
+
+VALIDATION RUN
+
+Every command exited 0:
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | bash -n scripts/check-web-authentication.sh | PASS (syntax) |
+| 2 | env -u PYTHON_BIN bash scripts/check-web-authentication.sh | PASS (no env var) |
+| 3 | PYTHON_BIN="$(command -v python3)" bash scripts/check-web-authentication.sh | PASS (explicit PYTHON_BIN) |
+| 4 | git diff --check | PASS |
+| 5 | python3 -m compileall -q . | PASS |
+| 6 | scripts/check-web-ui-read-only-endpoint.sh | PASS (30/30) |
+| 7 | scripts/check-web-host-startup.sh | PASS (25/25) |
+| 8 | scripts/check-web-control-state-provider.sh | PASS (28/28) |
+| 9 | scripts/check-runtime-read-only-web-host.sh | PASS (35/35) |
+| 10 | scripts/check-web-authentication.sh | PASS (41/41) |
+
+Scope evidence:
+- git status --short: 1 file (scripts/check-web-authentication.sh)
+- git diff --name-only: scripts/check-web-authentication.sh
+- git diff --stat: 1 file, +42/-3
+
+AUTHENTICATION BEHAVIOR PRESERVED
+All 41 authentication test assertions are unchanged.
+No auth config, CSRF, session, cookie, throttling, or route behavior was
+modified.  Only the shell-level interpreter discovery was added.
+
+BOUNDARY CONFIRMATIONS
+- confirm: no SKIP, || true, or failure suppression added → yes
+- confirm: no authentication, CSRF, session, cookie, or throttling weakened → yes
+- confirm: PLAN.md not modified → yes
+- confirm: plan-review.yml not modified → yes
+- confirm: no application implementation file modified → yes
+- confirm: no GitHub Actions workflow modified → yes
+- confirm: no dependency installation inside validation script → yes
+- confirm: no commit, amend, push, or PR → yes
+- confirm: all 41 test assertions preserved → yes
+- confirm: every validation command exit 0 → yes
+
+NEXT REQUIRED ACTION
+CI re-run in GitHub Actions to confirm the interpreter discovery resolves
+python3 from setup-python PATH.
 ROOT CAUSES
 
 Failure 1 — check-web-authentication.sh test [32] (throttling HTTP):
