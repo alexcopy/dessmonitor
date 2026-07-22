@@ -7,6 +7,31 @@ ERRORS=0
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# ---------------------------------------------------------------------------
+# Python interpreter discovery
+# ---------------------------------------------------------------------------
+if [ -n "${PYTHON_BIN:-}" ]; then
+    if [ -x "$PYTHON_BIN" ]; then
+        PYTHON="$PYTHON_BIN"
+    else
+        echo "ERROR: PYTHON_BIN is set but not executable: $PYTHON_BIN" >&2
+        exit 127
+    fi
+elif [ -x "$PROJECT_DIR/.venv3/bin/python3" ]; then
+    PYTHON="$PROJECT_DIR/.venv3/bin/python3"
+elif [ -x "$PROJECT_DIR/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_DIR/.venv/bin/python3"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON="$(command -v python)"
+else
+    echo "ERROR: No executable Python interpreter found" >&2
+    exit 127
+fi
+
+echo "Using Python interpreter: $PYTHON"
+
 TEST_USER="test-operator"
 TEST_PASSWORD="test-password-0033"
 TEST_HASH='$argon2id$v=19$m=65536,t=3,p=4$8lzDU3IGGDBN8aippFWVaw$Z++IewWgJyrTqg5rdCu88RF9YpK9xWttUjUu05HRiYg'
@@ -15,7 +40,7 @@ TEST_SESSION_SECRET="a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f
 echo "=== PR 0033 web authentication check ==="
 
 find_free_port() {
-    "$PROJECT_DIR/.venv3/bin/python3" -c "
+    "$PYTHON" -c "
 import socket
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind(('127.0.0.1', 0))
@@ -30,7 +55,7 @@ echo "Starting test server on 127.0.0.1:${free_port}..."
 WEB_AUTH_USERNAME="$TEST_USER" \
 WEB_AUTH_PASSWORD_HASH="$TEST_HASH" \
 WEB_AUTH_SESSION_SECRET="$TEST_SESSION_SECRET" \
-WEB_AUTH_TEST_HTTP=1 "$PROJECT_DIR/.venv3/bin/python3" -c "
+WEB_AUTH_TEST_HTTP=1 "$PYTHON" -c "
 import asyncio
 from app.web_host import create_app
 import uvicorn
@@ -44,7 +69,7 @@ SERVER_PID=$!
 sleep 2
 
 # Run tests via Python (pass PROJECT_DIR as extra arg)
-"$PROJECT_DIR/.venv3/bin/python3" - "$free_port" "$TEST_USER" "$TEST_PASSWORD" "$TEST_HASH" "$TEST_SESSION_SECRET" "$PROJECT_DIR" <<'PYEOF'
+"$PYTHON" - "$free_port" "$TEST_USER" "$TEST_PASSWORD" "$TEST_HASH" "$TEST_SESSION_SECRET" "$PROJECT_DIR" <<'PYEOF'
 import http.cookiejar
 import http.client
 import json

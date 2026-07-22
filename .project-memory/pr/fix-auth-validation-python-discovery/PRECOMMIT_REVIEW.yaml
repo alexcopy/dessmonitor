@@ -1,0 +1,106 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: set-euo-pipefail-remains
+    result: pass
+    exact_observed_evidence: "Line 5: 'set -euo pipefail' unchanged. Not touched by diff."
+  - name: PYTHON_BIN-honored-when-explicit
+    result: pass
+    exact_observed_evidence: "Lines 13-19: 'if [ -n \"${PYTHON_BIN:-}\" ]; then' — PYTHON_BIN is checked first. Confirmed at runtime: PYTHON_BIN=\"$PWD/.venv3/bin/python3\" bash ... → selects that interpreter (41/41 pass)."
+  - name: non-executable-PYTHON_BIN-exits-127
+    result: pass
+    exact_observed_evidence: "Lines 17-19: 'exit 127' after printing error. Confirmed: PYTHON_BIN=/nonexistent/python3 → 'ERROR: PYTHON_BIN is set but not executable: /nonexistent/python3' → exit 127."
+  - name: venv3-used-only-when-executable
+    result: pass
+    exact_observed_evidence: "Line 20: 'elif [ -x \"$PROJECT_DIR/.venv3/bin/python3\" ]' — guarded by -x test."
+  - name: venv-used-only-when-executable
+    result: pass
+    exact_observed_evidence: "Line 22: 'elif [ -x \"$PROJECT_DIR/.venv/bin/python3\" ]' — guarded by -x test."
+  - name: python3-from-PATH-supported
+    result: pass
+    exact_observed_evidence: "Lines 24-25: 'elif command -v python3 >/dev/null 2>&1; then PYTHON=\"$(command -v python3)\"' — PATH-based fallback for python3."
+  - name: python-from-PATH-as-final-fallback
+    result: pass
+    exact_observed_evidence: "Lines 26-27: 'elif command -v python >/dev/null 2>&1; then PYTHON=\"$(command -v python)\"' — python from PATH is the last interpreter fallback."
+  - name: missing-interpreter-exits-127-clear-error
+    result: pass
+    exact_observed_evidence: "Lines 29-31: 'else echo \"ERROR: No executable Python interpreter found\" >&2; exit 127; fi' — print to stderr, exit 127."
+  - name: chosen-interpreter-in-one-variable
+    result: pass
+    exact_observed_evidence: "All three code paths that select an interpreter assign to PYTHON. No other interpreter variable exists."
+  - name: every-python-invocation-uses-PYTHON-variable
+    result: pass
+    exact_observed_evidence: "Three Python invocations exist: find_free_port() (line 43), test server (line 58), test runner heredoc (line 72). All use '\"$PYTHON\"'. No remaining hardcoded path."
+  - name: selected-interpreter-printed
+    result: pass
+    exact_observed_evidence: "Line 33: 'echo \"Using Python interpreter: $PYTHON\"'. Both PYTHON_BIN and auto-discovered runs print the path."
+  - name: paths-safely-quoted
+    result: pass
+    exact_observed_evidence: "All uses of $PYTHON and $PROJECT_DIR are double-quoted: '\"$PYTHON\"', '\"$PROJECT_DIR/.venv3/bin/python3\"', '\"$PROJECT_DIR/.venv/bin/python3\"'."
+  - name: no-venv-assumed-to-exist
+    result: pass
+    exact_observed_evidence: "Lines 20 and 22 use '-x' (path check) before accessing .venv3 or .venv. These are optional fallbacks; the script works without them."
+  - name: no-dependency-installation-added
+    result: pass
+    exact_observed_evidence: "Diff contains 28 insertions, 3 deletions. Zero pip, python -m pip, or package installation commands."
+  - name: all-41-auth-tests-present
+    result: pass
+    exact_observed_evidence: "git diff --unified=0 shows zero test-assertion lines removed. The inline Python heredoc (PYEOF block) is unchanged. Both PYTHON_BIN and auto-discover runs report 41/41 PASS."
+  - name: no-assertion-removed-or-weakened
+    result: pass
+    exact_observed_evidence: "git diff --unified=0: only interpreter-discovery lines added (+28) and 3 hardcoded path replacements (-3). Zero changes to test assertions, expected values, or pass/fail criteria."
+  - name: no-application-behavior-changed
+    result: pass
+    exact_observed_evidence: "Only scripts/check-web-authentication.sh was modified. No app/ files, no .py implementation files changed."
+  - name: no-workflow-behavior-changed
+    result: pass
+    exact_observed_evidence: ".github/workflows/validate.yml is unchanged. git diff --name-only shows only scripts/check-web-authentication.sh."
+  - name: no-requirements-changed
+    result: pass
+    exact_observed_evidence: "requirements.txt is unchanged. git diff --name-only shows only scripts/check-web-authentication.sh."
+  - name: only-approved-script-changed
+    result: pass
+    exact_observed_evidence: "git diff --name-only: 'scripts/check-web-authentication.sh'. git status --short: 'M scripts/check-web-authentication.sh'. No other modified or untracked files."
+validation:
+  commands_run:
+    - command: bash -n scripts/check-web-authentication.sh
+      result: pass
+      output_summary: "Syntax check exit 0, no errors."
+    - command: git diff --check
+      result: pass
+      output_summary: "No whitespace errors."
+    - command: test -x "$PWD/.venv3/bin/python3"
+      result: pass
+      output_summary: ".venv3/bin/python3 is executable."
+    - command: PYTHON_BIN="$PWD/.venv3/bin/python3" bash scripts/check-web-authentication.sh
+      result: pass
+      output_summary: "41/41 PASS. Prints 'Using Python interpreter: /Users/alexred/Projects/Python/dessmonitor/.venv3/bin/python3'."
+    - command: bash scripts/check-web-authentication.sh
+      result: pass
+      output_summary: "41/41 PASS. Auto-discovered .venv3/bin/python3."
+    - command: python3 -m compileall -q .
+      result: pass
+      output_summary: "No output (exit 0)."
+    - command: git status --short
+      result: pass
+      output_summary: "'M scripts/check-web-authentication.sh' — no other modified files."
+    - command: git diff --name-only
+      result: pass
+      output_summary: "'scripts/check-web-authentication.sh' — only file changed."
+    - command: git diff --stat
+      result: pass
+      output_summary: "1 file, 28 insertions(+), 3 deletions(-)."
+    - command: git diff --unified=0 -- scripts/check-web-authentication.sh
+      result: pass
+      output_summary: "Zero test-assertion lines removed. Only interpreter discovery (+28 lines) and 3 hardcoded path replacements (-3 lines)."
+    - command: PYTHON_BIN="/nonexistent/python3" bash scripts/check-web-authentication.sh
+      result: pass
+      output_summary: "Exit 127. Prints 'ERROR: PYTHON_BIN is set but not executable: /nonexistent/python3'."
+  not_run: []
+commit_readiness:
+  ready_for_commit: true
+  ready_for_pull_request: true
+  required_before_commit: []
