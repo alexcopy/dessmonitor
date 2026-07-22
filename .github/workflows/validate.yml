@@ -122,3 +122,6 @@ jobs:
 
       - name: 🔍 Runtime read-only web host check
         run: bash scripts/check-runtime-read-only-web-host.sh
+
+      - name: 🔍 Web authentication check
+        run: bash scripts/check-web-authentication.sh

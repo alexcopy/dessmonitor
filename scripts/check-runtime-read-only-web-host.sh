@@ -202,6 +202,12 @@ import socket
 import urllib.request
 import sys
 import traceback
+from argon2 import PasswordHasher
+import secrets as _secrets
+
+# Generate test-only credentials at runtime — never hardcode secrets
+auth_hash = PasswordHasher().hash(b'test-password-regression-0031')
+auth_secret = _secrets.token_hex(64)
 from app.web_runtime_integration import (
     is_runtime_web_host_enabled,
     start_runtime_read_only_web_host,
@@ -234,6 +240,13 @@ def find_free_port():
         return s.getsockname()[1]
 
 async def main():
+    # Set test-only auth env vars so create_app() finds them
+    import os as _os
+    _os.environ['WEB_AUTH_USERNAME'] = 'test-operator'
+    _os.environ['WEB_AUTH_PASSWORD_HASH'] = auth_hash
+    _os.environ['WEB_AUTH_SESSION_SECRET'] = auth_secret
+    _os.environ['WEB_AUTH_TEST_HTTP'] = '1'
+
     free_port = find_free_port()
     handle = None
     try:
@@ -243,6 +256,10 @@ async def main():
                 'WEB_HOST_ENABLED': '1',
                 'WEB_HOST_BIND': '127.0.0.1',
                 'WEB_HOST_PORT': str(free_port),
+                'WEB_AUTH_USERNAME': 'test-operator',
+                'WEB_AUTH_PASSWORD_HASH': auth_hash,
+                'WEB_AUTH_SESSION_SECRET': auth_secret,
+                'WEB_AUTH_TEST_HTTP': '1',
             },
         )
         assert handle is not None, "handle should not be None"
@@ -250,18 +267,34 @@ async def main():
         # Give the server a moment
         await asyncio.sleep(0.5)
 
-        # HTTP GET — offloaded to a thread so uvicorn can use the event loop
+        # Login first, then fetch /control/state authenticated
         url = f'http://127.0.0.1:{free_port}/control/state'
+        import http.cookiejar, re
+        cj = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+        login_resp = await asyncio.to_thread(
+            lambda: opener.open(urllib.request.Request(f'http://127.0.0.1:{free_port}/login', method='GET'), timeout=5)
+        )
+        login_body = login_resp.read().decode('utf-8')
+        csrf_m = re.search(r'name="csrf_token"\s+value="([^"]+)"', login_body)
+        assert csrf_m is not None, 'no CSRF token in login page'
+        csrf_token = csrf_m.group(1)
+        login_data = urllib.parse.urlencode({
+            'username': 'test-operator',
+            'password': 'test-password-regression-0031',
+            'csrf_token': csrf_token,
+        }).encode()
+        login_req = urllib.request.Request(f'http://127.0.0.1:{free_port}/login', data=login_data, method='POST')
+        login_req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        await asyncio.to_thread(lambda: opener.open(login_req, timeout=5))
 
-        def perform_request():
-            with urllib.request.urlopen(url, timeout=5) as response:
-                return (
-                    response.status,
-                    response.headers.get_content_type(),
-                    response.read(),
-                )
-
-        status, content_type, body_bytes = await asyncio.to_thread(perform_request)
+        # Now GET /control/state with authenticated session
+        cs_resp = await asyncio.to_thread(
+            lambda: opener.open(urllib.request.Request(url, method='GET'), timeout=5)
+        )
+        status = cs_resp.status
+        content_type = cs_resp.headers.get_content_type()
+        body_bytes = cs_resp.read()
         body = body_bytes.decode('utf-8')
         assert status == 200, f"expected 200 got {status}"
         assert 'application/json' in (content_type or ''), (
@@ -275,6 +308,9 @@ async def main():
         assert 'KEY-HTTP-SECRET' not in body, "control_key leaked"
         assert 'API-HTTP-SECRET' not in body, "api_key leaked"
     finally:
+        # Clean up test auth env vars
+        for k in ('WEB_AUTH_USERNAME', 'WEB_AUTH_PASSWORD_HASH', 'WEB_AUTH_SESSION_SECRET', 'WEB_AUTH_TEST_HTTP'):
+            _os.environ.pop(k, None)
         if handle is not None:
             await stop_runtime_read_only_web_host(handle)
             # Wait for task to finish
