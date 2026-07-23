@@ -156,6 +156,17 @@ class StartupResetCoordinator:
                 targets.append(t)
                 continue
 
+            if not dev.enabled:
+                t = TargetResetState(device=dev, skipped=True,
+                                     skipped_reason="disabled")
+                targets.append(t)
+                self._logger.info(
+                    "[RESET] %s: skipped — disabled", dev.name,
+                    extra={"evt": "reset_skip", "dev": dev.name,
+                           "reason": "disabled"},
+                )
+                continue
+
             # Valid binary switch — must be reset
             t = TargetResetState(device=dev)
             targets.append(t)

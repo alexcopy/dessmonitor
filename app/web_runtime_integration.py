@@ -121,6 +121,16 @@ def _safe_mapping_status(device: Any) -> str | None:
     return None
 
 
+def _safe_communication_status(device: Any) -> str | None:
+    """Return safe communication status for a device."""
+    return getattr(device, "communication_status", None) or None
+
+
+def _safe_enabled(device: Any) -> bool:
+    """Return enabled status for a device."""
+    return bool(getattr(device, "enabled", True))
+
+
 def _safe_startup_reset_result(device: Any) -> str | None:
     """Return startup reset result from shared coordinator state."""
     return None  # populated at runtime by the coordinator
@@ -208,8 +218,9 @@ def _device_to_load_dict(
 
     # --- controllable ---
     available = getattr(device, "available", True)
+    enabled = _safe_enabled(device)
     device_type = _normalize_device_type(getattr(device, "device_type", ""))
-    if not available or state_key is None or device_type in (
+    if not enabled or not available or state_key is None or device_type in (
         "sensor", "thermo", "thermometer", "watertemp", "water_thermo",
         "termo", "termo_sensor", "temp_sensor",
     ):
@@ -257,6 +268,8 @@ def _device_to_load_dict(
         "freshness": freshness_str,
         "mapping_status": _safe_mapping_status(device),
         "startup_reset_result": _safe_startup_reset_result_from_map(device, per_device_results),
+        "enabled": _safe_enabled(device),
+        "communication_status": _safe_communication_status(device),
     }
 
 

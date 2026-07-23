@@ -101,6 +101,9 @@ class DeviceInitializer:
         for sw_key, sw_cfg in hub_cfg.get("switches", {}).items():
             try:
                 mapping = DevicePropertyMapping.multi_switch_child(sw_key)
+                parent_enabled = hub_cfg.get("enabled", True)
+                child_enabled = sw_cfg.get("enabled", True)
+                effective_enabled = parent_enabled and child_enabled
                 dev = RelayChannelDevice(
                     # --- обязательные поля ---
                     id=sw_cfg.get("id", f"{hub_id}_{sw_key}"),
@@ -109,6 +112,7 @@ class DeviceInitializer:
                     tuya_device_id=tuya_id,
                     device_type="switch",
                     available=sw_cfg.get("available", parent_ok),
+                    enabled=effective_enabled,
 
                     # --- управление / статус ---
                     control_key=sw_key,
@@ -188,6 +192,7 @@ class DeviceInitializer:
                 tuya_device_id=cfg["tuya_device_id"],
                 device_type=dtype,
                 available=cfg.get("available", False),
+                enabled=cfg.get("enabled", True),
 
                 # управление / статус
                 control_key=control_key,

@@ -463,12 +463,12 @@ if hasattr(TuyaStatusUpdaterAsync, 'refresh_once'):
 else:
     fail("Missing refresh_once")
 
-# [34] updater uses property_mapping.state_property in _update_once
-upd_src = inspect.getsource(TuyaStatusUpdaterAsync._update_once)
+# [34] updater uses property_mapping.state_property in _process_result
+upd_src = inspect.getsource(TuyaStatusUpdaterAsync._process_result)
 if "property_mapping.state_property" in upd_src or "property_mapping" in upd_src:
-    ok("_update_once references property_mapping")
+    ok("_process_result references property_mapping")
 else:
-    fail("No property_mapping reference in _update_once")
+    fail("No property_mapping reference in _process_result")
 
 # ================================================================
 # PART 8: Run.py startup order

@@ -29,15 +29,16 @@ class RelayTuyaController:
     def _submit_command(
         self, device: RelayChannelDevice, value: Any
     ) -> CommandResult:
-        """Submit a command to Tuya using the canonical property mapping.
+        """Submit a command to Tuya using the canonical property mapping."""
+        if not device.enabled:
+            self.logger.debug(
+                "[Tuya] %s: device disabled — refusing command", device.name,
+                extra={"evt": "cmd_disabled", "dev": device.name},
+            )
+            return CommandResult(
+                success=False, accepted=False, error="device-disabled",
+            )
 
-        Args:
-            device: The logical device.
-            value: The command value (bool for binary, int for numeric).
-
-        Returns:
-            CommandResult with success, accepted, and safe error.
-        """
         mapping = device.property_mapping
         if not mapping.command_capable:
             self.logger.debug(
