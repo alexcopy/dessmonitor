@@ -131,3 +131,6 @@ jobs:
 
       - name: 🔍 Canonical device observation check
         run: bash scripts/check-canonical-device-observation.sh
+
+      - name: 🔍 Device property mapping check
+        run: bash scripts/check-tuya-device-property-mapping.sh

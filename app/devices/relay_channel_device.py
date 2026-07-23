@@ -12,6 +12,10 @@ from app.devices.device_observation import (
     compute_freshness,
     make_observation_unavailable,
 )
+from app.devices.device_property_mapping import (
+    DevicePropertyMapping,
+    CommandKind,
+)
 
 # Типы «аналоговых» устройств, для которых аптайм не считаем
 ANALOG_TYPES = {"watertemp", "water_thermo", "thermo", "thermometer", "termo", "termo_sensor", "temp_sensor"}
@@ -34,6 +38,8 @@ class RelayChannelDevice:
     load_in_wt: int = 0
     status: Dict[str, Any] = field(default_factory=dict)
     observation: DeviceObservationState = field(default_factory=make_observation_unavailable)
+    property_mapping: DevicePropertyMapping = field(
+        default_factory=DevicePropertyMapping.invalid_default)
     extra: Dict[str, Any] = field(default_factory=lambda: {'switch_time': 10, 'min_trashhold': 0})
     is_healthy: bool = True
     inverter_is_on: bool = False
@@ -103,6 +109,11 @@ class RelayChannelDevice:
                 extra={"evt": "deprecated_is_device_on", "dev": self.name},
             )
         return False
+
+    @property
+    def is_command_capable(self) -> bool:
+        """True when this device can receive commands (valid binary or numeric mapping)."""
+        return self.property_mapping.command_capable
 
     def get_observation(self) -> "DeviceObservationState":
         """Return the canonical device observation.
@@ -293,16 +304,19 @@ class RelayChannelDevice:
     def set_on(self):
         """Mark the device as commanded ON (optimistic, unconfirmed).
 
-        This updates the status dict for backward compatibility but does
-        NOT overwrite the canonical observation.  The observation is only
-        updated by a successful Tuya observation cycle.
+        Uses resolved property_mapping.control_property.
+        Does NOT overwrite canonical observation.
         """
-        self.update_status({self.control_key: True})
+        cp = self.property_mapping.control_property
+        if cp:
+            self.update_status({cp: True})
         self.mark_switched()
 
     def set_off(self):
         """Mark the device as commanded OFF (optimistic, unconfirmed)."""
-        self.update_status({self.control_key: False})
+        cp = self.property_mapping.control_property
+        if cp:
+            self.update_status({cp: False})
         self.mark_switched()
 
     def tuya_code_mode(self) -> str:

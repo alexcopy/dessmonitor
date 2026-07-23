@@ -4,66 +4,167 @@ from datetime import datetime, time as dt_time
 from typing import List, Optional, Any
 
 from app.devices.relay_channel_device import RelayChannelDevice
+from app.devices.device_property_mapping import (
+    CommandResult,
+    CommandKind,
+)
 from shared_state.shared_state import shared_state
 
 
 class RelayTuyaController:
+    """Controller for Tuya device commands with canonical property mapping.
+
+    As of PR 0034c, all command submission uses the resolved
+    DevicePropertyMapping.control_property.  No universal fallbacks.
+    Five competing command methods consolidated into three:
+    switch_on, switch_off, set_numeric.
+    """
+
     def __init__(self, authorisation):
         self.authorisation = authorisation
-        self.logger=logging.getLogger('tuya')
-    # ---------- низкоуровневое переключение ----------
-    def _send_switch_cmd(self, device: RelayChannelDevice, value) -> bool:
-        # команда идёт на РОДИТЕЛЬСКОЕ устройство, а код – это channel/api_key
-        control_key = (getattr(device, "control_key", None) or
-                getattr(device, "api_key", None))
+        self.logger = logging.getLogger('tuya')
+
+    # ---------- canonical internal command path ----------
+
+    def _submit_command(
+        self, device: RelayChannelDevice, value: Any
+    ) -> CommandResult:
+        """Submit a command to Tuya using the canonical property mapping.
+
+        Args:
+            device: The logical device.
+            value: The command value (bool for binary, int for numeric).
+
+        Returns:
+            CommandResult with success, accepted, and safe error.
+        """
+        mapping = device.property_mapping
+        if not mapping.command_capable:
+            self.logger.debug(
+                "[Tuya] %s: not command capable", device.name,
+                extra={"evt": "cmd_skip", "dev": device.name},
+            )
+            return CommandResult.not_capable()
+
+        cp = mapping.control_property
+        if not cp:
+            self.logger.warning(
+                "[Tuya] %s: missing control property", device.name,
+                extra={"evt": "cmd_no_prop", "dev": device.name},
+            )
+            return CommandResult.not_capable()
+
         cmd = {
             "devId": device.tuya_device_id,
-            "commands": [{"code": control_key, "value": value}]
+            "commands": [{"code": cp, "value": value}],
         }
-        try:
-            resp = self.authorisation.device_manager.send_commands(cmd["devId"], cmd["commands"])
-            return bool(resp.get("success"))
-        except Exception as e:
-            logging.error("[RelayTuyaController] Tuya switch error", exc_info=e)
-            return False
-    #
-    # def switch_device(self, device: RelayChannelDevice, value: bool) -> bool:
-    #     try:
-    #         command = {"devId": device.id, "commands": [{"code": device.api_key, "value": value}]}
-    #         response = self.authorisation.device_manager.send_commands(
-    #             command["devId"], command["commands"]
-    #         )
-    #         return bool(response.get("success"))
-    #     except Exception as e:
-    #         logging.error("[RelayTuyaController] Ошибка при переключении устройства")
-    #         logging.error(device)
-    #         logging.error(e)
-    #         return False
 
-    # ---------- публичные методы управления ----------
-    def switch_on_device(self, device: RelayChannelDevice) -> bool:
-        if self._send_switch_cmd(device, True):
-            # Use control_key (or state_key), NOT api_key, for the status update.
-            # Command acceptance does NOT overwrite the canonical observation —
-            # observation is updated exclusively through TuyaStatusUpdaterAsync.
-            # The status dict update here is optimistic/unconfirmed only.
-            update_key = getattr(device, "control_key", None) or getattr(device, "api_key", None)
-            if update_key is not None:
-                device.update_status({update_key: True})
+        try:
+            resp = self.authorisation.device_manager.send_commands(
+                cmd["devId"], cmd["commands"]
+            )
+            ok = bool(resp.get("success"))
+            if ok:
+                return CommandResult.ok()
+            self.logger.warning(
+                "[Tuya] %s: command rejected", device.name,
+                extra={"evt": "cmd_rejected", "dev": device.name},
+            )
+            return CommandResult.rejected()
+        except Exception as e:
+            self.logger.error(
+                "[Tuya] %s: send_commands error", device.name,
+                extra={"evt": "cmd_error", "dev": device.name},
+                exc_info=True,
+            )
+            return CommandResult(
+                success=False, accepted=False,
+                error="command-exception",
+            )
+
+    # ---------- public command methods ----------
+
+    def switch_on(self, device: RelayChannelDevice) -> CommandResult:
+        """Submit an ON command using the canonical property mapping.
+
+        Validates command_kind is binary.  Does NOT update canonical
+        observation.
+        """
+        mapping = device.property_mapping
+        if mapping.command_kind != CommandKind.BINARY:
+            return CommandResult(
+                success=False, accepted=False,
+                error="not-binary-device",
+            )
+        result = self._submit_command(device, True)
+        if result.accepted:
+            cp = mapping.control_property
+            if cp:
+                device.update_status({cp: True})
             device.mark_switched()
-            return True
-        return False
+        return result
+
+    def switch_off(self, device: RelayChannelDevice) -> CommandResult:
+        """Submit an OFF command using the canonical property mapping."""
+        mapping = device.property_mapping
+        if mapping.command_kind != CommandKind.BINARY:
+            return CommandResult(
+                success=False, accepted=False,
+                error="not-binary-device",
+            )
+        result = self._submit_command(device, False)
+        if result.accepted:
+            cp = mapping.control_property
+            if cp:
+                device.update_status({cp: False})
+            device.mark_switched()
+        return result
+
+    def set_numeric(self, device: RelayChannelDevice, value: int) -> CommandResult:
+        """Submit a numeric command using the canonical property mapping.
+
+        Validates command_kind is numeric.  Rejects binary-only devices.
+        """
+        mapping = device.property_mapping
+        if mapping.command_kind != CommandKind.NUMERIC:
+            return CommandResult(
+                success=False, accepted=False,
+                error="not-numeric-device",
+            )
+        result = self._submit_command(device, value)
+        if result.accepted:
+            cp = mapping.control_property
+            if cp:
+                device.update_status({cp: value})
+            device.mark_switched()
+        return result
+
+    # ---------- deprecated backward-compat stubs ----------
+
+    def switch_on_device(self, device: RelayChannelDevice) -> bool:
+        """Deprecated — use switch_on()."""
+        return self.switch_on(device).accepted
 
     def switch_off_device(self, device: RelayChannelDevice) -> bool:
-        if self._send_switch_cmd(device, False):
-            update_key = getattr(device, "control_key", None) or getattr(device, "api_key", None)
-            if update_key is not None:
-                device.update_status({update_key: False})
-            device.mark_switched()
-            return True
-        return False
+        """Deprecated — use switch_off()."""
+        return self.switch_off(device).accepted
 
-    # ---------- batch-helpers ----------
+    def switch_binary(self, dev: RelayChannelDevice, on: bool) -> bool:
+        """Deprecated — use switch_on/switch_off."""
+        if on:
+            return self.switch_on(dev).accepted
+        return self.switch_off(dev).accepted
+
+    def switch_device(self, dev: RelayChannelDevice, value: Any) -> bool:
+        """Deprecated — use switch_on/switch_off/set_numeric."""
+        if isinstance(value, bool):
+            if value:
+                return self.switch_on(dev).accepted
+            return self.switch_off(dev).accepted
+        return self.set_numeric(dev, int(value)).accepted
+
+    # ---------- batch helpers ----------
+
     async def switch_all_on_soft(self, devices, inverter_voltage):
         for dev in devices:
             if dev.ready_to_switch_on(inverter_voltage):
@@ -86,10 +187,14 @@ class RelayTuyaController:
                 await asyncio.sleep(1)
 
     async def switch_all_off_hard(self, devices: List[RelayChannelDevice]):
+        """Command every device OFF using the canonical property mapping."""
         for device in devices:
-            logging.info(f"[RelayTuyaController] Жестко выключаем: {device.name}")
+            logging.info(
+                "[RESET] %s: submitting OFF", device.name,
+                extra={"evt": "startup_reset_cmd", "dev": device.name},
+            )
             self.switch_off_device(device)
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)  # 500ms inter-command delay
 
     def update_devices_status(self, devices: list[RelayChannelDevice]) -> None:
         try:
@@ -139,45 +244,3 @@ class RelayTuyaController:
         if self.is_before_1830():
             await self.switch_all_on_soft(devices, inverter_voltage)
         await self.switch_all_off_soft(devices, inverter_voltage, inverter_on=inverter.is_device_on())
-
-
-    # ──────────────────────────── публичные методы ────────────────────────────
-    def switch_binary(self, dev: RelayChannelDevice, on: bool) -> bool:
-        """Для «обычных» реле – true/false."""
-        return self._send(dev, value=on)
-
-    def set_numeric(self, dev: RelayChannelDevice, value: int) -> bool:
-        """Для аналоговых каналов – скорость насоса, яркость …"""
-        return self._send(dev, value=value)
-
-    # универсальный «старый» alias – сохранится обратная совместимость
-    def switch_device(self, dev: RelayChannelDevice, value: Any) -> bool:
-        return self._send(dev, value)
-
-    # ──────────────────────────── внутренняя логика ───────────────────────────
-    def _send(self, dev: RelayChannelDevice, value: Any) -> bool:
-        """
-        • Выбираем code так:
-            1.  dev.control_key  (новый атрибут – `P`, `switch_1` …)
-            2.  fallback – dev.api_key  (оставлен для старых конфигов)
-        • Формируем/шлём команду через SDK.
-        """
-        code = (getattr(dev, "control_key", None) or
-                getattr(dev, "api_key", None))
-
-        if not code:
-            self.logger.error(f"[Tuya] device {dev.name}: no control_key/api_key")
-            return False
-
-        cmd = {"devId": dev.tuya_device_id or dev.id,
-               "commands": [{"code": code, "value": value}]}
-
-        try:
-            resp = self.authorisation.device_manager.send_commands(cmd["devId"], cmd["commands"])
-            ok   = bool(resp.get("success"))
-            if not ok:
-                self.logger.warning(f"[Tuya] command failed {resp}")
-            return ok
-        except Exception as e:
-            self.logger.error(f"[Tuya] send_commands error for {dev.name}: {e}", exc_info=True)
-            return False

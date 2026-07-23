@@ -34,12 +34,14 @@ class SmartHomeController:
             switch_int: int,
             pump_int: int,
             pump_automation_enabled: bool = False,
+            startup_reset_coordinator=None,
     ):
         self.dev_mgr = dev_mgr
         self.ctrl = tuya_ctrl
         self.switch_int = switch_int
         self.pump_int = pump_int
         self.pump_automation_enabled = pump_automation_enabled
+        self._reset_coordinator = startup_reset_coordinator
 
         self.log_business = add_file_logger("BusinessDecisions",
                                             self.LOG_BUSINESS_PATH,
@@ -86,7 +88,17 @@ class SmartHomeController:
     async def _switch_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                # --- 0. проверка пресета насоса ----------------------
+                # --- 0a. STARTUP RESET GATE check ---
+                if (self._reset_coordinator is not None
+                        and not self._reset_coordinator.is_gate_open):
+                    self.log_business.info(
+                        "[SWITCH] Startup reset gate closed — skipping switch decisions",
+                        extra={"evt": "gate_closed"},
+                    )
+                    await self._sleep(self.switch_int)
+                    continue
+
+                # --- 0b. проверка пресета насоса ----------------------
                 preset_val = int(shared_state.get("pump_mode", 6))
                 preset = PumpPreset(preset_val)
                 if preset in (PumpPreset.STRICT, PumpPreset.SUMMER, PumpPreset.WINTER):

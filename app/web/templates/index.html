@@ -42,6 +42,18 @@
             </div>
         </div>
 
+        <!-- Startup reset badge -->
+        <div class="level mb-3">
+            <div class="level-left">
+                <div class="level-item">
+                    <span id="startup-reset-badge" class="tag is-hidden"></span>
+                </div>
+                <div class="level-item" id="startup-reset-info">
+                    <span id="startup-reset-info-text" class="is-size-7 has-text-grey"></span>
+                </div>
+            </div>
+        </div>
+
         <!-- Unavailable state -->
         <div id="dashboard-unavailable" class="notification is-warning is-hidden">
             <p><strong>No data available.</strong> The control state snapshot is currently unavailable. Data will appear when the system provides a snapshot.</p>
@@ -116,6 +128,8 @@
                             <th>Load (W)</th>
                             <th>Controllable</th>
                             <th>Status</th>
+                            <th>Mapping</th>
+                            <th>Reset</th>
                             <th>Roles</th>
                         </tr>
                     </thead>
