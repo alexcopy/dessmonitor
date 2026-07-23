@@ -144,6 +144,9 @@ class LoadCandidate:
     PR 0014 and PR 0015 respectively. They are optional — a load may not
     have been evaluated yet.
 
+    As of PR 0034a, currently_on is nullable: True=ON, False=OFF, None=UNKNOWN.
+    Observation fields carry canonical device observation state.
+
     Pure data — no device queries, no hardware calls, no side effects.
     """
     load_id: str
@@ -151,13 +154,17 @@ class LoadCandidate:
     load_class: LoadClass | str | None = None
     priority: DevicePriority | int | str | None = None
     configured_load_watts: float = 0.0
-    currently_on: bool = False
+    currently_on: bool | None = False
     controllable: bool = True
     is_life_support: bool = False
     roles: tuple[str, ...] = ()
     readiness: ReadinessResult | None = None
     health: HealthCheckResult | None = None
     schedule_profile: LoadScheduleProfile | None = None
+    observed_state: str | None = None
+    observed_at: str | None = None
+    observation_source: str | None = None
+    freshness: str | None = None
 
 
 # ---------------------------------------------------------------------------

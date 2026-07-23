@@ -73,16 +73,21 @@ class LoadControlSnapshot:
     """A single load's control state summary for display and observability.
 
     Pure data — no hardware calls, no side effects.
+    As of PR 0034a, currently_on is nullable: True=ON, False=OFF, None=UNKNOWN.
     """
     load_id: str = ""
     display_name: str = ""
     configured_load_watts: float = 0.0
-    currently_on: bool = False
+    currently_on: bool | None = False
     controllable: bool = True
     is_life_support: bool = False
     roles: tuple[str, ...] = field(default_factory=tuple)
     status: str = "unknown"
     notes: str = ""
+    observed_state: str | None = None
+    observed_at: str | None = None
+    observation_source: str | None = None
+    freshness: str | None = None
 
 
 # ===================================================================
@@ -181,12 +186,15 @@ class ControlStateSnapshot:
 def _convert_load(load: LoadCandidate) -> LoadControlSnapshot:
     """Convert a LoadCandidate into a read-only LoadControlSnapshot."""
     # Determine status string
-    if load.currently_on:
+    if load.currently_on is True:
         load_status = "active"
-    elif load.controllable:
-        load_status = "idle"
+    elif load.currently_on is False:
+        if load.controllable:
+            load_status = "idle"
+        else:
+            load_status = "unavailable"
     else:
-        load_status = "unavailable"
+        load_status = "unknown"
 
     return LoadControlSnapshot(
         load_id=load.load_id,
@@ -198,6 +206,10 @@ def _convert_load(load: LoadCandidate) -> LoadControlSnapshot:
         roles=load.roles,
         status=load_status,
         notes="",
+        observed_state=load.observed_state,
+        observed_at=load.observed_at,
+        observation_source=load.observation_source,
+        freshness=load.freshness,
     )
 
 

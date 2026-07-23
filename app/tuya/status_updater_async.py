@@ -1,7 +1,7 @@
 # app/status_updater_async.py
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.device_initializer import DeviceInitializer
 from app.tuya.tuya_authorisation import TuyaAuthorisation
@@ -17,6 +17,11 @@ class TuyaStatusUpdaterAsync:
     и обновляет объекты RelayChannelDevice.
     Работает как корутина, которую удобно запускать через
     asyncio.create_task().
+
+    As of PR 0034a, updates the canonical DeviceObservationState
+    on each device with per-channel matching, observed_at timestamp,
+    and source="tuya".  Missing channels and malformed values are
+    safely skipped without overwriting prior observations.
     """
 
     def __init__(self, interval: int = 30):
@@ -60,20 +65,40 @@ class TuyaStatusUpdaterAsync:
             logger.error(f"[Updater] Tuya RPC exception: {exc}", exc_info=True)
             return
 
+        now_utc = datetime.now(timezone.utc)
+        now_ts = int(now_utc.timestamp())
+
         for dev_res in result.get("result", []):
             tuya_id = dev_res["id"]
-            status = dev_res.get("status", [])
+            status_list = dev_res.get("status", [])
 
-            # все логические каналы, «сидящие» на этом tuya-устройстве
+            # Build a lookup: code -> value for fast channel matching
+            status_by_code: dict[str, object] = {}
+            for item in status_list:
+                code = item.get("code")
+                if code is not None:
+                    status_by_code[str(code)] = item.get("value")
+
+            # All logical channels on this Tuya device
             for dev in (d for d in devices if d.tuya_device_id == tuya_id):
-                parsed = dev.extract_status(status)
+                state_key = dev.state_key
+                if state_key is None:
+                    continue
+
+                value = status_by_code.get(str(state_key))
+                if value is not None:
+                    # Update canonical observation with per-channel matching
+                    dev.update_observation_from_tuya(value, now_utc)
+
+                # Also update the legacy status dict for backward compat
+                parsed = dev.extract_status(status_list)
                 dev.update_status(parsed)
-                now_ts = int(datetime.now().timestamp())
                 dev.tick(now_ts)
+
                 if dev.device_type.lower() != "pump":
                     continue
                 mode_val = next(
-                    (item["value"] for item in status
+                    (item["value"] for item in status_list
                      if item["code"] == dev.tuya_code_mode()),  # обычно "mode"
                     None
                 )

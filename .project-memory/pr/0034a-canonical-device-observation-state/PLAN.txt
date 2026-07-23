@@ -1,0 +1,1147 @@
+TITLE: PR 0034a — Canonical Device Observation State
+
+STATUS: Planning — complete, locked after commit.
+
+FORMAT CONVENTION
+This artifact uses plain UTF-8 text. No Markdown, YAML, JSON, or XML
+document structure. Sections are separated by double blank lines.
+Subsections are indented with two spaces.
+
+This is the first PR to adopt the plain-text artifact convention.
+Future artifacts for this PR will use .txt extension:
+  PLAN.txt
+  reviews/PLAN_REVIEW.txt
+  CODER_REPORT.txt
+  reviews/PRECOMMIT_REVIEW.txt
+
+Existing historical artifacts in .md and .yaml formats remain unchanged.
+
+PRODUCTION INCIDENT
+
+After PR 0034 dashboard deployment, the following was observed:
+
+1. Several physical relays were confirmed OFF by visual inspection and
+   independent measurement.
+
+2. The dashboard displayed those relays as ON (green "ON" badge).
+
+3. The application's MAIN ON-device log (device_status.log) displayed
+   the same false ON state.
+
+4. Business logs contained accepted OFF commands for those relays,
+   including successful Tuya send_commands responses.
+
+5. Dashboard, logger, automation, and read model were all reading the
+   same mutable RelayChannelDevice objects. The false state was
+   internally consistent — the application genuinely believed the
+   devices were ON.
+
+OBJECTIVE
+
+Create one canonical, structured, truthful device-observation model
+that eliminates the false-ON production defect and prevents its
+recurrence.
+
+Key principles:
+- Inventory is separated from observation.
+- Physical state supports ON, OFF, and UNKNOWN.
+- Observations have source and timestamp.
+- Freshness is explicit and deterministic.
+- Commands do not masquerade as observations.
+- Dashboard, logs, automation, and state collectors consume the same
+  canonical observation semantics.
+- Stale or unknown observations cannot cause unsafe automation
+  decisions.
+- The existing false-ON production defect is covered by regression
+  tests.
+
+CURRENT STATE EVIDENCE
+
+Data path from configuration to dashboard:
+
+1. devices.yaml declares:
+   - tuya_device_id (parent Tuya physical device)
+   - multi_switch sections with sw_key, available, load_in_wt
+   - single devices with channel/api_sw, available, status
+
+2. app/device_initializer.py:
+   - Multi-switch init line 54: parent_ok = hub_cfg.get("available", True)
+   - Multi-switch init line 65: available=sw_cfg.get("available", parent_ok)
+   - Line 81: status={sw_key: sw_cfg.get("available", parent_ok)}
+     This converts configuration availability into physical ON state.
+     This is the root cause of the false-ON defect.
+   - Single device init line 113: available=cfg.get("available", False)
+   - Single device init passes cfg.get("status", {}) as-is from YAML
+
+3. app/devices/relay_channel_device.py:
+   - RelayChannelDevice.status is a mutable Dict[str, Any]
+   - is_device_on() at line 89:
+       return self.to_bool(self.status.get(self.state_key))
+     Returns False for None/missing state_key, True for any truthy value.
+     Cannot represent UNKNOWN — only True or False.
+   - update_status() mutates self.status in place.
+   - extract_status() parses Tuya raw_status list into dict, sets
+     switch_1 and status keys.
+   - set_on() writes self.control_key: True to status and marks switched.
+   - set_off() writes self.control_key: False to status and marks switched.
+   - tick() advances today_run_sec and today_wh ONLY when
+     is_device_on() returns True.
+   - power_consumption() uses load_in_wt for non-pump devices, which
+     is a static YAML config value — not actual measured power.
+   - api_key defaults to None (no default in constructor).
+   - state_key defaults to control_key in __post_init__.
+
+4. app/tuya/relay_tuya_controller.py:
+   - switch_on_device() (line 43): sends command using control_key,
+     then updates status using device.api_key: True.
+     If api_key is None, status[None]=True is set — which does not
+     affect the status[state_key] the dashboard reads.
+   - switch_off_device() (line 50): same api_key problem.
+   - _send_switch_cmd() (line 15): correctly uses control_key for
+     the Tuya command, with fallback to api_key.
+   - _send() (line 139): same pattern, uses control_key or api_key.
+   - update_devices_status() (line 85): calls extract_status() then
+     update_status() — this is the correct path from Tuya observation.
+
+5. app/tuya/status_updater_async.py:
+   - _update_once() fetches status from Tuya via get_device_list_status.
+   - Timeout or exception returns early without updating any state.
+     Prior values remain intact — stale data is indistinguishable from
+     fresh data.
+   - For each device in a successful result, calls dev.extract_status()
+     then dev.update_status(parsed) then dev.tick(now_ts).
+   - No explicit observation timestamp is recorded on the device.
+   - Missing channels within a multi-switch device: extract_status
+     parses whatever is in the response. If a channel is absent from
+     the response, its prior value survives unchanged.
+
+6. app/devices/relay_device_manager.py:
+   - all_devices_on(): returns [d for d in self._device_order
+     if d.is_device_on()]. Cannot distinguish UNKNOWN from OFF.
+   - all_devices_off(): returns [d for d in self._device_order
+     if not d.is_device_on()]. Includes UNKNOWN devices as OFF.
+
+7. app/service/smart_home_controller.py:
+   - switch_loop: checks dev.is_device_on() to decide whether to
+     switch ON or OFF. A device with UNKNOWN state read as OFF would
+     trigger unnecessary ON commands. A device with UNKNOWN state
+     read as ON from stale data would not trigger OFF commands.
+   - Battery voltage based logic reads shared_state values, which
+     may themselves be stale.
+
+8. app/web_runtime_integration.py:
+   - _device_to_load_dict() reads device.status[state_key] via
+     _safe_bool_value() and stores as currently_on bool.
+   - This is the direct path to the dashboard.
+   - No observation timestamp, no freshness, no source.
+
+9. app/monitoring/device_status_logger.py:
+   - log_snapshot() calls d.is_device_on() to display ON/OFF.
+   - DeviceMetrics Loki log uses d.is_device_on() as truth.
+
+10. app/ml/ml_data_collector.py:
+    - collect() calls d.is_device_on() for device_on_count and
+      total_load_watt calculations.
+    - Also uses is_device_on() for pump_current_uptime_sec.
+
+11. app/ml/timescale_data_collector.py:
+    - collect_data() calls device.is_device_on() for the is_on field.
+    - No observation timestamp or freshness stored.
+
+ROOT CAUSE
+
+The false-ON production defect has a single root cause with three
+contributing factors:
+
+Root cause: app/device_initializer.py line 81
+
+  status={sw_key: sw_cfg.get("available", parent_ok)}
+
+  The multi-switch initializer writes the device's "available"
+  configuration boolean directly as the value for sw_key in the
+  device's status dictionary. Since available=True in devices.yaml
+  means "this device channel is configured and active, not physically
+  ON", this causes RelayChannelDevice.is_device_on() to interpret
+  available=True as physically ON.
+
+Contributing factor A: control_key/api_key inconsistency
+
+  app/tuya/relay_tuya_controller.py switch_on_device() and
+  switch_off_device() set status using device.api_key after a
+  successful command, but multi-switch devices have api_key=None
+  and control_key=sw_key. The status update writes to
+  status[None] rather than status[state_key], so successful
+  commands do not actually update the observed state. The stale
+  available=True value from initialization persists indefinitely.
+
+Contributing factor B: no observation timestamp
+
+  TuyaStatusUpdaterAsync records no explicit observation timestamp
+  on RelayChannelDevice. Timeout, exception, missing channel, or
+  empty response leave prior values intact without any way to
+  distinguish fresh data from stale data. A device that was once
+  correctly observed as ON but has since been switched OFF via a
+  command (whose status-update silently failed due to factor A)
+  remains ON in the dashboard.
+
+Contributing factor C: is_device_on returns only bool
+
+  RelayChannelDevice.is_device_on() returns True or False. There is
+  no third state for UNKNOWN. Every consumer of device state
+  (dashboard, logs, automation, ML) must treat False as OFF even
+  when no observation exists. This is fundamentally incapable of
+  representing uncertainty.
+
+ARCHITECTURAL BOUNDARIES
+
+This PR operates within the following constraints:
+
+- No new Python dependencies.
+- No changes to run.py entrypoint or Dockerfile.
+- No changes to web authentication, CSP, CSRF, or session behavior.
+- No new write API or manual dashboard controls.
+- No inverter observability (PR 0035).
+- No persistent device registry (devices.yaml remains).
+- No ML control enablement.
+- No TimescaleDB production enablement.
+- No GitOps or deployment manifest changes.
+- No parsing of human-readable logs as a data source.
+- Devices.yaml remains the temporary inventory/configuration source.
+
+CANONICAL TERMINOLOGY
+
+INVENTORY: Static configuration required to locate and describe a
+  device. Source: devices.yaml. Fields: tuya_device_id, control_key,
+  state_key, load_in_wt, device_type, priority, etc. Never consulted
+  to determine physical ON/OFF state.
+
+AVAILABLE: Whether a configured device is enabled for use in the
+  application. True means the device should be monitored and may be
+  controlled. False means the device is disabled. Available is NOT
+  physical ON/OFF state.
+
+DESIRED STATE: The state requested by automation or an operator
+  command. Stored as a command intent. Not an observation.
+
+COMMAND RESULT: Whether submission to Tuya was accepted or failed.
+  A successful send_commands response means Tuya accepted the
+  command. It does NOT independently prove the physical device
+  reached the requested state.
+
+OBSERVED STATE: The last physical state successfully obtained from
+  the observation source. Values: ON, OFF, UNKNOWN. Source: Tuya
+  get_device_list_status response. Stored with a timestamp and
+  source identifier.
+
+OBSERVED AT: The clock time when the last successful observation
+  containing the relevant channel was received. Timezone-aware
+  (UTC). Null when no observation has ever been made.
+
+OBSERVATION SOURCE: The system that produced the observation.
+  Initially "tuya". Null when no observation exists.
+
+FRESHNESS: Whether the observation is fresh, stale, or unavailable.
+  Determined by comparing OBSERVED AT to the current time and
+  configured thresholds. Fresh: observation age < fresh threshold.
+  Stale: observation age >= stale threshold. Unavailable: no
+  observation exists.
+
+UNKNOWN: No trustworthy ON/OFF observation is currently available.
+  This is a distinct value. It is not OFF. It is not ON. It is
+  UNKNOWN.
+
+The word "status" is ambiguous and must not be used alone. Every
+use must specify which status: configuration status, command
+status, observation status, or overall device status.
+
+CANONICAL OBSERVATION CONTRACT
+
+A dedicated immutable observation object is preferred over adding
+more ambiguous keys to the mutable RelayChannelDevice.status dict.
+
+A new frozen dataclass in app/devices/device_observation.py:
+
+  @dataclass(frozen=True)
+  class DeviceObservationState:
+      observed_state: ObservationValue = ObservationValue.UNKNOWN
+      observed_at: datetime | None = None
+      observation_source: str | None = None
+      freshness: ObservationFreshness = ObservationFreshness.UNAVAILABLE
+
+  enum ObservationValue:
+      ON = "on"
+      OFF = "off"
+      UNKNOWN = "unknown"
+
+  enum ObservationFreshness:
+      FRESH = "fresh"
+      STALE = "stale"
+      UNAVAILABLE = "unavailable"
+
+  RelayChannelDevice gains a new field:
+      observation: DeviceObservationState = field(
+          default_factory=DeviceObservationState)
+
+  The existing status dict and is_device_on() are preserved for
+  backward compatibility during the transition period.
+
+  is_device_on() is modified to:
+      if self.observation.observed_state == ObservationValue.ON:
+          return True
+      if self.observation.observed_state == ObservationValue.OFF:
+          return False
+      return False  # UNKNOWN — log deprecation warning
+
+  A new method is provided:
+      def get_observation(self) -> DeviceObservationState:
+          return self.observation
+
+  Callers that need to distinguish UNKNOWN from OFF use:
+      obs = device.get_observation()
+      if obs.observed_state == ObservationValue.UNKNOWN:
+          # handle unknown
+      elif obs.observed_state == ObservationValue.ON:
+          # handle on
+
+  Plain boolean consumers (is_device_on) remain usable but return
+  False for UNKNOWN with a deprecation warning in logs.
+INITIALIZATION POLICY
+
+Every RelayChannelDevice begins with:
+
+  observation = DeviceObservationState(
+      observed_state=ObservationValue.UNKNOWN,
+      observed_at=None,
+      observation_source=None,
+      freshness=ObservationFreshness.UNAVAILABLE
+  )
+
+The initial `status` dict is set to empty {} — NOT to
+{sw_key: available}. The available=True configuration value must
+never appear in the status dictionary.
+
+Changes to app/device_initializer.py:
+
+1. Multi-switch init (line 81):
+   Before: status={sw_key: sw_cfg.get("available", parent_ok)}
+   After:  status={}  # physical state begins UNKNOWN
+
+2. The `available` parameter on RelayChannelDevice continues to
+   exist as a configuration flag. It is NOT removed. It is no
+   longer duplicated into the status dict.
+
+3. Single device init (line 113):
+   The cfg.get("status", {}) is loaded from YAML. Legacy status
+   values in devices.yaml are deprecated and must not influence
+   physical state. This PR ignores the YAML status dict for
+   physical observation purposes. A future PR may formally remove
+   the status field from devices.yaml.
+
+4. Any existing status values in devices.yaml are treated as
+   configuration hints, not observations. They do not override
+   the UNKNOWN initial state.
+
+5. The device_type check for analog sensors remains. Analog
+   sensors have no discrete ON/OFF and their observation is
+   handled separately.
+
+TUYA OBSERVATION UPDATE ALGORITHM
+
+The algorithm for TuyaStatusUpdaterAsync._update_once():
+
+1. Fetch get_device_list_status(tuya_ids) with TUYA_RPC_TIMEOUT.
+2. On timeout: log warning, return. No timestamps updated.
+3. On RPC exception: log error, return. No timestamps updated.
+4. On empty result (no status list, no devices): log debug, return.
+   No timestamps updated.
+5. For each device in result["result"]:
+   a. Parse each status item from the status list.
+   b. For each status item, determine which channel it belongs to.
+   c. For each channel:
+      - Match by code (the Tuya code like "switch_1", "switch_2").
+      - Parse value: bool True/False for booleans, int 1/0 for
+        integers, accepted strings for string values.
+      - If the channel value is a valid ON/OFF indicator, create a
+        new DeviceObservationState with observed_at=utcnow(),
+        observation_source="tuya", freshness=FRESH.
+      - If the channel value is malformed or unparseable, log
+        warning, leave the prior observation in place. Do not
+        overwrite with UNKNOWN.
+      - If the channel is absent from the response, leave the
+        prior observation in place. Do not change observed_at.
+        Do not overwrite with UNKNOWN.
+   d. Call dev.tick(now_ts) only after updating observation.
+
+Matching by parent Tuya device:
+- Each device has tuya_device_id. All devices sharing the same
+  tuya_device_id are grouped for a single get_device_list_status
+  call.
+- The response contains one status list per tuya_device_id.
+- Each status item has a "code" field.
+- A channel device with state_key="switch_1" matches a status
+  item with code="switch_1".
+
+Failure policy:
+- A failed fetch cycle does not mark any observation stale.
+  Staleness is determined by the freshness policy based on the
+  last successful observed_at timestamp.
+- A partial response (some channels present, some missing) updates
+  only the channels that were successfully observed.
+- If all channels for a device are absent from the response, the
+  device's observation is not updated. No timestamp change.
+
+FRESHNESS POLICY
+
+Freshness is computed on the observation object, not stored as a
+static value. A function compute_freshness(observation, now_utc)
+returns the freshness value.
+
+Thresholds:
+
+  FRESH: observation exists and age < 90 seconds
+         (3x the default 30-second Tuya polling interval)
+
+  STALE: observation exists and age >= 90 seconds
+
+  UNAVAILABLE: no observation exists (observed_at is None)
+
+Clock: timezone-aware datetime.utcnow() (Python 3.12+).
+
+Time zone: UTC. All timestamps are stored as UTC.
+
+Restart behavior: after application restart, observation state is
+reinitialized to UNKNOWN. No persistence of observation state
+across restarts in this PR.
+
+Future timestamps: if observed_at is in the future (clock skew),
+treat as STALE (cannot be fresh from the future).
+
+Malformed timestamps: if observed_at is not a valid datetime, treat
+as UNAVAILABLE.
+
+Test injection: freshness thresholds are configurable via
+constructor parameter for deterministic testing. Default values
+apply in production.
+
+COMMAND VERSUS OBSERVATION POLICY
+
+Command acceptance does NOT overwrite observed_state.
+
+After a successful send_commands response:
+
+1. A command intent record is created (in-memory, not persistent in
+   this PR). Fields: device_id, requested_state (ON/OFF),
+   command_id, sent_at, accepted (bool from Tuya response).
+
+2. observed_state remains unchanged until the next successful
+   observation cycle confirms or contradicts the commanded state.
+
+3. The dashboard may optionally show "command pending" or "awaiting
+   confirmation" status between command acceptance and the next
+   observation. This is a separate field on the device or in the
+   read model, not an override of observed_state.
+
+4. If the observation cycle confirms the commanded state, the
+   observed_state is updated normally.
+
+5. If the observation cycle contradicts the commanded state (device
+   did not reach the requested state), a warning is logged and
+   observed_state reflects the observed reality.
+
+Control key fix:
+- relay_tuya_controller.py switch_on_device() and
+  switch_off_device() must update status using device.control_key
+  (or state_key), NOT device.api_key.
+- The pattern is: send command using control_key, then if accepted,
+  update the observation status using the same key.
+- However, per the policy above, command acceptance alone does not
+  replace observation. The in-flight status update is only for
+  optimistic UI display, clearly marked as unconfirmed.
+- The canonical observation update path is exclusively through
+  TuyaStatusUpdaterAsync.
+
+AUTOMATION FAIL-CLOSED POLICY
+
+SmartHomeController._switch_loop() must fail closed for UNKNOWN or
+stale observations:
+
+1. Before reading any device state for automation decisions, check
+   freshness. If freshness is STALE or UNAVAILABLE, log structured
+   warning and skip the device.
+
+2. all_devices_on() and all_devices_off() in RelayDeviceManager
+   are modified:
+   - all_devices_on(): returns devices where observed_state is ON.
+     UNKNOWN and OFF are excluded.
+   - all_devices_off(): returns devices where observed_state is
+     OFF. UNKNOWN and ON are excluded.
+   - These methods may also accept an optional
+     "include_unknown" parameter for diagnostic use only.
+
+3. Runtime and energy calculations (tick(), today_run_sec,
+   today_wh):
+   - These must not advance when observed_state is UNKNOWN.
+   - tick() already checks is_device_on(). With the updated
+     is_device_on() returning False for UNKNOWN, advancement is
+     prevented. This is correct as long as the deprecation
+     warning is not suppressed.
+   - Future energy calculations (PR 0036) should use
+     get_observation() to distinguish UNKNOWN from OFF.
+
+4. Pond pump life-support: existing safety rules are preserved.
+   This PR does not re-enable disabled pump automation. If pump
+   automation were enabled, UNKNOWN state would prevent switching
+   ON (safe) and prevent switching OFF (safe — preserves current
+   state).
+
+5. Safe skip behavior: when a device is skipped due to UNKNOWN or
+   stale state, a structured log warning is emitted:
+     f"[AUTOMATION] Device {name}: skipping — observation {state}
+       freshness {freshness}"
+
+6. Structured warning behavior: warnings are logged through the
+   existing logging infrastructure with extra fields for Loki:
+     extra={"evt": "automation_skip", "dev": name,
+            "obs_state": state, "freshness": freshness}
+
+CANONICAL READ MODEL
+
+Changes to the web read model (currently in
+app/web_runtime_integration.py _device_to_load_dict()):
+
+The load dict for each device gains these new fields:
+
+  observed_state: "on" | "off" | "unknown"
+  observed_at: ISO-8601 datetime string or null
+  observation_source: "tuya" or null
+  freshness: "fresh" | "stale" | "unavailable"
+
+The existing `currently_on` field is retained but modified:
+- ON -> true
+- OFF -> false
+- UNKNOWN -> null (serialized as JSON null, not false)
+
+The dashboard currently uses `currently_on`. It will display
+`currently_on=null` as "-" (via the existing null rendering
+logic). The new observed_state and freshness fields enable
+enhanced display in a future PR.
+
+The warnings array in the snapshot includes structured entries
+like:
+  "device-unobserved" — device has never been observed
+  "device-stale-observation" — observation age exceeds threshold
+  "device-observation-mismatch" — command result != observation
+
+No raw Tuya payloads, IDs, keys, or secrets are exposed. The
+existing _FORBIDDEN_DEVICE_ATTRS filter remains unchanged.
+
+DASHBOARD CONTRACT
+
+The dashboard currently displays:
+- "ON" badge (green) for currently_on=true
+- "OFF" badge (grey) for currently_on=false
+
+With the canonical read model:
+- ON (currently_on=true, observed_state=on):
+  Green badge, no change.
+- OFF (currently_on=false, observed_state=off):
+  Grey badge, no change.
+- UNKNOWN (currently_on=null, observed_state=unknown):
+  Grey badge with "?" text, or "---". Not green. Not red.
+- Stale: a subtle visual indicator (border or opacity) applied
+  to devices with freshness=stale. The badge text remains ON/OFF
+  if the observation itself was valid when fresh.
+- Unavailable device (not available in config): grey "---".
+
+Summary counts:
+- ON count: number of devices with observed_state=ON
+- OFF count: number of devices with observed_state=OFF
+- UNKNOWN count: number of devices with observed_state=UNKNOWN
+  (new counter; never merged into OFF count)
+- Total / configured count: all devices in the configured list
+
+Dashboard index.html and dashboard.js are updated to render the
+new fields. The existing polling and state machine remain
+unchanged.
+
+The dashboard does NOT add:
+- write controls
+- command status display (deferred)
+- observation timestamps (may be added in a future PR when
+  dashboard.js supports it)
+
+Accessibility:
+- UNKNOWN uses accessible text "Unknown", not colour alone.
+- Stale indicator includes text explanation in a tooltip or
+  adjacent text.
+
+LOGGING CONTRACT
+
+DeviceStatusLogger.log_snapshot() uses get_observation() instead
+of is_device_on() for the state column:
+
+  state = "ON" if obs.observed_state == ObservationValue.ON else \
+          "OFF" if obs.observed_state == ObservationValue.OFF else \
+          "UNKN"
+
+The log output line changes from:
+  DeviceName       | ON  | run=...
+to:
+  DeviceName       | ON  | obs=2025-07-23T12:34:56Z | run=...
+
+The Loki device_metrics log gains:
+  observed_state: "on" | "off" | "unknown"
+  observed_at: ISO-8601 string
+  freshness: "fresh" | "stale" | "unavailable"
+
+The existing `state` field in the Loki log is renamed to
+`commanded_state` or removed in favor of `observed_state`.
+
+No raw Tuya payloads, IDs, keys, or secrets are logged. The
+existing _FORBIDDEN_DEVICE_ATTRS protection applies.
+
+Human-readable logs are outputs only. They must not be parsed
+back into runtime state.
+
+ML AND METRICS CONTRACT
+
+MLDataCollector:
+- devices_on_count uses observed_state==ON (not is_device_on()).
+- total_load_watt is calculated only for devices with
+  observed_state==ON. Devices with UNKNOWN state contribute 0W
+  and a warning is logged.
+- pump_current_uptime_sec requires observed_state==ON. UNKNOWN
+  returns None.
+- The CSV and JSONL exports include observed_state, observed_at,
+  and freshness in the output fields.
+
+TimescaleDataCollector:
+- The is_on column stores the canonical observed state:
+  true for ON, false for OFF, null for UNKNOWN.
+- The power_mode column is preserved.
+- A new observed_at column is added.
+- A new freshness column is added.
+
+This PR does NOT enable TimescaleDB in production. The schema
+changes are applied only when/if TimescaleDB is enabled (future
+PR). The code changes to supply canonical observation fields to
+the collector are included in this PR.
+
+ML control is NOT enabled by this PR. ML data semantics are
+corrected so that future ML training uses truthful state.
+EXACT FILE PLAN
+
+Files to create:
+
+  app/devices/device_observation.py (create)
+  Responsibility: DeviceObservationState dataclass, ObservationValue
+  enum, ObservationFreshness enum, compute_freshness function.
+  Must not: import Tuya, hardware, or web modules. Must not contain
+  any mutable state.
+
+  scripts/check-canonical-device-observation.sh (create)
+  Responsibility: Deterministic behavioral validation of the
+  canonical observation model. Fake clocks, fake Tuya responses,
+  real Python unit tests.
+  Must not: modify application code, access network, use real
+  timers or real Tuya credentials.
+
+Files to modify:
+
+  app/devices/relay_channel_device.py (modify)
+  Add: observation field (DeviceObservationState). Add:
+  get_observation() method. Modify: is_device_on() to use
+  observation. Modify: extract_status() to update observation
+  instead of raw status dict. Modify: set_on(), set_off() to
+  update observation (with pending/unconfirmed marker). Modify:
+  tick() to check observation before advancing counters.
+  Modify: update_status() to co-exist with observation (deprecated).
+  Must not: remove status dict (backward compat). Must not: add
+  write endpoints or hardware calls.
+
+  app/device_initializer.py (modify)
+  Change: line 81 — stop writing available to status dict.
+  Change: all device initialization — status starts empty.
+  Must not: change devices.yaml reading logic. Must not: remove
+  available parameter.
+
+  app/tuya/status_updater_async.py (modify)
+  Rewrite: _update_once() to use canonical observation update
+  algorithm. Add: observed_at timestamp. Add: per-channel matching.
+  Add: missing-channel behavior. Modify: tick call ordering.
+  Must not: add raw payload logging. Must not: change RPC timeout
+  or interval without separate plan.
+
+  app/tuya/relay_tuya_controller.py (modify)
+  Fix: switch_on_device() and switch_off_device() — use
+  device.control_key or device.state_key, not device.api_key.
+  Fix: status update after command uses correct key. Add: command
+  result recording (separate from observation).
+  Must not: add new command types. Must not: change low-level
+  send_commands logic.
+
+  app/devices/relay_device_manager.py (modify)
+  Modify: all_devices_on() to use observed_state==ON.
+  Modify: all_devices_off() to use observed_state==OFF.
+  Must not: change add_device, remove_device, or device
+  management logic.
+
+  app/web_runtime_integration.py (modify)
+  Modify: _device_to_load_dict() to include observed_state,
+  observed_at, observation_source, freshness. Modify: currently_on
+  to serialize as null for UNKNOWN.
+  Must not: change route handling, auth, or security.
+
+  app/control/runtime_snapshot_adapter.py (modify)
+  Modify: RuntimeLoadState to include observation fields. Modify:
+  _parse_loads to carry observation data through the pipeline.
+  Must not: change control logic, pipeline types, or read model
+  contract.
+
+  app/control/web_ui_read_endpoint.py (modify)
+  Modify: pass observation fields into response. Ensure
+  WebUiControlStateResponse includes per-load observation.
+  Must not: change auth, routing, or read-only contract.
+
+  app/service/smart_home_controller.py (modify)
+  Modify: _switch_loop() to check observation freshness before
+  making decisions. Add: skip behavior for UNKNOWN/stale. Add:
+  structured warning logging.
+  Must not: change pump logic, safety gates, or automation
+  intervals. Must not: re-enable disabled automation.
+
+  app/monitoring/device_status_logger.py (modify)
+  Modify: log_snapshot() to use get_observation(). Modify: Loki
+  device_metrics log to include observation fields. Rename or
+  deprecate state field.
+  Must not: change log format for other event types. Must not:
+  add new Loki labels without separate plan.
+
+  app/web/templates/index.html (modify)
+  Modify: device rows to render observed_state, freshness. UNKNOWN
+  renders as "---" not OFF. Stale row gets visual indicator.
+  Must not: add write controls. Must not: remove existing fields.
+
+  app/web/static/dashboard.js (modify)
+  Modify: render load rows to handle currently_on=null.
+  Modify: summary counts to include UNKNOWN count.
+  Must not: change polling, auth, security, or connection state
+  machine.
+
+  app/ml/ml_data_collector.py (modify)
+  Modify: collect() to use device.observation for is_on decisions.
+  Modify: export CSV/JSONL to include observation fields.
+  Must not: enable ML control. Must not: change collection
+  interval or validation logic.
+
+  app/ml/timescale_data_collector.py (modify)
+  Modify: collect_data() to include observed_at and freshness in
+  database writes. Modify: is_on uses observation.
+  Must not: enable TimescaleDB production. Must not: modify
+  schema outside this PR's responsibility.
+
+  scripts/check-web-dashboard.sh (modify)
+  Add: test for currently_on=null rendering. Add: test for UNKNOWN
+  count. Add: test for stale indicator.
+  Must not: change existing auth, CSP, or asset tests.
+
+  .github/workflows/validate.yml (modify)
+  Add: canonical device observation check step after dashboard
+  check step.
+  Must not: change any existing step.
+
+Files NOT modified (but inspected):
+
+  run.py — no entrypoint changes needed.
+  app/web_host.py — no allowlist changes needed.
+  app/web_auth.py — no auth changes.
+  app/web_routes.py — no route changes.
+  .project-memory/ADR/*.md — no ADR changes.
+
+IMPLEMENTATION SEQUENCE
+
+Step 1: Create DeviceObservationState types.
+Step 2: Add observation field to RelayChannelDevice.
+Step 3: Fix device_initializer.py (stop writing available to
+  status dict).
+Step 4: Fix relay_tuya_controller.py (correct status update key).
+Step 5: Rewrite status_updater_async.py observation algorithm.
+Step 6: Fix relay_device_manager.py (all_devices_on/off).
+Step 7: Fix web_runtime_integration.py (read model fields).
+Step 8: Fix smart_home_controller.py (fail-closed automation).
+Step 9: Fix device_status_logger.py (canonical log output).
+Step 10: Fix ML collectors (canonical observation consumption).
+Step 11: Update index.html and dashboard.js (UNKNOWN rendering).
+Step 12: Create validation script.
+Step 13: Add CI step.
+Step 14: Run full regression suite.
+Step 15: Document deployment and rollback.
+
+Steps 3-6 are the root cause fix. Steps 7-11 are consumer
+correctness. Steps 12-14 are validation.
+
+VALIDATION PLAN
+
+Test structure:
+
+  scripts/check-canonical-device-observation.sh runs Python unit
+  tests with fake clocks, fake Tuya responses, and in-memory
+  devices. No real Tuya calls, no network access, no real timers.
+
+Test categories:
+
+CANONICAL STATE (8 tests)
+- Device initializes with observed_state=UNKNOWN, freshness=UNAVAILABLE
+- Multi-switch available=true starts UNKNOWN, not ON
+- Single switch starts UNKNOWN without trusted observation
+- Analog sensor starts UNKNOWN
+- Unavailable device starts UNKNOWN
+- Legacy YAML status values do not override initial UNKNOWN
+- DeviceObservationState is immutable (frozen)
+- compute_freshness with no observation returns UNAVAILABLE
+
+OBSERVATION UPDATE (8 tests)
+- Valid Tuya true (bool) sets observed_state=ON, observed_at updated
+- Valid Tuya false (bool) sets observed_state=OFF, observed_at updated
+- Integer 1 sets observed_state=ON
+- Integer 0 sets observed_state=OFF
+- Accepted string "true"/"1"/"on" sets observed_state=ON
+- Accepted string "false"/"0"/"off" sets observed_state=OFF
+- Timeout does not change observed_at or observed_state
+- RPC exception does not change observed_at or observed_state
+
+MISSING CHANNEL BEHAVIOR (3 tests)
+- Absent channel in response leaves prior observation unchanged
+- Absent channel does not create a new UNKNOWN observation
+- Partial multi-switch response updates only included channels
+
+FRESHNESS (5 tests)
+- Observation age < 90s returns FRESH
+- Observation age >= 90s returns STALE
+- No observation returns UNAVAILABLE
+- Future timestamp returns STALE
+- Freshness thresholds are configurable for test injection
+
+COMMAND BOUNDARY (4 tests)
+- Accepted OFF command does not set observed_state=OFF
+- Command result is recorded separately from observation
+- Observation confirmation clears pending state
+- Contradictory observation is represented correctly
+
+CONTROL KEY FIX (2 tests)
+- switch_on_device uses control_key, not api_key, for status update
+- switch_off_device uses control_key, not api_key, for status update
+
+AUTOMATION SAFETY (5 tests)
+- all_devices_on excludes UNKNOWN devices
+- all_devices_off excludes UNKNOWN devices
+- SmartHomeController skips UNKNOWN devices (does not switch)
+- SmartHomeController skips STALE devices (does not switch)
+- tick() does not advance counters for UNKNOWN state
+
+API SERIALIZATION (4 tests)
+- currently_on is true for ON, false for OFF, null for UNKNOWN
+- observed_state serializes as "on", "off", "unknown"
+- observed_at serializes as ISO-8601 string or null
+- freshness serializes as "fresh", "stale", "unavailable"
+
+DASHBOARD RENDERING (3 tests)
+- UNKNOWN renders as "---" not "OFF"
+- Stale row has visual indicator
+- Summary count shows ON, OFF, and UNKNOWN separately
+
+REGISTRATION (3 tests)
+- No raw Tuya device IDs, control keys, or API keys in API response
+- No raw Tuya device IDs, control keys, or API keys in logs
+- Authentication and read-only dashboard regressions pass
+
+Timer and state injection:
+  All tests use injectable datetime (dependency injection for
+  datetime.utcnow()). All tests pass without real sleeps.
+  Fake Tuya responses are created as in-memory dicts matching
+  the Tuya get_device_list_status response format.
+
+EXISTING REGRESSION SUITE
+
+All existing validation scripts must continue to pass unchanged:
+
+  bash scripts/check-web-authentication.sh
+  bash scripts/check-web-ui-read-only-endpoint.sh
+  bash scripts/check-web-host-startup.sh
+  bash scripts/check-web-control-state-provider.sh
+  bash scripts/check-runtime-read-only-web-host.sh
+  bash scripts/check-web-dashboard.sh
+  python3 -m compileall -q .
+  git diff --check
+
+CI INTEGRATION
+
+New step in .github/workflows/validate.yml after the web
+dashboard check step:
+
+  - name: Canonical device observation check
+    run: bash scripts/check-canonical-device-observation.sh
+
+No other CI changes. The existing pip install covers all
+dependencies.
+
+PRODUCTION VALIDATION
+
+Post-deployment checks (read-only, no credential exposure):
+
+1. Immediate post-restart: dashboard shows UNKNOWN state for all
+   devices. No device appears ON with green badge.
+
+2. After first successful Tuya observation cycle (within 30-60
+   seconds): devices transition from UNKNOWN to ON or OFF based
+   on actual physical state.
+
+3. observed_at field in API response shows a recent timestamp.
+
+4. If Tuya observation refresh is interrupted (simulate by
+   firewall block or credential expiry): after 90 seconds, devices
+   show STALE freshness. Dashboard displays stale indicator.
+
+5. After observation resumes: devices return to FRESH state.
+
+6. Business logs show UNKNOWN during startup, then transition to
+   ON or OFF.
+
+7. Business logs show structured warnings for skipped automation
+   during UNKNOWN state.
+
+8. Compare dashboard state with physical device state (visual
+   inspection). No false ON displayed.
+
+9. No command or automation execution caused by UNKNOWN state.
+   All automation correctly skips until observation confirms
+   physical state.
+
+10. Existing dashboard polling, auth, and connection-state
+    indicators work correctly (regression check).
+
+DEPLOYMENT BOUNDARY
+
+- No credential or Secret changes.
+- No GitOps changes (app/docker/ manifests unchanged).
+- Existing image publication flow (Docker Hub -> ArgoCD)
+  unchanged.
+- Production already exposes the full host.
+- Rollback is application-image rollback only.
+- No database or persistent-state migration in this PR.
+
+RISKS AND MITIGATIONS
+
+Risk: Consumer code still depends on is_device_on() returning bool
+  without understanding UNKNOWN.
+  Mitigation: is_device_on() returns False for UNKNOWN with a
+  deprecation warning. All consumers are updated in this PR.
+  Validation: automated tests verify all 10+ consumer paths use
+  canonical observation.
+
+Risk: RelayTuyaController status update key fix accidentally
+  writes to wrong dict key.
+  Mitigation: fix is minimal (change api_key to control_key in two
+  lines). Unit tests verify correct key after switch_on/off.
+  Validation: control key fix tests in validation plan.
+
+Risk: TuyaStatusUpdaterAsync rewrite introduces a regression in
+  observation frequency or reliability.
+  Mitigation: algorithmic changes are additive (add observation
+  timestamp, add per-channel matching). Existing Tuya call pattern
+  is preserved. No change to RPC timeout or polling interval.
+  Validation: runtime replay of recorded Tuya responses.
+
+Risk: Dashboard shows UNKNOWN for an extended period after restart.
+  Mitigation: this is correct behavior (no observation yet). The
+  dashboard already handles unavailable state. Users are
+  accustomed to the "connecting..." state on page load.
+  Validation: production validation step 1 confirms UNKNOWN
+  display.
+
+Risk: Rollback restores the false-ON defect.
+  Mitigation: documented in Rollback section. Users must
+  re-deploy the fix after rollback.
+  Validation: documentation and acceptance criteria.
+
+ROLLBACK
+
+Rollback is an application-image rollback only:
+
+1. Revert to the previous known-good Docker image tag or digest.
+2. GitOps (ArgoCD) points to the previous image.
+3. No database rollback, Secret change, or config change.
+
+Rollback risk: The previous image has the false-ON defect.
+Operators deploying a rollback must be aware that the dashboard
+will again show ON for devices that may be physically OFF. The
+fix must be re-implemented in a subsequent deployment.
+
+There is no data migration that needs to be reversed. No device
+configuration is rewritten. No schema change requires rollback.
+
+ACCEPTANCE CRITERIA
+
+The implementation is complete when:
+
+1. All acceptance criteria from PR 0033 and PR 0034 remain
+   satisfied (auth, dashboard, CSP, allowlist unchanged).
+
+2. All existing regression scripts exit 0.
+
+3. scripts/check-canonical-device-observation.sh exits 0 with
+   all tests passing.
+
+4. python3 -m compileall -q . exits 0.
+
+5. git diff --check exits 0.
+
+6. Only the files listed in EXACT FILE PLAN are created or
+   modified.
+
+7. run.py, Dockerfile, docker-compose.yml, app/docker/,
+   app/web_host.py, app/web_auth.py, app/web_routes.py are
+   unchanged.
+
+8. Every RelayChannelDevice initializes with observed_state=
+   UNKNOWN, not ON.
+
+9. Multi-switch available=true does not produce false ON.
+
+10. control_key/state_key is used consistently for status
+    updates after commands.
+
+11. TuyaStatusUpdaterAsync records observed_at on every
+    successful observation.
+
+12. Timeout, exception, and missing-channel leave observations
+    unchanged.
+
+13. is_device_on() returns True only for ON, False for OFF,
+    False for UNKNOWN (with deprecation warning).
+
+14. get_observation() returns a complete DeviceObservationState.
+
+15. SmartHomeController skips UNKNOWN or stale devices instead
+    of switching them based on default False.
+
+16. ML collectors do not count UNKNOWN as ON for load calculations.
+
+17. API serializes currently_on as null for UNKNOWN, not false.
+
+18. Dashboard renders UNKNOWN as "---" and shows a separate
+    UNKNOWN count.
+
+19. Logs show canonical observation fields.
+
+20. No Tuya IDs, credentials, keys, or raw payloads exposed.
+
+21. ROADMAP.md unchanged. Only PR 0034a artifacts and allowed
+    files changed.
+
+22. CODER_REPORT.txt records the exact changes made and any
+    deviations from plan.
+
+EXPLICIT NON-GOALS
+
+- No implementation of PR 0035 runtime-heartbeat or inverter
+  observability.
+- No implementation of PR 0036 device-duration or energy fields
+  beyond preventing incorrect counting from UNKNOWN state.
+- No persistent device registry.
+- No devices.yaml removal or format change.
+- No manual dashboard controls.
+- No new write API.
+- No WebSockets, SSE, or long polling.
+- No changes to polling interval, stale thresholds, or connection
+  state machine in the dashboard.
+- No changes to web authentication, CSP, CSRF, or session
+  behavior.
+- No changes to run.py entrypoint or container startup.
+- No GitOps, Kubernetes, or deployment manifest changes.
+- No ML control enablement.
+- No TimescaleDB production enablement.
+- No new Python dependencies.
+- No parsing of human-readable logs as a data source.
+- No removal of the existing status dict from RelayChannelDevice
+  (backward compatibility preserved).
+
+CODER CONSTRAINTS
+
+1. Do not modify run.py, Dockerfile, docker-compose.yml,
+   app/docker/, app/web_host.py, app/web_auth.py,
+   app/web_routes.py, .github/workflows/build-and-deploy.yml,
+   ROADMAP.md, or any existing .project-memory artifact outside
+   PR 0034a.
+
+2. Do not add new Python dependencies.
+
+3. Do not add POST, PUT, PATCH, or DELETE routes.
+
+4. Do not call Tuya, relays, devices, hardware, or runtime
+   internals from web routes or browser code.
+
+5. Do not expose raw Tuya payloads, IDs, control_keys, api_keys,
+   credentials, or stack traces.
+
+6. Do not remove or rename the existing status dict on
+   RelayChannelDevice (backward compatibility).
+
+7. Do not change devices.yaml reading or parsing logic.
+
+8. Do not re-enable disabled pump automation or modify pond
+   life-support safety rules.
+
+9. Do not enable TimescaleDB in production.
+
+10. Do not enable ML control.
+
+11. Do not weaken authentication, CSP, session, or CSRF.
+
+12. Do not commit credentials, secrets, tokens, or hashes.
+
+13. All observation timestamps must be timezone-aware (UTC).
+
+14. Unit tests must use injectable clocks and fake Tuya
+    responses. No real network, no real timers, no real Tuya
+    credentials.
+
+15. The existing all_devices_on() and all_devices_off() API
+    contract changes must be documented in CODER_REPORT.txt.
+
+16. Every consumer of device ON/OFF state must be inspected and
+    updated to use canonical observation where appropriate.
+
+REVIEWER CHECKLIST
+
+The plan-review agent must verify:
+
+- [ ] Branch is pr-0034a-canonical-device-observation-state
+- [ ] Only .project-memory/pr/0034a-canonical-device-observation-
+  state/PLAN.txt is changed
+- [ ] PLAN.txt is plain UTF-8 text (no YAML, no Markdown tables)
+- [ ] False-ON root cause is identified (device_initializer.py
+  line 81: available written to status dict)
+- [ ] control_key/api_key inconsistency is identified
+- [ ] No observation timestamp is identified
+- [ ] is_device_on return-only-bool limitation is identified
+- [ ] Canonical terminology separates inventory, availability,
+  observed state, desired state, command result, and freshness
+- [ ] ON, OFF, and UNKNOWN are defined
+- [ ] observed_at, observation_source, and freshness are defined
+- [ ] Available is prohibited from becoming physical state
+- [ ] Command acceptance is prohibited from becoming observation
+- [ ] Initialization policy begins UNKNOWN
+- [ ] Timeout and missing-channel behavior is defined
+- [ ] Freshness thresholds are defined (FRESH < 90s, STALE >= 90s)
+- [ ] Fail-closed automation is defined
+- [ ] API serializes currently_on as null for UNKNOWN
+- [ ] Dashboard renders UNKNOWN separately
+- [ ] Logs use canonical observation
+- [ ] ML collectors do not convert UNKNOWN to zero
+- [ ] Exact implementation files are listed with responsibility
+- [ ] Deterministic fake-clock and fake-Tuya tests are planned
+- [ ] All five connection states from PR 0034 are preserved
+  (connecting, online, stale, degraded, offline)
+- [ ] No application implementation code in PLAN.txt
+- [ ] ROADMAP.md and all application files unchanged

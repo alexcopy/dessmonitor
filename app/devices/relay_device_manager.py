@@ -62,10 +62,18 @@ class RelayDeviceManager:
         self._device_order.sort(key=lambda d: d.priority)
 
     def all_devices_on(self) -> List[RelayChannelDevice]:
-        return [d for d in self._device_order if d.is_device_on()]
+        """Return devices where observation confirms ON.
+
+        UNKNOWN and OFF devices are excluded.
+        """
+        return [d for d in self._device_order if d.observation.is_on]
 
     def all_devices_off(self) -> List[RelayChannelDevice]:
-        return [d for d in self._device_order if not d.is_device_on()]
+        """Return devices where observation confirms OFF.
+
+        UNKNOWN and ON devices are excluded.
+        """
+        return [d for d in self._device_order if d.observation.is_off]
 
 
     def toggle_device(self, device_id: str, turn_on: bool, tuya_controller) -> bool:

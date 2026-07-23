@@ -137,6 +137,25 @@ input:focus-visible {
 }
 
 /* ---------------------------------------------------------------------------
+ * Stale row indicator (per-device observation staleness)
+ * ---------------------------------------------------------------------------
+ */
+
+.is-stale-row {
+    opacity: 0.65;
+}
+
+.is-stale-row:hover {
+    opacity: 1;
+}
+
+.tag.is-stale-indicator {
+    font-size: 0.65rem;
+    vertical-align: middle;
+    margin-left: 0.25rem;
+}
+
+/* ---------------------------------------------------------------------------
  * Reduced motion
  * ---------------------------------------------------------------------------
  */

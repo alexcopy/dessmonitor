@@ -65,6 +65,7 @@
         dom.summaryTotalLoads = document.getElementById("summary-total-loads");
         dom.summaryOnCount = document.getElementById("summary-on-count");
         dom.summaryOffCount = document.getElementById("summary-off-count");
+        dom.summaryUnknownCount = document.getElementById("summary-unknown-count");
         dom.dashboardWarnings = document.getElementById("dashboard-warnings");
         dom.warningsBody = document.getElementById("warnings-body");
         dom.snapshotTimestamp = document.getElementById("snapshot-timestamp");
@@ -275,6 +276,7 @@
         var totalLoads = loads.length;
         var onCount = 0;
         var offCount = 0;
+        var unknownCount = 0;
 
         /* Clear existing rows */
         dom.loadsTableBody.textContent = "";
@@ -284,16 +286,27 @@
             if (!load || typeof load !== "object") { continue; }
 
             var displayName = safeText(load.display_name);
-            var currentlyOn = load.currently_on === true;
+            var currentlyOn = load.currently_on;
             var configuredWatts = formatWatts(load.configured_load_watts);
             var controllable = formatYesNo(load.controllable);
             var status = safeText(load.status);
             var roles = formatRoles(load.roles);
             var isLifeSupport = load.is_life_support === true;
+            var freshness = load.freshness || "";
+            var isStale = (freshness === "stale");
 
-            if (currentlyOn) { onCount++; } else { offCount++; }
+            if (currentlyOn === true) {
+                onCount++;
+            } else if (currentlyOn === false) {
+                offCount++;
+            } else {
+                unknownCount++;
+            }
 
             var tr = document.createElement("tr");
+            if (isStale) {
+                tr.className = "is-stale-row";
+            }
 
             /* Device Name cell */
             var tdName = document.createElement("td");
@@ -305,13 +318,30 @@
                 lsTag.textContent = "Life Support";
                 tdName.appendChild(lsTag);
             }
+            if (isStale) {
+                tdName.appendChild(document.createTextNode(" "));
+                var staleIndicator = document.createElement("span");
+                staleIndicator.className = "tag is-warning is-light is-stale-indicator";
+                staleIndicator.textContent = "stale";
+                staleIndicator.title = "Observation is stale — may not reflect current state";
+                tdName.appendChild(staleIndicator);
+            }
             tr.appendChild(tdName);
 
-            /* State cell (ON/OFF badge) */
+            /* State cell (ON/OFF/UNKNOWN badge) */
             var tdState = document.createElement("td");
             var stateTag = document.createElement("span");
-            stateTag.className = currentlyOn ? "tag is-success" : "tag is-light";
-            stateTag.textContent = currentlyOn ? "ON" : "OFF";
+            if (currentlyOn === true) {
+                stateTag.className = "tag is-success";
+                stateTag.textContent = "ON";
+            } else if (currentlyOn === false) {
+                stateTag.className = "tag is-light";
+                stateTag.textContent = "OFF";
+            } else {
+                stateTag.className = "tag is-light";
+                stateTag.textContent = "---";
+                stateTag.title = "Unknown";
+            }
             tdState.appendChild(stateTag);
             tr.appendChild(tdState);
 
@@ -341,6 +371,9 @@
         dom.summaryTotalLoads.textContent = String(totalLoads);
         dom.summaryOnCount.textContent = String(onCount);
         dom.summaryOffCount.textContent = String(offCount);
+        if (dom.summaryUnknownCount) {
+            dom.summaryUnknownCount.textContent = String(unknownCount);
+        }
     }
 
     /* -----------------------------------------------------------------------

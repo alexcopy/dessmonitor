@@ -189,16 +189,29 @@ def _parse_loads(
                 else:
                     roles = ()
 
+                # currently_on: True=ON, False=OFF, None=UNKNOWN
+                raw_on = item.get("currently_on")
+                if raw_on is True:
+                    currently_on: bool | None = True
+                elif raw_on is False:
+                    currently_on = False
+                else:
+                    currently_on = None
+
                 rl = RuntimeLoadState(
                     load_id=str(item.get("load_id", "")),
                     display_name=str(item.get("display_name", "")),
                     configured_load_watts=float(item.get("configured_load_watts", 0)),
-                    currently_on=bool(item.get("currently_on", False)),
+                    currently_on=currently_on,
                     controllable=bool(item.get("controllable", True)),
                     is_life_support=bool(item.get("is_life_support", False)),
                     roles=roles,
                     status=str(item.get("status", "unknown")),
                     notes=str(item.get("notes", "")),
+                    observed_state=item.get("observed_state"),
+                    observed_at=item.get("observed_at"),
+                    observation_source=item.get("observation_source"),
+                    freshness=item.get("freshness"),
                 )
                 result.append(rl)
             except (TypeError, ValueError):
