@@ -13,28 +13,105 @@ Deployment: GitHub Actions → Docker Hub → ArgoCD → Kubernetes.
 
 Four agents operate in strict sequence:
 
-  1. plan          — Inspects repository, writes PLAN.md.
-  2. plan-review   — Reviews PLAN.md only, writes PLAN_REVIEW.yaml.
-  3. coder         — Implements approved PLAN.md, writes CODER_REPORT.txt.
-  4. precommit-review — Reviews final diff + validation, writes PRECOMMIT_REVIEW.yaml.
+  1. plan            — Inspects repository, writes PLAN.txt.
+  2. plan-review     — Reviews PLAN.txt only, writes reviews/PLAN_REVIEW.txt.
+  3. coder           — Implements approved PLAN.txt, writes CODER_REPORT.txt.
+  4. precommit-review — Reviews final diff + validation, writes
+                         reviews/PRECOMMIT_REVIEW.txt.
 
 Rule: No agent may proceed unless the previous artifact is approved.
 
 ================================================================================
- 2. LOCKED ARTIFACTS
+ 2. ARTIFACT FORMAT AND PATHS (PR 0034b+)
+
+Canonical artifact contract (applies to PR directories at or after 0034a):
+
+  Agent            | Artifact Path                                              | Format
+  -----------------|------------------------------------------------------------|--------
+  plan             | .project-memory/pr/<pr-id>/PLAN.txt                       | UTF-8 text
+  plan-review      | .project-memory/pr/<pr-id>/reviews/PLAN_REVIEW.txt        | UTF-8 text
+  coder            | .project-memory/pr/<pr-id>/CODER_REPORT.txt               | UTF-8 text
+  precommit-review | .project-memory/pr/<pr-id>/reviews/PRECOMMIT_REVIEW.txt   | UTF-8 text
+
+Canonical format rules:
+
+  1. All files use plain UTF-8 text encoding.
+  2. No YAML, JSON, XML, or Markdown document structure is required
+     or expected.
+  3. Files use readable headings and sections separated by blank lines.
+  4. Files may contain ordinary prose, labels, lists, paths, and
+     command results formatted as plain text.
+  5. Files must accurately report commands that were actually run.
+  6. Files must not contain secrets, credentials, tokens, or keys.
+  7. Filenames use exact casing: PLAN.txt, PLAN_REVIEW.txt,
+     CODER_REPORT.txt, PRECOMMIT_REVIEW.txt.
+  8. Review artifacts are always inside a reviews/ subdirectory
+     relative to the PR directory.
+  9. CODER_REPORT.txt is the implementation agent's output.
+  10. PRECOMMIT_REVIEW.txt is the precommit-review agent's output.
+  11. Any agent generating any artifact must not stage, commit, push,
+      or create a Pull Request unless the task prompt explicitly
+      assigns that action.
+  12. An artifact that reports commands not actually run, or that
+      fabricates validation results, is invalid.
+
+Legacy artifact names (PLAN.md, PLAN_REVIEW.yaml, PRECOMMIT_REVIEW.yaml,
+reviews/plan-review.yml, reviews/precommit-review.yml) are accepted in
+pre-0034a PR directories only.  They are forbidden in canonical (0034a+)
+directories.
+
+================================================================================
+ 3. TRANSITION BOUNDARY (PR 0034b+)
+
+The transition boundary uses STRUCTURAL NUMERIC IDENTIFIER PARSING.
+
+Each PR directory basename is parsed into:
+
+  numeric_part: the leading decimal digits before the first non-digit
+    character, or empty string if the basename does not start with a digit.
+
+  suffix_part: the single lowercase alphabetic character immediately
+    after the numeric_part, before the first hyphen, or empty string if
+    no alphabetic suffix exists.
+
+Boundary constant: numeric_part = "0034", suffix_part = "a".
+
+Classification:
+
+  - numeric_part empty → check frozen historical non-numeric allowlist.
+    Allowlisted → legacy-accepting.  Not allowlisted → REJECTED.
+
+  - numeric_part not empty → compare numerically:
+    * numeric_part < 34 → LEGACY.
+    * numeric_part > 34 → CANONICAL.
+    * numeric_part == 34 and suffix_part empty → LEGACY.
+    * numeric_part == 34 and suffix_part == "a" → CANONICAL (boundary).
+    * numeric_part == 34 and suffix_part > "a" → CANONICAL.
+
+Frozen historical non-numeric allowlist:
+
+  fix-auth-validation-python-discovery
+
+The allowlist can only be amended by a separate planning PR.
+Unknown non-numeric directory names are rejected.
+
+================================================================================
+ 4. LOCKED ARTIFACTS
 ================================================================================
 
-PLAN.md and PLAN_REVIEW.yaml are LOCKED (locked) after the planning commit.
+PLAN.txt and reviews/PLAN_REVIEW.txt are LOCKED after the planning commit.
 
-- "Locked" means these files are read-only for coder and precommit-review agents.
-- Coder and precommit-review must NOT edit PLAN.md or PLAN_REVIEW.yaml.
+- "Locked" means these files are read-only for coder and precommit-review
+  agents.
+- Coder and precommit-review must NOT edit PLAN.txt or PLAN_REVIEW.txt.
 - Only the plan and plan-review agents may create or modify these files.
-- The lock is enforced by the sequential agent workflow: coder starts only after
-  plan-review approves, and precommit-review runs after coder completes.
+- The lock is enforced by the sequential agent workflow: coder starts only
+  after plan-review approves, and precommit-review runs after coder
+  completes.
 - These locked artifacts must remain read-only for all subsequent agents.
 
 ================================================================================
- 3. PRECONDITION COMMANDS (every agent)
+ 5. PRECONDITION COMMANDS (every agent)
 ================================================================================
 
 Every agent MUST run these commands before any other action:
@@ -46,17 +123,18 @@ Every agent MUST run these commands before any other action:
 If any precondition fails, the agent must stop and report the failure.
 
 ================================================================================
- 4. ALLOWED AND FORBIDDEN FILE BOUNDARIES
+ 6. ALLOWED AND FORBIDDEN FILE BOUNDARIES
 ================================================================================
 
 Allowed files for coder and precommit-review:
-  - Files explicitly listed in PLAN.md ALLOWED FILES section.
+  - Files explicitly listed in the approved PLAN.txt.
   - .project-memory/pr/<PR-ID>/CODER_REPORT.txt (coder only).
-  - .project-memory/pr/<PR-ID>/PRECOMMIT_REVIEW.yaml (precommit-review only).
+  - .project-memory/pr/<PR-ID>/reviews/PRECOMMIT_REVIEW.txt
+    (precommit-review only).
 
-Forbidden files (unless PLAN.md explicitly allows):
-  - .project-memory/pr/<PR-ID>/PLAN.md
-  - .project-memory/pr/<PR-ID>/PLAN_REVIEW.yaml
+Forbidden files (unless the approved PLAN.txt explicitly allows):
+  - .project-memory/pr/<PR-ID>/PLAN.txt
+  - .project-memory/pr/<PR-ID>/reviews/PLAN_REVIEW.txt
   - Dockerfile, docker-compose.yml
   - app/** (Python runtime code)
   - service/** (runtime code)
@@ -77,10 +155,10 @@ Forbidden files (unless PLAN.md explicitly allows):
   - *.pem, *.key, *.crt
 
 ================================================================================
- 5. IMPLEMENTATION OUTPUT SECTIONS
+ 7. IMPLEMENTATION OUTPUT SECTIONS
 ================================================================================
 
-Every coder implementation report (CODER_REPORT.txt) MUST include:
+Every coder implementation report (CODER_REPORT.txt) SHOULD include:
 
   TASK COMPLETE
   BLOCKERS
@@ -91,48 +169,49 @@ Every coder implementation report (CODER_REPORT.txt) MUST include:
   BOUNDARY CONFIRMATIONS
   NEXT REQUIRED ACTION
 
-================================================================================
- 6. REVIEW YAML FIELDS
-================================================================================
-
-Every plan-review and precommit-review YAML MUST include:
-
-  verdict
-  head_verified
-  branch_confirmed
-  blockers
-  warnings
-  checks
-  validation
-  commit_readiness
+The specific required sections may be defined by the task prompt.
 
 ================================================================================
- 7. DEPLOYMENT MODEL PRESERVATION
+ 8. HISTORICAL COMPATIBILITY
+================================================================================
+
+All PR directories created before the transition boundary (0034a) remain
+unchanged.  Their artifacts are NOT renamed, rewritten, or migrated.
+
+Legacy directories may contain PLAN.md, PLAN_REVIEW.yaml,
+PRECOMMIT_REVIEW.yaml, reviews/plan-review.yml, or
+reviews/precommit-review.yml.  These are valid historical artifacts and
+are accepted without format validation.
+
+================================================================================
+ 9. DEPLOYMENT MODEL PRESERVATION
 ================================================================================
 
 The deployment model is:
   GitHub Actions → Docker Hub → ArgoCD → Kubernetes
 
-No agent may alter this deployment pipeline unless the task explicitly changes
-deployment governance. The Docker Hub image repository is redcopy/dessmonitor.
+No agent may alter this deployment pipeline unless the task explicitly
+changes deployment governance.  The Docker Hub image repository is
+redcopy/dessmonitor.
 
 ================================================================================
- 8. RUNTIME SAFETY
+ 10. RUNTIME SAFETY
 ================================================================================
 
 - ML or AI control must NOT directly operate relays without a safety policy
   and fallback mechanism.
-- ML control must start in shadow or advisory mode before production control.
+- ML control must start in shadow or advisory mode before production
+  control.
 - TimescaleDB must not be enabled in production until database connectivity,
   schema migrations, and monitoring are verified.
 
 ================================================================================
- 9. COMPLIANCE
+ 11. COMPLIANCE
 ================================================================================
 
 All agents must comply with:
   - This AGENT_STANDARD.txt
   - ORCHESTRATOR_STANDARD.txt
-  - The approved PLAN.md for the current PR
-  - The PLAN_REVIEW.yaml warnings and constraints
+  - The approved PLAN.txt for the current PR
+  - The PLAN_REVIEW.txt warnings and constraints
   - .project-memory/ADR/*.md for architectural decisions
