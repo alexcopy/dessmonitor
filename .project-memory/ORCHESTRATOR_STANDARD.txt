@@ -14,10 +14,11 @@ Deployment: GitHub Actions → Docker Hub → ArgoCD → Kubernetes.
 Every generated task prompt MUST include these sections in order:
 
   TASK           — One-line description of the work.
-  AGENT          — Which agent executes (plan, plan-review, coder, precommit-review).
+  AGENT          — Which agent executes (plan, plan-review, coder,
+                    precommit-review).
   MODE           — Always "implementation" for coder; "review" for reviewers.
   BRANCH         — Git branch name for this PR.
-  PR             — PR identifier (e.g., 0001-repository-safety-and-memory-bootstrap).
+  PR             — PR identifier (e.g., 0034b-plain-text-agent-artifact-standard).
   PRECONDITION   — Exact commands to run before starting.
   CONTEXT        — Repository and deployment context.
   REQUIRED READS — Files the agent must read before acting.
@@ -35,7 +36,8 @@ Every generated task prompt MUST include these sections in order:
 ================================================================================
 
 - Generated prompts must be plain text.
-- Do not use Markdown tables for prompt sections (use plain text or simple lists).
+- Do not use Markdown tables for prompt sections (use plain text or
+  simple lists).
 - Section headers should be ALL CAPS for clarity.
 - Commands must be in code-fenced blocks.
 
@@ -43,8 +45,8 @@ Every generated task prompt MUST include these sections in order:
  3. DEPLOYMENT MODEL PRESERVATION
 ================================================================================
 
-Task prompts must preserve the Docker Hub plus ArgoCD deployment model unless
-the task explicitly changes deployment governance.
+Task prompts must preserve the Docker Hub plus ArgoCD deployment model
+unless the task explicitly changes deployment governance.
 
 The current deployment path is:
   [Git push to master]
@@ -58,25 +60,48 @@ The current deployment path is:
   [app/docker/dessmonitor-deploy.yaml + other manifests]
 
 ================================================================================
- 4. LOCKED PLANNING ARTIFACTS
+ 4. CANONICAL ARTIFACT CONTRACT (PR 0034b+)
+
+Canonical artifact names for PR directories at or after 0034a:
+
+  Agent            | Artifact Path
+  -----------------|--------------------------------------------------------
+  plan             | .project-memory/pr/<pr-id>/PLAN.txt
+  plan-review      | .project-memory/pr/<pr-id>/reviews/PLAN_REVIEW.txt
+  coder            | .project-memory/pr/<pr-id>/CODER_REPORT.txt
+  precommit-review | .project-memory/pr/<pr-id>/reviews/PRECOMMIT_REVIEW.txt
+
+All canonical artifacts use plain UTF-8 text encoding with exact casing.
+
+Legacy artifact names (PLAN.md, PLAN_REVIEW.yaml, PRECOMMIT_REVIEW.yaml,
+reviews/plan-review.yml, reviews/precommit-review.yml) are accepted only
+in pre-0034a PR directories and are forbidden in canonical directories.
+
+The transition boundary (0034a) is determined by STRUCTURAL NUMERIC
+IDENTIFIER PARSING as defined in AGENT_STANDARD.txt section 3.
+
+================================================================================
+ 5. APPROVAL GATES AND LOCKED ARTIFACTS
 ================================================================================
 
-- PLAN.md and PLAN_REVIEW.yaml are locked after the planning commit.
-- Coder and precommit-review agents must treat these files as read-only.
-- Only plan and plan-review agents may create or modify these files.
-- The orchestrator must enforce this by not including these files in
-  ALLOWED FILES for coder or precommit-review prompts.
+The four-agent workflow operates in two pairs:
 
-================================================================================
- 5. AGENT WORKFLOW
-================================================================================
+  PAIR 1 — Planning:
+    Step 1: plan writes PLAN.txt.
+    Step 2: plan-review reviews PLAN.txt, writes reviews/PLAN_REVIEW.txt.
+    Gate:  PLAN_REVIEW.txt verdict must be "approved".
+    After approval: planning commit is created.
 
-  Step | Agent           | Artifact
-  ------|-----------------|------------------------------------------
-  1    | plan            | PLAN.md
-  2    | plan-review     | PLAN_REVIEW.yaml
-  3    | coder           | CODER_REPORT.txt
-  4    | precommit-review| PRECOMMIT_REVIEW.yaml
+  PAIR 2 — Implementation:
+    Step 3: coder implements approved PLAN.txt, writes CODER_REPORT.txt.
+    Step 4: precommit-review reviews diff + validation, writes
+            reviews/PRECOMMIT_REVIEW.txt.
+    Gate:  PRECOMMIT_REVIEW.txt verdict must be "approved".
+    After approval: implementation commit and Pull Request.
+
+PLAN.txt and reviews/PLAN_REVIEW.txt are locked after the planning commit.
+Coder and precommit-review agents must treat them as read-only.
+Only plan and plan-review agents may create or modify them.
 
 No agent may proceed unless the previous artifact is approved.
 
@@ -86,7 +111,8 @@ No agent may proceed unless the previous artifact is approved.
 
 - ML or AI control must not directly operate relays without a safety policy
   and fallback mechanism.
-- ML control must start in shadow or advisory mode before production control.
+- ML control must start in shadow or advisory mode before production
+  control.
 - TimescaleDB must not be enabled in production until database connectivity,
   schema migrations, and monitoring are verified.
 - These constraints must be reflected in task prompts for any PR involving
@@ -99,6 +125,6 @@ No agent may proceed unless the previous artifact is approved.
 All generated prompts must comply with:
   - AGENT_STANDARD.txt
   - This ORCHESTRATOR_STANDARD.txt
-  - The approved PLAN.md for the current PR
-  - The PLAN_REVIEW.yaml warnings and constraints
+  - The approved PLAN.txt for the current PR
+  - The PLAN_REVIEW.txt warnings and constraints
   - .project-memory/ADR/*.md for architectural decisions
