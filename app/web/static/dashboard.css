@@ -1,0 +1,179 @@
+/* dashboard.css — dessmonitor dashboard presentation layer
+ *
+ * Loads after Bulma 1.0.4. Provides project-specific presentation,
+ * connection-state indicators, responsive overrides, dark-mode support,
+ * and accessibility enhancements.
+ *
+ * No remote assets, no data URLs, no duplication of the Bulma framework.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Connection state badges
+ * ---------------------------------------------------------------------------
+ */
+
+.tag.is-connecting {
+    --dash-conn-color: #3e8ed0;
+    background-color: var(--dash-conn-color);
+    color: #fff;
+}
+
+.tag.is-online {
+    --dash-online-color: #48c78e;
+    background-color: var(--dash-online-color);
+    color: #fff;
+}
+
+.tag.is-stale {
+    --dash-stale-color: #ffe08a;
+    background-color: var(--dash-stale-color);
+    color: rgba(0, 0, 0, 0.7);
+}
+
+.tag.is-degraded {
+    --dash-degraded-color: #ffe08a;
+    background-color: var(--dash-degraded-color);
+    color: rgba(0, 0, 0, 0.7);
+}
+
+.tag.is-offline {
+    --dash-offline-color: #f14668;
+    background-color: var(--dash-offline-color);
+    color: #fff;
+}
+
+/* ---------------------------------------------------------------------------
+ * Stale data visual treatment
+ * ---------------------------------------------------------------------------
+ */
+
+.is-stale-data .card,
+.is-stale-data .table,
+.is-stale-data .notification {
+    opacity: 0.6;
+}
+
+.is-stale-data::after {
+    content: "Stale data — may not reflect current state";
+    display: block;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: #946c00;
+    padding: 0.5rem;
+    background: #fff8e1;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Responsive layout
+ * ---------------------------------------------------------------------------
+ */
+
+.table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+}
+
+.table-container table {
+    min-width: 600px;
+    word-break: break-word;
+}
+
+/* Prevent ordinary horizontal overflow */
+body {
+    overflow-x: hidden;
+}
+
+#dashboard-main {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+ * Focus visibility
+ * ---------------------------------------------------------------------------
+ */
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid #485fc7;
+    outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Life-support indicator
+ * ---------------------------------------------------------------------------
+ */
+
+.tag.is-life-support {
+    background-color: #ffe08a;
+    color: rgba(0, 0, 0, 0.7);
+    font-size: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Card heading/subtitle spacing
+ * ---------------------------------------------------------------------------
+ */
+
+.card .heading {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+/* ---------------------------------------------------------------------------
+ * Loading indicator
+ * ---------------------------------------------------------------------------
+ */
+
+/* Simple CSS-only pulse for loading rows */
+@keyframes dash-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion
+ * ---------------------------------------------------------------------------
+ */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark mode overrides
+ * ---------------------------------------------------------------------------
+ */
+
+@media (prefers-color-scheme: dark) {
+    .tag.is-stale {
+        --dash-stale-color: #6b5900;
+        color: #ffe08a;
+    }
+
+    .tag.is-degraded {
+        --dash-degraded-color: #6b5900;
+        color: #ffe08a;
+    }
+
+    .tag.is-life-support {
+        background-color: #6b5900;
+        color: #ffe08a;
+    }
+
+    .is-stale-data::after {
+        color: #ffe08a;
+        background: #3d3500;
+    }
+}

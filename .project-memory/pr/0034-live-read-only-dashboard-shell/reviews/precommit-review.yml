@@ -1,0 +1,183 @@
+PRECOMMIT REVIEW COMPLETE
+
+VERDICT: approved
+
+READY FOR COMMIT: true
+READY FOR PULL REQUEST: true
+
+BLOCKERS: none
+
+WARNINGS: none
+
+ARTIFACT UPDATED: true
+
+ARTIFACT PATH: .project-memory/pr/0034-live-read-only-dashboard-shell/reviews/precommit-review.yml
+
+CORRECTION REVIEW:
+  Both findings from the previous rejection are confirmed resolved.
+
+  Finding 1 (Bulma 1.0.3 → 1.0.4):
+    RESOLVED.  The vendored bulma.min.css now declares version 1.0.4 internally
+    ('/*! bulma.io v1.0.4'), has SHA-256
+    67fa26df1ca9e95d8f2adc7c04fa1b15fa3d24257470ebc10cc68b9aab914bee, is
+    677,931 bytes, and is byte-for-byte identical to the independently
+    downloaded official Bulma 1.0.4 release from the jgthms/bulma GitHub
+    tagged release.
+
+  Finding 2 (mode-only changes on 4 validation scripts):
+    RESOLVED.  git diff --raw shows only 3 content-modified files
+    (.github/workflows/validate.yml, app/web/templates/index.html,
+    app/web_host.py) with 100644→100644 (no mode changes).  No
+    scripts/check-*.sh files appear in the diff.
+
+BULMA OFFICIAL SOURCE:
+  GitHub release: https://github.com/jgthms/bulma/releases/tag/1.0.4
+  Downloaded artifact: bulma-1.0.4.zip (bulma/css/bulma.min.css)
+  Date: 2025-04-19
+
+BULMA VERSION REVIEW:
+  result: PASS
+  Version banner: '/*! bulma.io v1.0.4 | MIT License | github.com/jgthms/bulma'
+  Directory path: app/web/static/vendor/bulma/1.0.4/bulma.min.css
+  Version matches path: yes
+
+INDEPENDENT BULMA SHA256:
+  Official 1.0.4 SHA-256: 67fa26df1ca9e95d8f2adc7c04fa1b15fa3d24257470ebc10cc68b9aab914bee
+  Local vendored SHA-256: 67fa26df1ca9e95d8f2adc7c04fa1b15fa3d24257470ebc10cc68b9aab914bee
+  Script constant:         67fa26df1ca9e95d8f2adc7c04fa1b15fa3d24257470ebc10cc68b9aab914bee
+  Match: yes
+
+BYTE COMPARISON RESULT:
+  Official vs local: IDENTICAL (cmp exit 0, diff exit 0)
+  File size: 677,931 bytes (both)
+
+LICENSE REVIEW:
+  result: PASS
+  Upstream LICENSE matches local file byte-for-byte (diff exit 0).
+  LICENSE is NOT allowlisted (test [9] returns 404).
+
+MODE-ONLY CHANGE REVIEW:
+  result: PASS
+  git diff --raw shows no mode changes.  Only 100644→100644 content changes.
+  The 4 scripts (check-runtime-read-only-web-host.sh,
+  check-web-control-state-provider.sh, check-web-host-startup.sh,
+  check-web-ui-read-only-endpoint.sh) are absent from the diff.
+
+COMPLETE PLAN COMPLIANCE:
+  result: PASS
+  All PLAN.md requirements verified:
+  - Bulma 1.0.4 vendored with verified SHA-256 and LICENSE
+  - CSP: default-src 'self'; frame-ancestors 'none'; form-action 'self' (unchanged)
+  - Static allowlist: login.css, vendor/bulma/1.0.4/bulma.min.css, dashboard.css, dashboard.js
+  - Restricted static files: deny-by-default, path traversal → 404
+  - No CDN, no npm, no bundler, no external assets
+  - No write APIs, no device controls, no hardware paths
+  - Five connection states: connecting, online, stale, degraded, offline
+  - One request in flight maximum (AbortController)
+  - Recursive setTimeout polling (no setInterval)
+  - 10s request timeout via AbortController
+  - Bounded retry: 3 consecutive failures → offline/10s delay
+  - Hidden tab: 30s polling
+  - Visible tab restore: immediate poll
+  - Stale data visual treatment + text label
+  - Safe DOM rendering: textContent only, no innerHTML for API values
+  - 401 handling: clear timers, abort controller, navigate to /login
+  - Unavailable/null values render as "-", not "0" or "null"
+  - Existing auth, CSRF, logout behavior preserved
+  - No localStorage for auth tokens
+  - MIT license included and verified
+  - Only current API fields displayed (no PR 0035/0036 fields)
+
+VALIDATION RESULTS:
+  scripts/check-web-dashboard.sh: 36/36 PASS
+  All individual tests pass including SHA-256 verification.
+
+REGRESSION RESULTS:
+  scripts/check-web-authentication.sh: 41/41 PASS
+  scripts/check-web-ui-read-only-endpoint.sh: 30/30 PASS
+  scripts/check-web-host-startup.sh: 25/25 PASS
+  git diff --check: no whitespace errors
+  bash -n scripts/check-web-dashboard.sh: syntax OK
+  test -x scripts/check-web-dashboard.sh: executable
+
+SECURITY REVIEW:
+  result: PASS
+  - CSP unchanged: default-src 'self'; frame-ancestors 'none'; form-action 'self'
+  - X-Content-Type-Options: nosniff
+  - Referrer-Policy: strict-origin-when-cross-origin
+  - No permissive CORS
+  - No unsafe-inline in CSP
+  - All assets same-origin (/static/*)
+  - No eval, no document.write, no innerHTML for API values
+  - No localStorage for auth data
+  - No sensitive output in console
+  - Stale data marked with opacity and text banner
+  - Unavailable state uses warning notification
+  - Path traversal to static files returns 404
+
+AUTHENTICATION REVIEW:
+  result: PASS
+  - GET /login: 200, CSRF form field
+  - POST /login: 303 with session cookie
+  - GET / (unauthenticated): 303 to /login
+  - GET / (authenticated): 200, dashboard
+  - GET /control/state (unauthenticated): 401 JSON
+  - GET /control/state (authenticated): 200 JSON
+  - POST /logout (with CSRF): 303 to /login
+  - 401 polling response navigates to /login
+  - Auth unchanged from PR 0033
+
+POLLING REVIEW:
+  result: PASS
+  - One request in flight: AbortController.abort() before new fetch
+  - No setInterval: recursive setTimeout
+  - Timeout cleanup in both .then() and .catch() paths
+  - Next poll scheduled only after settlement
+  - Bounded backoff: 3 failures → offline/10s
+  - Hidden tab: 30s (POLL_HIDDEN_MS)
+  - Visibility change: immediate poll when tab becomes visible
+  - beforeunload + pagehide: cancel timers and abort
+  - Stale responses cannot overwrite (single in-flight)
+  - AbortError silently skipped (not counted as failure)
+  - consecutiveFailures resets to 0 on successful response
+
+CHANGED FILE SCOPE:
+  Exactly 10 files, matching expected scope:
+  - .github/workflows/validate.yml (modified)
+  - .project-memory/pr/0034-live-read-only-dashboard-shell/CODER_REPORT.txt (untracked)
+  - .project-memory/pr/0034-live-read-only-dashboard-shell/reviews/precommit-review.yml (untracked — this artifact)
+  - app/web/static/dashboard.css (untracked)
+  - app/web/static/dashboard.js (untracked)
+  - app/web/static/vendor/bulma/1.0.4/LICENSE (untracked)
+  - app/web/static/vendor/bulma/1.0.4/bulma.min.css (untracked)
+  - app/web/templates/index.html (modified)
+  - app/web_host.py (modified)
+  - scripts/check-web-dashboard.sh (untracked)
+
+BOUNDARY CONFIRMATIONS:
+  - CSP not weakened: PASS
+  - No CDN/external assets: PASS
+  - No npm/Node/bundler: PASS
+  - No write APIs or hardware paths: PASS
+  - No raw log access: PASS
+  - No ML control: PASS
+  - Auth/CSRF preserved: PASS
+  - run.py unchanged: PASS
+  - Dockerfile/compose unchanged: PASS
+  - ROADMAP.md unchanged: PASS
+  - PLAN.md unchanged: PASS
+  - plan-review.yml unchanged: PASS
+  - ADRs unchanged: PASS
+
+REQUIRED CORRECTIONS: none
+
+FINAL SUMMARY:
+  The coder resolved both findings from the previous rejection.  The vendored
+  Bulma file is now the correct version 1.0.4, byte-for-byte identical to the
+  official release, with independently verified SHA-256
+  67fa26df1ca9e95d8f2adc7c04fa1b15fa3d24257470ebc10cc68b9aab914bee.  The
+  validation script constant matches.  The four unrelated mode-only changes
+  have been removed.  All 36 dashboard validation tests pass, all 41
+  authentication tests pass, and all regression checks pass.  The
+  implementation is complete, plan-compliant, and ready for commit and Pull
+  Request.

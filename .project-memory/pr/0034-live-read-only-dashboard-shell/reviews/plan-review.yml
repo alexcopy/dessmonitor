@@ -1,0 +1,195 @@
+verdict: approved
+head_verified: true
+branch_confirmed: true
+blockers: []
+warnings: []
+checks:
+  - name: repository-confirmed
+    result: pass
+    exact_observed_evidence: "git remote -v shows origin git@github.com:alexcopy/dessmonitor.git (fetch/push). Repository is alexcopy/dessmonitor."
+  - name: branch-confirmed
+    result: pass
+    exact_observed_evidence: "git branch --show-current returns pr-0034-live-read-only-dashboard-shell. Matches PR 0034."
+  - name: working-tree-only-pr-artifacts
+    result: pass
+    exact_observed_evidence: "git status --short shows '?? .project-memory/pr/0034-live-read-only-dashboard-shell/'. git diff --name-only shows no output. No unrelated files modified."
+  - name: plan-md-exists
+    result: pass
+    exact_observed_evidence: "test -f .project-memory/pr/0034-live-read-only-dashboard-shell/PLAN.md returns PASS. File exists and was read completely."
+  - name: plan-md-not-modified-by-reviewer
+    result: pass
+    exact_observed_evidence: "git diff --name-only shows no output. Only PLAN.md exists as untracked file. No diffs produced."
+  - name: gate-production-authentication-validated
+    result: pass
+    exact_observed_evidence: "PLAN.md Gate Confirmation: 'PR 0033 authentication is present and production-validated.' ROADMAP.md confirms PR 0034 gate: 'after authentication is production-validated.' PR 0033 artifacts (PLAN.md, plan-review.yml, precommit-review.yml) all present and approved."
+  - name: current-state-accuracy-routes
+    result: pass
+    exact_observed_evidence: "PLAN.md Current-State Evidence correctly lists GET / (Auth), GET /login (Public), POST /login (Public+CSRF), POST /logout (Auth+CSRF), GET /control/state (Auth), GET /healthz (Public), GET /static/login.css (Public). Matches actual routes confirmed in app/web_host.py, app/web_routes.py, app/web_auth.py inspection."
+  - name: current-state-accuracy-index-template
+    result: pass
+    exact_observed_evidence: "PLAN.md describes 'minimal authenticated landing shell with Product identity, operator username display, CSRF-protected logout form, no dashboard, no polling, no device data, inline CSS.' Actual app/web/templates/index.html matches: shows 'dessmonitor Operator', 'Authenticated as {{ username }}', logout form with CSRF, inline CSS only, no dashboard/polling."
+  - name: current-state-accuracy-static-allowlist
+    result: pass
+    exact_observed_evidence: "PLAN.md states CURRENT allowlist is frozenset({'login.css'}) at app/web_host.py:41. Verified via inspection of app/web_host.py _STATIC_ALLOWLIST: frozenset[str] = frozenset({'login.css'})."
+  - name: current-state-accuracy-csp
+    result: pass
+    exact_observed_evidence: "PLAN.md states CSP is 'default-src 'self'; frame-ancestors 'none'; form-action 'self'' with no unsafe-inline, no external origins, no permissive CORS. Verified via app/web_auth.py SecurityHeadersMiddleware which applies exactly those headers."
+  - name: current-state-accuracy-control-state-schema
+    result: pass
+    exact_observed_evidence: "PLAN.md documents the JSON shape for both unavailable and available states, including top-level fields (status, snapshot, read_only, api_version, allowed_actions, forbidden_actions, warnings, notes) and snapshot.loads[].fields (load_id, display_name, configured_load_watts, currently_on, controllable, is_life_support, roles, status, notes). Schema matches app/control/web_ui_read_endpoint.py and app/web_control_state_provider.py types."
+  - name: current-state-accuracy-validation
+    result: pass
+    exact_observed_evidence: "PLAN.md lists check-web-authentication.sh (41 tests), check-web-ui-read-only-endpoint.sh, check-web-host-startup.sh (25 tests), check-web-control-state-provider.sh (28 tests), check-runtime-read-only-web-host.sh (35 tests), and validate.yml. All scripts confirmed present via inspection."
+  - name: current-state-accuracy-pr-35-36-boundaries
+    result: pass
+    exact_observed_evidence: "PLAN.md explicitly lists fields deferred to PR 0035+ (snapshot_created_at, runtime_heartbeat_at, etc.) and states 'The dashboard makes no use of' those fields. Matches ROADMAP.md PR 0035 and PR 0036 outcomes."
+  - name: bulma-version-pinned
+    result: pass
+    exact_observed_evidence: "PLAN.md Bulma Dependency Contract: 'Version: 1.0.4 (pinned, immutable).' No ambiguous phrasing like 'latest Bulma' found."
+  - name: bulma-css-path-exact
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'css_path: app/web/static/vendor/bulma/1.0.4/bulma.min.css'. Mandatory vendor paths: 'app/web/static/vendor/bulma/1.0.4/bulma.min.css' and 'app/web/static/vendor/bulma/1.0.4/LICENSE'."
+  - name: bulma-provenance-official-release
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Download from the official Bulma 1.0.4 tagged release. Extract only bulma.min.css.' 'GitHub tagged release 1.0.4 -> official tarball/asset.'"
+  - name: bulma-prebuilt-minified-css-only
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Artifact: bulma.min.css - official prebuilt minified CSS only.' 'No .zip, .tar.gz, package.json, node_modules, or build artifacts. No developer-only Bulma source files (.sass, .scss, .map).'"
+  - name: bulma-upstream-unmodified
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'upstream file kept byte-for-byte unmodified.' 'No manual modification or minification of the upstream artifact.' Coder Constraint 5: 'Do not modify or minify the upstream Bulma artifact.'"
+  - name: bulma-license-included
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'MIT license included.' 'Copy the upstream MIT LICENSE file from the Bulma repository root.' 'app/web/static/vendor/bulma/1.0.4/LICENSE' as mandatory vendor path. Validation test checks LICENSE returns 404 (committed but not served)."
+  - name: bulma-sha256-verified
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'SHA-256 is calculated from the official downloaded file before commit. The SHA-256 digest is recorded in the validation script. The coder and reviewer independently verify the hash matches the official release.' Validation test checks SHA-256 matches pinned value."
+  - name: bulma-no-cdn
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Zero runtime network requests. No CDN, no external fonts, no icons.' 'No CDN' in Explicit Non-Goals. Validation test: 'No external URL in served HTML.'"
+  - name: bulma-no-npm-build
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'No npm, Node, Sass, Vite, Webpack, or build step.' Coder Constraint 4: 'Do not use npm, Node, Sass, Vite, Webpack, or any build step.'"
+  - name: bulma-no-javascript
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Bulma ships no JS for v1; no JS is vendored or loaded.' 'No Bulma JavaScript.' Coder Constraint 6: 'Do not add Bulma JavaScript or any third-party JavaScript.'"
+  - name: separate-dashboard-css-js
+    result: pass
+    exact_observed_evidence: "PLAN.md creates dashboard.css and dashboard.js as separate files. Loading order: 'Bulma loads first. dashboard.css loads second.' dashboard.js is same-origin via CSP."
+  - name: bulma-upgrade-handled-explicitly
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'A Bulma version upgrade is a separate explicit change with its own review, provenance verification, and regression validation. No coder may change the version number without explicit planner approval.'"
+  - name: static-allowlist-additions-named
+    result: pass
+    exact_observed_evidence: "PLAN.md: allowlist expands from frozenset({'login.css'}) to frozenset({'login.css', 'vendor/bulma/1.0.4/bulma.min.css', 'dashboard.css', 'dashboard.js'}). LICENSE is explicitly NOT allowlisted: 'committed but NOT allowlisted (never served to browsers, only for provenance).'"
+  - name: static-allowlist-restricted
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'RestrictedStaticFiles preserved.' 'Any path not in the allowlist returns 404.' Validation test: 'Path traversal -> 404.' Coder Constraint 2 on CSP preserved."
+  - name: csp-not-weakened
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'CSP remains default-src 'self'; frame-ancestors 'none'; form-action 'self'. Dashboard adds all same-origin assets. CSP is NOT weakened.' Coder Constraint 2: 'Do not add unsafe-inline, nonces, hashes, or external origins to CSP.' Validation test checks 'CSP header contains default-src 'self' and no unsafe-inline.'"
+  - name: polling-five-states-defined
+    result: pass
+    exact_observed_evidence: "PLAN.md Connection State Machine table defines all 5 states: connecting (page load, no response), online (response within stale threshold), stale (15-60s without response), degraded (response.status degraded), offline (60+ seconds without response). Each state has entry/exit conditions, operator message, Bulma class, snapshot visibility, and stale marking."
+  - name: polling-delays-specified
+    result: pass
+    exact_observed_evidence: "PLAN.md polling delays: Normal 5000ms, Stale 5000ms, Degraded 5000ms, Offline 10000ms, Tab hidden 30000ms, Request timeout 10000ms. Timeout (10s) is shorter than stale threshold (15s)."
+  - name: polling-one-request-maximum
+    result: pass
+    exact_observed_evidence: "PLAN.md algorithm: 'current AbortController cancels any prior in-flight fetch before starting a new one.' 'One request in flight maximum.' 'No overlapping setInterval.' Validation test: 'dashboard.js does NOT contain setInterval.'"
+  - name: polling-abortcontroller-cancellation
+    result: pass
+    exact_observed_evidence: "PLAN.md algorithm uses AbortController. Code: 'if (currentAbortController) currentAbortController.abort(); currentAbortController = new AbortController(); const timeoutId = setTimeout(() => currentAbortController.abort(), timeoutMs);' Validation test: 'dashboard.js contains AbortController.'"
+  - name: polling-bounded-backoff
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'consecutiveFailures 0-2: normal delay (5s). consecutiveFailures 3+: offline delay (10s).'"
+  - name: polling-hidden-tab-slowdown
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'When hidden: poll every 30s.' 'When becoming visible: execute an immediate poll, then resume 5s.' 'visibilitychange event listener detects tab visibility.' Validation test: 'dashboard.js contains visibilitychange.'"
+  - name: polling-stale-responses-cannot-overwrite
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Because only one request is in flight at a time, stale responses cannot overwrite newer state.' 'Ordered responses' guarantee."
+  - name: polling-no-http-success-implies-runtime-health
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Clarification: These states describe browser-to-server communication status and read-model availability only. Runtime-health distinction (HTTP response vs runtime heartbeat) is deferred to PR 0035.' ROADMAP invariant L4: 'A successful HTTP response alone does not prove runtime health.'"
+  - name: authentication-routes-preserved
+    result: pass
+    exact_observed_evidence: "PLAN.md: '/ remains authenticated. /control/state remains authenticated and read-only. /healthz remains public and minimal.' Route contract table shows all routes with correct auth requirements matching PR 0033."
+  - name: authentication-401-handling
+    result: pass
+    exact_observed_evidence: "PLAN.md HTTP 401 handling: 'Abort any in-flight poll. Clear all poll state (timers, abort controllers). Navigate to /login using window.location.href = '/login'. Do not schedule further polls.' Same for session expiry during active session."
+  - name: authentication-logout-unchanged
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'Existing CSRF-protected POST /logout form remains the sole logout mechanism. No JavaScript logout is added.' Validation test checks logout form exists with CSRF token."
+  - name: no-localstorage-tokens
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'No localStorage. No auth tokens, session data, or secrets in localStorage.' 'No localStorage or sessionStorage for API data' in Explicit Non-Goals. ROADMAP invariant A7: 'Do not store authentication tokens in localStorage.'"
+  - name: rendering-textcontent-only
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'All API values via .textContent or safe attribute setters.' 'No API value is ever inserted via innerHTML.' Safe DOM targets table shows textContent/setAttribute/template literals in safe text context. Validation test: 'dashboard.js contains textContent; no innerHTML.'"
+  - name: rendering-no-eval
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'No eval(), Function(), setTimeout(string), or dynamic code.'"
+  - name: rendering-no-api-values-as-css-classes
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'No API value is used to construct a CSS class name from unvalidated input.' 'CSS class names from API values never constructed; explicit mapping.'"
+  - name: rendering-null-values
+    result: pass
+    exact_observed_evidence: "PLAN.md read-model mapping table shows all null/unavailable behaviours: '-' for null, 'Hidden' for unavailable, 'Empty' for empty. 'Missing/null values render as '-', never as 'null' or 0.'"
+  - name: exact-file-scope-complete
+    result: pass
+    exact_observed_evidence: "PLAN.md Exact File Plan lists: create app/web/static/vendor/bulma/1.0.4/bulma.min.css, LICENSE, dashboard.css, dashboard.js, scripts/check-web-dashboard.sh; modify app/web/templates/index.html, app/web_host.py (allowlist only), .github/workflows/validate.yml. Every file has clear responsibility. No unnecessary files."
+  - name: validation-comprehensive
+    result: pass
+    exact_observed_evidence: "PLAN.md Validation Plan section defines 6 test categories: AUTHENTICATION AND ACCESS (5 tests), BULMA INTEGRITY (4), ALLOWLIST AND CSP (4), NO EXTERNAL ASSETS (2), ENDPOINT INTEGRITY (3), LOGOUT AND CSRF (2), POLLING AND STATE MACHINE (6), CONNECTION STATES (2), ACCESSIBILITY (3). Total 31 tests covering all required areas."
+  - name: validation-deterministic-behavioral
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'scripts/check-web-dashboard.sh starts Uvicorn on a free port and exercises real HTTP tests using Python's http.client and urllib.' Timer tests use static analysis: 'No real 15-second or 60-second waits. Static analysis verifies state machine structure and polling primitives.'"
+  - name: validation-external-asset-checks
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'No http://, https://, // external URL in served HTML.' 'No inline event handlers in served HTML.'"
+  - name: validation-csp-check
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'CSP header contains default-src 'self' and no unsafe-inline.'"
+  - name: validation-polling-static-analysis
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'dashboard.js contains fetch(, AbortController, visibilitychange, setTimeout; does NOT contain setInterval; contains textContent; no innerHTML.' 'dashboard.js does NOT contain setInterval' confirmed as validation test."
+  - name: validation-session-expiry
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'HTTP 401 polling response navigates safely to /login.' Test covers 401 handling implicitly via auth checks."
+  - name: validation-existing-regression
+    result: pass
+    exact_observed_evidence: "PLAN.md Existing Regression Suite: all existing validation scripts must pass unchanged including check-web-authentication.sh, check-web-ui-read-only-endpoint.sh, etc. CI Integration adds dashboard check after auth check."
+  - name: deployment-boundary-no-gitops
+    result: pass
+    exact_observed_evidence: "PLAN.md: 'No credential or Secret changes. No GitOps changes (app/docker/ manifests unchanged). Existing image publication flow (Docker Hub -> ArgoCD) unchanged. Rollback is application-image rollback only. No database or persistent-state migration.'"
+validation:
+  commands_run:
+    - command: git rev-parse --show-toplevel
+      result: pass
+      output_summary: "/Users/alexred/Projects/Python/dessmonitor"
+    - command: git remote -v
+      result: pass
+      output_summary: "origin git@github.com:alexcopy/dessmonitor.git (fetch/push)"
+    - command: git branch --show-current
+      result: pass
+      output_summary: "pr-0034-live-read-only-dashboard-shell"
+    - command: git status --short
+      result: pass
+      output_summary: "?? .project-memory/pr/0034-live-read-only-dashboard-shell/ (only PR 0034 artifacts)"
+    - command: git diff --name-only
+      result: pass
+      output_summary: "No dirty tracked files"
+    - command: git diff --stat
+      result: pass
+      output_summary: "No output — working tree matches HEAD"
+    - command: git diff --check
+      result: pass
+      output_summary: "No whitespace errors"
+    - command: test -f .project-memory/pr/0034-live-read-only-dashboard-shell/PLAN.md
+      result: pass
+      output_summary: "PLAN.md exists"
+  not_run: []
+commit_readiness:
+  ready_for_coder: true
+  required_before_coder: []

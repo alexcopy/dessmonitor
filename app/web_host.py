@@ -38,7 +38,12 @@ if TYPE_CHECKING:
 WEB_HOST_READ_ONLY_MODE: bool = True
 
 # Static files allowlist — only login.css is public
-_STATIC_ALLOWLIST: frozenset[str] = frozenset({"login.css"})
+_STATIC_ALLOWLIST: frozenset[str] = frozenset({
+    "login.css",
+    "vendor/bulma/1.0.4/bulma.min.css",
+    "dashboard.css",
+    "dashboard.js",
+})
 
 # ---------------------------------------------------------------------------
 # Placeholder snapshot provider

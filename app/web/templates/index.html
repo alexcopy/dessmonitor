@@ -3,65 +3,122 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dessmonitor — Operator</title>
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        html {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                         "Helvetica Neue", Arial, sans-serif;
-            font-size: 16px;
-            line-height: 1.5;
-            color: #1a1a2e;
-            background: #f0f2f5;
-            min-height: 100vh;
-        }
-        body {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 1rem;
-        }
-        .container {
-            background: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-            padding: 2rem;
-            width: 100%;
-            max-width: 480px;
-            text-align: center;
-        }
-        h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; }
-        p { color: #6b7280; font-size: 0.9375rem; margin-bottom: 1rem; }
-        .btn {
-            display: inline-block;
-            padding: 0.5rem 1.25rem;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #ffffff;
-            background: #dc2626;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            text-decoration: none;
-        }
-        .btn:hover { background: #b91c1c; }
-        @media (prefers-color-scheme: dark) {
-            html { color: #e5e7eb; background: #111827; }
-            .container { background: #1f2937; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
-            h1 { color: #f9fafb; }
-            p { color: #9ca3af; }
-        }
-    </style>
+    <title>dessmonitor — Dashboard</title>
+    <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script defer src="/static/dashboard.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>dessmonitor Operator</h1>
-        <p>Authenticated as <strong>{{ username }}</strong></p>
-        <form method="post" action="/logout">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit" class="btn">Sign Out</button>
-        </form>
-    </div>
+    <header class="navbar is-dark" role="banner">
+        <div class="navbar-brand">
+            <span class="navbar-item has-text-weight-bold">dessmonitor</span>
+        </div>
+        <div class="navbar-end">
+            <div class="navbar-item" id="operator-area">
+                <span class="mr-3">Authenticated as <strong>{{ username }}</strong></span>
+                <form method="post" action="/logout" class="is-flex is-align-items-center">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="button is-small is-light">Sign Out</button>
+                </form>
+            </div>
+        </div>
+    </header>
+
+    <main id="dashboard-main" class="section">
+        <h1 class="title is-4 mb-2">dessmonitor Dashboard</h1>
+
+        <!-- Connection state badge -->
+        <div class="level mb-3">
+            <div class="level-left">
+                <div class="level-item">
+                    <div class="tags has-addons" id="connection-state-tags" aria-live="polite" aria-atomic="true">
+                        <span class="tag is-dark">Status</span>
+                        <span class="tag is-info is-connecting" id="connection-state-badge">Connecting&hellip;</span>
+                    </div>
+                </div>
+                <div class="level-item">
+                    <span id="last-refresh" class="is-size-7 has-text-grey"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unavailable state -->
+        <div id="dashboard-unavailable" class="notification is-warning is-hidden">
+            <p><strong>No data available.</strong> The control state snapshot is currently unavailable. Data will appear when the system provides a snapshot.</p>
+        </div>
+
+        <!-- Dashboard content -->
+        <div id="dashboard-content" class="is-hidden">
+
+            <!-- Summary cards -->
+            <div class="columns is-multiline mb-4" id="dashboard-summary">
+                <div class="column is-6-tablet is-3-desktop">
+                    <div class="card">
+                        <div class="card-content has-text-centered">
+                            <p class="heading">System Status</p>
+                            <p class="title is-4" id="summary-status">-</p>
+                            <p class="subtitle is-6" id="summary-api-status">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6-tablet is-3-desktop">
+                    <div class="card">
+                        <div class="card-content has-text-centered">
+                            <p class="heading">Total Loads</p>
+                            <p class="title is-4" id="summary-total-loads">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6-tablet is-3-desktop">
+                    <div class="card">
+                        <div class="card-content has-text-centered">
+                            <p class="heading">ON</p>
+                            <p class="title is-4 has-text-success" id="summary-on-count">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6-tablet is-3-desktop">
+                    <div class="card">
+                        <div class="card-content has-text-centered">
+                            <p class="heading">OFF</p>
+                            <p class="title is-4 has-text-grey" id="summary-off-count">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Warnings -->
+            <div id="dashboard-warnings" class="is-hidden mb-4">
+                <article class="message is-warning">
+                    <div class="message-body" id="warnings-body"></div>
+                </article>
+            </div>
+
+            <!-- Snapshot timestamp -->
+            <p id="snapshot-timestamp" class="is-size-7 has-text-grey mb-3"></p>
+
+            <!-- Loads table -->
+            <h2 class="title is-5">Current Loads</h2>
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped is-hoverable">
+                    <thead>
+                        <tr>
+                            <th>Device Name</th>
+                            <th>State</th>
+                            <th>Load (W)</th>
+                            <th>Controllable</th>
+                            <th>Status</th>
+                            <th>Roles</th>
+                        </tr>
+                    </thead>
+                    <tbody id="loads-table-body">
+                        <tr>
+                            <td colspan="6" class="has-text-centered has-text-grey">Loading&hellip;</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
 </body>
 </html>
