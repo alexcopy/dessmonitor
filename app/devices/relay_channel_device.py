@@ -1,10 +1,17 @@
 import logging
 from bisect import bisect_left
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any, Dict
 
 from app.devices.pump_power_map import PUMP_W_MAP
+from app.devices.device_observation import (
+    DeviceObservationState,
+    ObservationValue,
+    ObservationFreshness,
+    compute_freshness,
+    make_observation_unavailable,
+)
 
 # Типы «аналоговых» устройств, для которых аптайм не считаем
 ANALOG_TYPES = {"watertemp", "water_thermo", "thermo", "thermometer", "termo", "termo_sensor", "temp_sensor"}
@@ -26,6 +33,7 @@ class RelayChannelDevice:
     api_key: str = None
     load_in_wt: int = 0
     status: Dict[str, Any] = field(default_factory=dict)
+    observation: DeviceObservationState = field(default_factory=make_observation_unavailable)
     extra: Dict[str, Any] = field(default_factory=lambda: {'switch_time': 10, 'min_trashhold': 0})
     is_healthy: bool = True
     inverter_is_on: bool = False
@@ -80,9 +88,29 @@ class RelayChannelDevice:
         return False
 
     def is_device_on(self) -> bool:
-        if self.state_key is None:  # always-ON датчик
+        """Return True only when observation confirms ON.
+
+        Deprecated: returns False for both OFF and UNKNOWN.
+        Callers needing to distinguish UNKNOWN from OFF must use
+        get_observation() instead.
+        """
+        if self.observation.is_on:
             return True
-        return self.to_bool(self.status.get(self.state_key))
+        if self.observation.is_unknown:
+            self.logger.debug(
+                "is_device_on() called on UNKNOWN observation for %s — returning False",
+                self.name,
+                extra={"evt": "deprecated_is_device_on", "dev": self.name},
+            )
+        return False
+
+    def get_observation(self) -> "DeviceObservationState":
+        """Return the canonical device observation.
+
+        Callers that need to distinguish ON, OFF, and UNKNOWN should
+        use this method instead of the deprecated is_device_on().
+        """
+        return self.observation
 
     def update_status(self, new_status: Dict[str, Any]):
         self.status.update(new_status)
@@ -111,6 +139,11 @@ class RelayChannelDevice:
         return inverter_voltage < self.min_volt
 
     def extract_status(self, raw_status: list) -> Dict[str, Any]:
+        """Parse a Tuya raw_status list into a dict (backward compat).
+
+        This method is preserved for existing callers.  New code should
+        use update_observation_from_tuya() for the canonical path.
+        """
         parsed = {item['code']: item['value'] for item in raw_status}
         parsed.setdefault('switch_1', int(parsed.get('Power', 0)))
         parsed.update({
@@ -120,6 +153,48 @@ class RelayChannelDevice:
             'success': True
         })
         return parsed
+
+    def update_observation_from_tuya(
+        self, value: Any, now_utc: "datetime | None" = None
+    ) -> None:
+        """Update the canonical observation from a parsed Tuya channel value.
+
+        Only bool True/False, int 1/0, and accepted string values update
+        the observation.  Malformed values are silently skipped (prior
+        observation preserved).
+
+        Args:
+            value: The parsed channel value from a Tuya status response.
+            now_utc: UTC timestamp for the observation (defaults to now).
+        """
+        import datetime as dt
+
+        observed_bool: bool | None = None
+        if isinstance(value, bool):
+            observed_bool = value
+        elif isinstance(value, int):
+            if value == 1:
+                observed_bool = True
+            elif value == 0:
+                observed_bool = False
+        elif isinstance(value, str):
+            stripped = value.strip().lower()
+            if stripped in ("1", "true", "yes", "on"):
+                observed_bool = True
+            elif stripped in ("0", "false", "no", "off"):
+                observed_bool = False
+
+        if observed_bool is None:
+            # Malformed — leave prior observation unchanged
+            return
+
+        ts = now_utc if now_utc is not None else dt.datetime.now(dt.timezone.utc)
+        new_state = ObservationValue.ON if observed_bool else ObservationValue.OFF
+        self.observation = DeviceObservationState(
+            observed_state=new_state,
+            observed_at=ts,
+            observation_source="tuya",
+        )
 
     @staticmethod
     def _format_duration(sec: int) -> str:
@@ -216,10 +291,17 @@ class RelayChannelDevice:
         self.extra[key] = value
 
     def set_on(self):
+        """Mark the device as commanded ON (optimistic, unconfirmed).
+
+        This updates the status dict for backward compatibility but does
+        NOT overwrite the canonical observation.  The observation is only
+        updated by a successful Tuya observation cycle.
+        """
         self.update_status({self.control_key: True})
         self.mark_switched()
 
     def set_off(self):
+        """Mark the device as commanded OFF (optimistic, unconfirmed)."""
         self.update_status({self.control_key: False})
         self.mark_switched()
 
@@ -262,7 +344,9 @@ class RelayChannelDevice:
             self.today_run_sec = 0  # Сброс аптайма на новый день
 
         elapsed = ts - self.last_tick_ts
-        if elapsed > 0 and self.is_device_on():
+        # Only advance counters when observation confirms fresh ON.
+        # UNKNOWN, OFF, and stale ON do not accumulate.
+        if elapsed > 0 and self.observation.is_on:
             # 1) берём мощность **на начало интервала**
             pw = self._current_power_w()
             self.today_wh += pw * (elapsed / 3600)  # Wh = P * t[h]

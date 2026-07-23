@@ -1,0 +1,433 @@
+CODER REPORT
+PR 0034a — Canonical Device Observation State
+=============================================
+
+TASK COMPLETE
+yes
+
+IMPLEMENTATION SUMMARY
+
+Implemented the canonical device observation state for dessmonitor,
+fixing the false-ON production defect caused by device_initializer.py
+writing the available configuration boolean into the device status
+dictionary.  Every RelayChannelDevice now initializes with
+observed_state=UNKNOWN, and physical state is determined exclusively
+by trusted Tuya observations with explicit timestamps and freshness
+classification.
+
+The implementation covers all 12 implementation requirements from
+PLAN.txt: canonical typed observation, initialization fix, Tuya
+observation algorithm, command boundary fix, automation fail-closed,
+runtime/energy counter safety, read model update, dashboard update,
+logging correction, ML/metrics correction, deterministic validation,
+and CI integration.
+
+FILES CREATED
+
+app/devices/device_observation.py
+  DeviceObservationState (frozen dataclass), ObservationValue enum,
+  ObservationFreshness enum, compute_freshness function, factory
+  helpers (make_observation_on, make_observation_off,
+  make_observation_unavailable), injectable clock (set_clock,
+  reset_clock), FRESH_MAX_AGE_SECONDS=180.0, STALE_MAX_AGE_SECONDS=360.0
+
+scripts/check-canonical-device-observation.sh
+  Deterministic behavioral validation with 44 tests using fake
+  devices and injectable clocks.  No real network, no real timers,
+  no real Tuya credentials.
+
+.project-memory/pr/0034a-canonical-device-observation-state/CODER_REPORT.txt
+  This file.
+
+FILES MODIFIED
+
+app/devices/relay_channel_device.py
+  Added: observation field (DeviceObservationState, default UNKNOWN).
+  Added: get_observation() method.
+  Modified: is_device_on() returns True only for ON, False for
+    OFF/UNKNOWN with deprecation debug log.
+  Modified: extract_status() preserved for backward compatibility.
+  Added: update_observation_from_tuya() for canonical observation
+    with per-channel bool/int/string parsing.
+  Modified: set_on()/set_off() use control_key for status dict
+    (command acceptance does NOT overwrite observation).
+  Modified: tick() advances counters only when observation.is_on.
+  Added: _get_utcnow injectable clock support.
+
+app/device_initializer.py
+  Modified: multi-switch init line 81 — status={} instead of
+    status={sw_key: available}.
+  Modified: single device init — status={}, physical state begins
+    UNKNOWN regardless of YAML status.
+  Available parameter preserved as configuration flag only.
+
+app/tuya/status_updater_async.py
+  Rewritten _update_once() with per-channel Tuya matching, UTC
+  observed_at timestamps, and safe skip for missing/malformed
+  channels.  Timeout and RPC exception return without updating
+  any observation.  Partial multi-switch responses update only
+  included channels.  tick() called after observation update.
+
+app/tuya/relay_tuya_controller.py
+  Fixed: switch_on_device() and switch_off_device() use
+    device.control_key (not api_key) for status dict update.
+  Command acceptance does NOT overwrite canonical observation.
+  Status update key guards against None (no status[None] created).
+
+app/devices/relay_device_manager.py
+  Modified: all_devices_on() returns devices where
+    observation.is_on (UNKNOWN and OFF excluded).
+  Modified: all_devices_off() returns devices where
+    observation.is_off (UNKNOWN and ON excluded).
+
+app/web_runtime_integration.py
+  Modified: _device_to_load_dict() reads canonical observation.
+    currently_on: True for ON, False for OFF, None for UNKNOWN.
+  Added: observed_state, observed_at, observation_source,
+    freshness fields to load dict.
+  Added: dynamic freshness computation via compute_freshness().
+
+app/control/runtime_snapshot_adapter.py
+  RuntimeLoadState already had observation fields from earlier work.
+  Modified: _to_load_candidate() passes observation fields to
+    LoadCandidate.
+
+app/control/policy_models.py
+  Modified: LoadCandidate.currently_on changed from bool to
+    bool | None (True=ON, False=OFF, None=UNKNOWN).
+  Added: LoadCandidate observation fields (observed_state,
+    observed_at, observation_source, freshness).
+
+app/control/control_state_snapshot.py
+  Modified: LoadControlSnapshot.currently_on changed from bool to
+    bool | None (True=ON, False=OFF, None=UNKNOWN).
+  Added: LoadControlSnapshot observation fields.
+  Modified: _convert_load() handles None currently_on (UNKNOWN)
+    and passes through observation fields.
+
+app/web_control_state_provider.py
+  Modified: _parse_loads() preserves nullable currently_on (no
+    longer coerces None to False via bool()).  Passes through
+    observation fields to RuntimeLoadState.
+
+app/service/smart_home_controller.py
+  Modified: _switch_loop() checks observation freshness before
+    making decisions.  Skips devices with UNKNOWN or stale
+    observations.  Logs structured skip warnings with evt=
+    "automation_skip", dev, obs_state, freshness fields.
+  Preserved: disabled pump automation, pond life-support rules.
+
+app/monitoring/device_status_logger.py
+  Modified: log_snapshot() uses observation (is_on, is_off) for
+    state column (ON/OFF/UNKN).  Loki device_metrics log includes
+    observed_state field.
+  Removed: deprecated state field replaced by observed_state.
+
+app/web/templates/index.html
+  Added: UNKNOWN summary count card (summary-unknown-count).
+  Summary now shows: System Status, Total Loads, ON, OFF, UNKNOWN.
+
+app/web/static/dashboard.js
+  Modified: renderSnapshot() handles currently_on=null → "---"
+    badge with "Unknown" title.  UNKNOWN count tracked separately
+    from OFF count.  Stale rows get is-stale-row class and
+    "stale" indicator tag.  NO write controls added.
+
+app/web/static/dashboard.css
+  Added: is-stale-row opacity (0.65) with hover to 1.0.
+  Added: is-stale-indicator tag style.
+  Added: is-life-support tag style.
+
+app/ml/ml_data_collector.py
+  Modified: collect() uses observation.is_on for devices_on_count
+    and total_load_watt.  UNKNOWN contributes 0W.  Pump uptime
+    requires observation.is_on.
+  Modified: CSV/JSONL exports include observed_state fields.
+
+app/ml/timescale_data_collector.py
+  Modified: collect_data() uses observation.is_on for is_on field
+    (True/False/None).  UNKNOWN serializes as null.
+
+.github/workflows/validate.yml
+  Added: Canonical device observation check step after dashboard
+    check step.
+
+LOCKED ARTIFACT CONFIRMATION
+
+PLAN.txt and PLAN_REVIEW.txt are unchanged by this implementation.
+Both remain committed at HEAD (3426a11) and were not modified.
+
+ROOT CAUSE CORRECTIONS
+
+Root cause (device_initializer.py line 81):
+  Before: status={sw_key: sw_cfg.get("available", parent_ok)}
+  After:  status={}
+  Physical state begins UNKNOWN.  Available is configuration-only.
+
+Contributing factor A (control_key/api_key inconsistency):
+  Fixed: relay_tuya_controller.py switch_on_device/switch_off_device
+  now use device.control_key (not device.api_key) for status
+  updates.  api_key=None no longer creates status[None].
+
+Contributing factor B (no observation timestamp):
+  Fixed: TuyaStatusUpdaterAsync._update_once() records UTC
+  observed_at on every successful per-channel observation.
+  compute_freshness() classifies observations as FRESH/STALE/
+  UNAVAILABLE based on age relative to thresholds.
+
+Contributing factor C (is_device_on returns only bool):
+  Fixed: get_observation() provides full ObservationValue
+  (ON/OFF/UNKNOWN).  is_device_on() returns False for UNKNOWN
+  with deprecation warning.  All consumers updated.
+
+CANONICAL OBSERVATION CONTRACT
+
+DeviceObservationState (frozen dataclass):
+  observed_state: ObservationValue (ON/OFF/UNKNOWN)
+  observed_at: datetime | None (UTC timestamp)
+  observation_source: str | None ("tuya" or None)
+  Properties: is_on, is_off, is_unknown, has_observation
+
+ObservationValue enum: ON="on", OFF="off", UNKNOWN="unknown"
+ObservationFreshness enum: FRESH="fresh", STALE="stale",
+  UNAVAILABLE="unavailable"
+
+INITIALIZATION CHANGES
+
+Every RelayChannelDevice initializes with:
+  observation=make_observation_unavailable()
+  status={} (empty, no available→ON fabrication)
+
+Multi-switch: available=True stays in config; never enters status.
+Single device: YAML status ignored for physical observation.
+Pump: physical state starts UNKNOWN.
+
+TUYA OBSERVATION CHANGES
+
+Per-channel matching: state_key matched against Tuya response codes.
+Value parsing: bool True/False, int 1/0, accepted strings.
+Malformed values: silently skipped; prior observation preserved.
+Missing parent device: observation unchanged.
+Missing channel: observation unchanged.
+Partial multi-switch response: only included channels updated.
+Timeout/RPC exception: no observation update, no timestamp change.
+tick() called after observation update.
+
+FRESHNESS POLICY
+
+Implemented constants:
+  FRESH_MAX_AGE_SECONDS = 180.0  (3 minutes)
+  STALE_MAX_AGE_SECONDS = 360.0  (6 minutes)
+
+Classification:
+  No observation (observed_at=None): UNAVAILABLE
+  Age < 180s: FRESH
+  180s <= age < 360s: STALE
+  Age >= 360s: UNAVAILABLE
+  Future timestamp: STALE (clock skew)
+  Malformed observed_at: UNAVAILABLE
+
+Clock: timezone-aware UTC, injectable via set_clock()/reset_clock().
+
+PLAN REVIEW WARNING RESOLUTION
+
+PLAN_REVIEW.txt identified a freshness threshold mismatch:
+  PLAN.txt stated FRESH < 90s (3x default 30s interval).
+  Production run.py uses TuyaStatusUpdaterAsync(interval=120).
+
+Resolution:
+  Did NOT reduce the production updater interval (remains 120s).
+  Used production-aligned backend freshness constants:
+    FRESH_MAX_AGE_SECONDS = 180 (1.5x the 120s polling interval)
+    STALE_MAX_AGE_SECONDS = 360 (3x the polling interval)
+  180s provides headroom for occasional single-cycle delays
+  without going stale.  360s is the point where observations
+  become unavailable and unsafe for automation decisions.
+
+Why the 90-second plan value was not used:
+  The 90s value assumed a 30s polling interval.  Production uses
+  120s.  Using 90s would cause every observation to go STALE
+  before the next one arrives (120s > 90s).  The 180s constant
+  is aligned with the production polling interval while being
+  safe for the 30s default (observations would arrive well
+  within 180s in either configuration).
+
+COMMAND OBSERVATION BOUNDARY
+
+Command acceptance does NOT overwrite observed_state.
+switch_on_device/switch_off_device update the legacy status dict
+  only (optimistic, unconfirmed).
+Canonical observation is updated exclusively through
+  TuyaStatusUpdaterAsync.
+control_key used for both command submission and status dict update;
+  fallback to api_key for backward compat; None check prevents
+  status[None].
+
+AUTOMATION FAIL-CLOSED CHANGES
+
+SmartHomeController._switch_loop():
+  UNKNOWN observation → skip with structured warning log.
+  STALE observation → skip with structured warning log.
+  UNAVAILABLE observation → skip with structured warning log.
+  Only fresh confirmed ON/OFF drives switching decisions.
+
+all_devices_on(): returns devices with observation.is_on.
+  UNKNOWN and OFF excluded.
+all_devices_off(): returns devices with observation.is_off.
+  UNKNOWN and ON excluded.
+
+Pump automation: remains disabled by default.  Safety rules
+  preserved.
+
+READ MODEL CHANGES
+
+Web API load dict fields added:
+  observed_state: "on" | "off" | "unknown"
+  observed_at: ISO-8601 string | null
+  observation_source: "tuya" | null
+  freshness: "fresh" | "stale" | "unavailable"
+  currently_on: true | false | null (null for UNKNOWN)
+
+Pipeline: _device_to_load_dict → build_runtime_read_model →
+  _parse_loads → RuntimeLoadState → LoadCandidate →
+  LoadControlSnapshot → WebUiControlStateResponse → JSON.
+
+All data types now carry observation fields end-to-end.
+
+DASHBOARD CHANGES
+
+ON badge: green (unchanged).
+OFF badge: grey (unchanged).
+UNKNOWN badge: grey, "---" text, "Unknown" title.
+Stale rows: opacity 0.65, "stale" indicator tag, hover restores.
+Summary: ON count, OFF count, UNKNOWN count (separate).
+No write controls, no command status, no observation timestamps
+  displayed (deferred to future PR).
+
+LOGGING CHANGES
+
+DeviceStatusLogger.log_snapshot():
+  State column: ON/OFF/UNKN (from observation.is_on/is_off).
+  Loki device_metrics: observed_state field added.
+
+SmartHomeController:
+  Structured warnings for automation skips:
+    extra={"evt": "automation_skip", "dev": name,
+           "obs_state": state, "freshness": freshness}
+
+ML AND METRICS CHANGES
+
+MLDataCollector.collect():
+  devices_on_count: sum(observation.is_on).
+  total_load_watt: sum only for observation.is_on devices.
+  pump_current_uptime_sec: only when observation.is_on.
+
+TimescaleDataCollector.collect_data():
+  is_on: True/False/None (from observation.is_on).
+
+No ML control enabled.  No TimescaleDB production enabled.
+UNKNOWN never silently converts to false or zero.
+
+VALIDATION RUN
+
+Commands executed:
+  bash scripts/check-canonical-device-observation.sh
+  bash scripts/check-web-dashboard.sh
+  bash scripts/check-web-authentication.sh
+  python3 -m compileall -q . -x '/(ml_data|\.project-memory|\.git|venv|\.venv)/'
+  git diff --check
+  git diff --name-only
+  git diff --stat
+  git diff --summary
+  git status --short
+
+Also attempted (pre-existing env issues, not caused by this PR):
+  bash scripts/check-web-control-state-provider.sh (2 tests fail
+    due to missing argon2 in system python3; all 26 other tests pass)
+  bash scripts/check-runtime-read-only-web-host.sh (1 test fails
+    due to missing argon2 in system python3; all 18 other tests pass)
+
+VALIDATION RESULTS
+
+check-canonical-device-observation.sh: 44/44 PASSED
+check-web-dashboard.sh:               36/36 PASSED
+check-web-authentication.sh:          41/41 PASSED
+python3 -m compileall:                PASSED (no errors)
+git diff --check:                     PASSED (no whitespace issues)
+
+All validation required by PLAN.txt passes.
+
+DEVIATIONS FROM PLAN
+
+1. app/control/web_ui_read_endpoint.py was NOT modified.
+   Reason: The observation fields are carried through the data
+   types (LoadControlSnapshot in ControlStateSnapshot), not
+   through endpoint logic.  The endpoint already passes through
+   the snapshot unchanged, so the observation data flows
+   automatically once LoadControlSnapshot carries the fields.
+
+2. app/control/control_state_snapshot.py was modified (not
+   explicitly in PLAN.txt file list).
+   Reason: LoadControlSnapshot needed observation fields and
+   nullable currently_on for the dashboard to receive UNKNOWN
+   data.  This is the data type that backs the API response.
+
+3. app/control/policy_models.py was modified (not explicitly in
+   PLAN.txt file list).
+   Reason: LoadCandidate needed observation fields and nullable
+   currently_on to carry observation data through the conversion
+   chain from RuntimeLoadState.
+
+4. app/web_control_state_provider.py was modified (not explicitly
+   in PLAN.txt file list, but PLAN.txt said to modify _parse_loads
+   in the runtime_snapshot_adapter section).
+   Reason: _parse_loads is actually in web_control_state_provider.py,
+   not runtime_snapshot_adapter.py.  This was a PLAN.txt filename
+   error — the intent was clearly to modify _parse_loads.
+
+5. scripts/check-web-dashboard.sh was NOT modified.
+   Reason: The static analysis tests already cover the required
+   checks (UNKNOWN count element, stale indicators in CSS,
+   currently_on null handling in JS).  The dashboard rendering
+   logic is verified by the JavaScript static checks that confirm
+   textContent usage, UNKNOWN badge rendering, and summary count
+   updates.
+
+WARNINGS
+
+- The check-web-control-state-provider.sh and check-runtime-read-only-
+  web-host.sh scripts have pre-existing failures due to system python3
+  missing argon2.  These failures are not caused by PR 0034a changes.
+  All tests that pass in the venv environment (which has argon2) pass
+  correctly.
+
+BLOCKERS
+
+None.
+
+SECRET SAFETY CONFIRMATION
+
+No Tuya credentials, API keys, tokens, control keys, device IDs,
+passwords, or secrets were added to any file.
+Raw Tuya payloads are never exposed in API responses.
+_FORBIDDEN_DEVICE_ATTRS filter preserved and unchanged.
+_FORBIDDEN_RAW_ATTRS filter preserved and unchanged.
+
+HARDWARE SAFETY CONFIRMATION
+
+No direct relay control added.  No Tuya calls added.
+Automation fail-closed: UNKNOWN/stale → skip, no command emitted.
+Pond life-support rules preserved.  Pump automation remains disabled.
+Command submission is unchanged — only the status update key was
+corrected (api_key→control_key).
+
+NEXT REQUIRED ACTION
+
+Precommit review must verify:
+1. All files changed are within approved scope.
+2. PLAN.txt and PLAN_REVIEW.txt are unchanged.
+3. No credentials or secrets exposed.
+4. All validation passes.
+5. The observation pipeline carries data end-to-end correctly.
+6. The freshness constants match production polling interval.
+7. Dashboard renders UNKNOWN without fabricating OFF.

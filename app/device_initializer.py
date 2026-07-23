@@ -78,7 +78,8 @@ class DeviceInitializer:
                     time_delay=sw_cfg.get("time_delay", 10),
 
                     # --- стартовый статус / extra ---
-                    status={sw_key: sw_cfg.get("available", parent_ok)},
+                    # physical state begins UNKNOWN — available is NOT physical ON/OFF
+                    status={},
                     extra={"switch_time": sw_cfg.get("time_delay", 10)},
                 )
                 self.device_manager.add_device(dev)
@@ -126,7 +127,9 @@ class DeviceInitializer:
                 time_delay=cfg.get("time_delay", 10),
 
                 # стартовый статус / extra
-                status=cfg.get("status", {}),
+                # Legacy YAML status dict is deprecated for physical observation.
+                # Physical state begins UNKNOWN regardless of YAML status values.
+                status={},
                 extra=cfg.get("extra", {}),
             )
             self.device_manager.add_device(dev)

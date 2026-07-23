@@ -641,7 +641,7 @@ class TimescaleDataCollector:
                                 "time": timestamp,
                                 "device_name": device.name,
                                 "device_type": device.device_type if hasattr(device, 'device_type') else 'unknown',
-                                "is_on": device.is_device_on(),
+                                "is_on": device.observation.is_on if hasattr(getattr(device, "observation", None), "is_on") else None,
                                 "power_watts": None,
                                 "temperature_celsius": None,
                                 "humidity_percent": None,

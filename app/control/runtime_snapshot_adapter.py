@@ -80,12 +80,16 @@ class RuntimeLoadState:
     load_id: str = ""
     display_name: str = ""
     configured_load_watts: float = 0.0
-    currently_on: bool = False
+    currently_on: bool | None = False
     controllable: bool = True
     is_life_support: bool = False
     roles: tuple[str, ...] = field(default_factory=tuple)
     status: str = "unknown"
     notes: str = ""
+    observed_state: str | None = None
+    observed_at: str | None = None
+    observation_source: str | None = None
+    freshness: str | None = None
 
 
 # ===================================================================
@@ -170,6 +174,10 @@ def _to_load_candidate(rl: RuntimeLoadState) -> LoadCandidate:
         controllable=rl.controllable,
         is_life_support=rl.is_life_support,
         roles=rl.roles,
+        observed_state=rl.observed_state,
+        observed_at=rl.observed_at,
+        observation_source=rl.observation_source,
+        freshness=rl.freshness,
     )
 
 

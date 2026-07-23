@@ -43,14 +43,22 @@ class RelayTuyaController:
     # ---------- публичные методы управления ----------
     def switch_on_device(self, device: RelayChannelDevice) -> bool:
         if self._send_switch_cmd(device, True):
-            device.update_status({device.api_key: True})
+            # Use control_key (or state_key), NOT api_key, for the status update.
+            # Command acceptance does NOT overwrite the canonical observation —
+            # observation is updated exclusively through TuyaStatusUpdaterAsync.
+            # The status dict update here is optimistic/unconfirmed only.
+            update_key = getattr(device, "control_key", None) or getattr(device, "api_key", None)
+            if update_key is not None:
+                device.update_status({update_key: True})
             device.mark_switched()
             return True
         return False
 
     def switch_off_device(self, device: RelayChannelDevice) -> bool:
         if self._send_switch_cmd(device, False):
-            device.update_status({device.api_key: False})
+            update_key = getattr(device, "control_key", None) or getattr(device, "api_key", None)
+            if update_key is not None:
+                device.update_status({update_key: False})
             device.mark_switched()
             return True
         return False

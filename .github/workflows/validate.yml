@@ -128,3 +128,6 @@ jobs:
 
       - name: 🔍 Web dashboard check
         run: bash scripts/check-web-dashboard.sh
+
+      - name: 🔍 Canonical device observation check
+        run: bash scripts/check-canonical-device-observation.sh

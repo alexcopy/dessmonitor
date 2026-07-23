@@ -108,18 +108,44 @@ class SmartHomeController:
                 # 1-A. питаемся от сети → все реле OFF
                 if on_ac:
                     for dev in switches:
-                        if dev.is_device_on() and self.ctrl.switch_off_device(dev):
+                        if dev.observation.is_on and self.ctrl.switch_off_device(dev):
                             self.log_business.info(f"[OFF] {dev.name} — AC-grid")
                     await self._sleep(self.switch_int)
                     continue
 
                 # 1-B. питаемся от АКБ → мягкая логика
                 for dev in switches:
-                    if vbat >= dev.max_volt and not dev.is_device_on():
+                    obs = dev.observation
+                    # Skip devices with UNKNOWN or stale observation
+                    if obs.is_unknown:
+                        self.log_business.info(
+                            f"[SKIP] {dev.name} — observation UNKNOWN, skipping switch decision",
+                            extra={"evt": "automation_skip", "dev": dev.name,
+                                   "obs_state": "unknown", "freshness": "unavailable"},
+                        )
+                        continue
+                    freshness_val = obs.freshness if hasattr(obs, 'freshness') else None
+                    if freshness_val is None:
+                        from app.devices.device_observation import compute_freshness
+                        freshness_val = compute_freshness(obs)
+                    if freshness_val is not None and hasattr(freshness_val, 'value'):
+                        fresh_str = freshness_val.value
+                    else:
+                        fresh_str = str(freshness_val) if freshness_val else "unknown"
+                    from app.devices.device_observation import ObservationFreshness
+                    if freshness_val == ObservationFreshness.STALE or freshness_val == ObservationFreshness.UNAVAILABLE:
+                        self.log_business.info(
+                            f"[SKIP] {dev.name} — observation {fresh_str}, skipping switch decision",
+                            extra={"evt": "automation_skip", "dev": dev.name,
+                                   "obs_state": obs.observed_state.value if hasattr(obs.observed_state, 'value') else str(obs.observed_state),
+                                   "freshness": fresh_str},
+                        )
+                        continue
+                    if vbat >= dev.max_volt and not obs.is_on:
                         if self.ctrl.switch_on_device(dev):
                             self.log_business.info(
                                 f"[ON ] {dev.name} — Vbat={vbat:.2f} ≥ {dev.max_volt}")
-                    elif vbat <= dev.min_volt and dev.is_device_on():
+                    elif vbat <= dev.min_volt and obs.is_on:
                         if self.ctrl.switch_off_device(dev):
                             self.log_business.info(
                                 f"[OFF] {dev.name} — Vbat={vbat:.2f} ≤ {dev.min_volt}")

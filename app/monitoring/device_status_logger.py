@@ -97,12 +97,18 @@ class DeviceStatusLogger:
 
             # ---- дискретные (реле / насос) --------------------------------
             if dtype not in self.ANALOG_TYPES:
-                state = "ON" if d.is_device_on() else "OFF"
+                obs = d.observation
+                if obs.is_on:
+                    state = "ON"
+                elif obs.is_off:
+                    state = "OFF"
+                else:
+                    state = "UNKN"
                 # Суточный аптайм (обнуляется каждый день)
                 up = self._format_duration(d.today_run_sec) if d.today_run_sec else "—"
                 rows.append(
-                    f"{d.name:<15} | {state:<3} | run={self._format_duration(d.today_run_sec):<8} | "
-                    f"cur-on={self._format_duration(now - d.last_switched) if d.is_device_on() else '—':<8} | "
+                    f"{d.name:<15} | {state:<4} | run={self._format_duration(d.today_run_sec):<8} | "
+                    f"cur-on={self._format_duration(now - d.last_switched) if obs.is_on else '—':<8} | "
                     f"day-energy={d.today_kwh:.2f} kWh"
                 )
                 continue
@@ -132,10 +138,10 @@ class DeviceStatusLogger:
                 extra={
                     "type": "device_metrics",
                     "dev": d.name,
-                    "run_sec": d.today_run_sec,  # Сколько работал за сутки (в секундах)
-                    "uptime_sec": uptime,  # Сколько текущее включение (в секундах)
-                    "day_kwh": round(d.today_kwh, 3),  # КВт⋅ч за день
-                    "state": "ON" if d.is_device_on() else "OFF",
+                    "run_sec": d.today_run_sec,
+                    "uptime_sec": uptime,
+                    "day_kwh": round(d.today_kwh, 3),
+                    "observed_state": d.observation.observed_state.value,
                 }
             )
 

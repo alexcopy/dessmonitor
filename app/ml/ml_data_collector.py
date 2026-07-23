@@ -535,11 +535,17 @@ class MLDataCollector:
         # ============= УСТРОЙСТВА =============
         if devices:
             try:
-                point.devices_on_count = sum(1 for d in devices if d.is_device_on())
+                point.devices_on_count = sum(
+                    1 for d in devices
+                    if getattr(getattr(d, "observation", None), "is_on", False)
+                )
             except Exception:
                 point.devices_on_count = None
             try:
-                point.total_load_watt = sum((d.power_consumption() or 0) for d in devices if getattr(d, "is_device_on", lambda: False)())
+                point.total_load_watt = sum(
+                    (d.power_consumption() or 0) for d in devices
+                    if getattr(getattr(d, "observation", None), "is_on", False)
+                )
             except Exception:
                 pass
             pumps = [d for d in devices if getattr(d, "device_type", "").lower() == "pump"]
@@ -552,7 +558,7 @@ class MLDataCollector:
                 point.pump_mode = shared_state.get("pump_mode")
                 point.pump_uptime_today_sec = getattr(pump, "today_run_sec", None)
                 try:
-                    if getattr(pump, "is_device_on", lambda: False)():
+                    if getattr(getattr(pump, "observation", None), "is_on", False):
                         point.pump_current_uptime_sec = getattr(pump, "get_uptime_sec", lambda: None)()
                 except Exception:
                     pass

@@ -212,13 +212,40 @@ def _device_to_load_dict(device: Any) -> dict[str, Any] | None:
     # --- configured_load_watts ---------------------------------------------
     configured_load_watts = _safe_float_or_zero(getattr(device, "load_in_wt", 0))
 
-    # --- currently_on ------------------------------------------------------
+    # --- canonical observation ---------------------------------------------
     state_key = getattr(device, "state_key", None)
-    raw_status = getattr(device, "status", None)
-    if raw_status is not None and isinstance(raw_status, dict) and state_key is not None:
-        currently_on = _safe_bool_value(raw_status.get(state_key, False))
+    obs = getattr(device, "observation", None)
+    if obs is not None and hasattr(obs, "observed_state"):
+        obs_state = obs.observed_state
+        from app.devices.device_observation import ObservationValue
+        if obs_state == ObservationValue.ON:
+            currently_on = True
+        elif obs_state == ObservationValue.OFF:
+            currently_on = False
+        else:
+            currently_on = None  # UNKNOWN -> JSON null
+        observed_state_str = obs_state.value
+        obs_at = obs.observed_at
+        if obs_at is not None and hasattr(obs_at, "isoformat"):
+            observed_at_str = obs_at.isoformat()
+        else:
+            observed_at_str = None
+        observation_source_str = obs.observation_source
+        # Compute freshness dynamically
+        from app.devices.device_observation import compute_freshness
+        freshness_val = compute_freshness(obs)
+        freshness_str = freshness_val.value
     else:
-        currently_on = False
+        # Fallback: use legacy status dict and is_device_on()
+        raw_status = getattr(device, "status", None)
+        if raw_status is not None and isinstance(raw_status, dict) and state_key is not None:
+            currently_on = _safe_bool_value(raw_status.get(state_key, False))
+        else:
+            currently_on = False
+        observed_state_str = None
+        observed_at_str = None
+        observation_source_str = None
+        freshness_str = "unavailable"
 
     # --- controllable ------------------------------------------------------
     available = getattr(device, "available", True)
@@ -262,6 +289,10 @@ def _device_to_load_dict(device: Any) -> dict[str, Any] | None:
         "roles": tuple(roles),
         "status": status_str,
         "notes": "",
+        "observed_state": observed_state_str,
+        "observed_at": observed_at_str,
+        "observation_source": observation_source_str,
+        "freshness": freshness_str,
     }
 
 
