@@ -73,6 +73,7 @@
     dom.startupResetBadge = document.getElementById("startup-reset-badge");
     dom.startupResetInfo = document.getElementById("startup-reset-info");
     dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
+    dom.sensorsTableBody = document.getElementById("sensors-table-body");
     }
 
     /* -----------------------------------------------------------------------
@@ -459,6 +460,103 @@
         }
     }
 
+    /* Sensors rendering */
+    function renderSensors(snapshot) {
+        if (!snapshot) { return; }
+        var sensors = snapshot.sensors;
+        if (!Array.isArray(sensors) || sensors.length === 0) {
+            dom.sensorsTableBody.textContent = "";
+            var emptyRow = document.createElement("tr");
+            var emptyCell = document.createElement("td");
+            emptyCell.colSpan = 5;
+            emptyCell.className = "has-text-centered has-text-grey";
+            emptyCell.textContent = "No sensors available";
+            emptyRow.appendChild(emptyCell);
+            dom.sensorsTableBody.appendChild(emptyRow);
+            return;
+        }
+
+        dom.sensorsTableBody.textContent = "";
+
+        for (var i = 0; i < sensors.length; i++) {
+            var sensor = sensors[i];
+            if (!sensor || typeof sensor !== "object") { continue; }
+
+            var displayName = safeText(sensor.display_name);
+            var rawValue = sensor.value;
+            var unit = sensor.unit || "celsius";
+            var observedAt = formatTimestamp(sensor.observed_at);
+            var freshness = sensor.freshness || "";
+            var status = sensor.status || "";
+            var isStale = (freshness === "stale");
+            var isUnavailable = (freshness === "unavailable");
+
+            var tr = document.createElement("tr");
+            if (isStale) {
+                tr.className = "is-stale-row";
+            }
+
+            /* Sensor name */
+            var tdName = document.createElement("td");
+            tdName.textContent = displayName;
+            tr.appendChild(tdName);
+
+            /* Value */
+            var tdValue = document.createElement("td");
+            if (rawValue === null || rawValue === undefined) {
+                tdValue.textContent = "N/A";
+                tdValue.className = "has-text-grey-light";
+            } else if (unit === "celsius") {
+                tdValue.textContent = String(rawValue) + " \u00b0C";
+            } else {
+                tdValue.textContent = String(rawValue) + " " + unit;
+            }
+            tr.appendChild(tdValue);
+
+            /* Observed */
+            var tdObs = document.createElement("td");
+            tdObs.textContent = observedAt;
+            tr.appendChild(tdObs);
+
+            /* Freshness */
+            var tdFresh = document.createElement("td");
+            var freshTag = document.createElement("span");
+            if (freshness === "fresh") {
+                freshTag.className = "tag is-success is-light";
+                freshTag.textContent = "fresh";
+            } else if (freshness === "stale") {
+                freshTag.className = "tag is-warning is-light";
+                freshTag.textContent = "stale";
+            } else {
+                freshTag.className = "tag is-light";
+                freshTag.textContent = "unavailable";
+            }
+            tdFresh.appendChild(freshTag);
+            tr.appendChild(tdFresh);
+
+            /* Status */
+            var tdStatus = document.createElement("td");
+            var statusTag = document.createElement("span");
+            if (status === "valid") {
+                statusTag.className = "tag is-success is-light";
+                statusTag.textContent = "valid";
+            } else if (status === "stale") {
+                statusTag.className = "tag is-warning is-light";
+                statusTag.textContent = "stale";
+            } else if (status === "invalid") {
+                statusTag.className = "tag is-danger is-light";
+                statusTag.textContent = "invalid";
+            } else {
+                statusTag.className = "tag is-light";
+                statusTag.textContent = "unavailable";
+            }
+            tdStatus.appendChild(statusTag);
+            tr.appendChild(tdStatus);
+
+            dom.sensorsTableBody.appendChild(tr);
+        }
+    }
+
     /* -----------------------------------------------------------------------
      * Polling engine
      * -----------------------------------------------------------------------
@@ -543,6 +641,7 @@
         }
 
         renderSnapshot(data);
+        renderSensors(data.snapshot);
         updateLastRefresh();
         startStaleTimers();
     }

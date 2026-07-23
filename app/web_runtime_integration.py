@@ -152,6 +152,7 @@ def build_runtime_read_model(
     startup_reset_status: str | None = None,
     startup_reset_gate_open: bool | None = None,
     per_device_results: dict[str, str] | None = None,
+    sensors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a runtime state mapping from a list of device objects."""
     if created_at is None:
@@ -171,6 +172,8 @@ def build_runtime_read_model(
         "created_at": created_at,
         "loads": loads,
     }
+    if sensors is not None:
+        result["sensors"] = sensors
     if startup_reset_status is not None:
         result["startup_reset_status"] = startup_reset_status
     if startup_reset_gate_open is not None:
@@ -282,6 +285,7 @@ def create_runtime_state_provider(
     startup_reset_status_provider: Callable[[], str | None] | None = None,
     startup_reset_gate_open_provider: Callable[[], bool | None] | None = None,
     per_device_results_provider: Callable[[], dict[str, str] | None] | None = None,
+    sensors_provider: Callable[[], list[dict[str, Any]] | None] | None = None,
 ) -> Callable[[], dict[str, Any] | None]:
     def _provider() -> dict[str, Any] | None:
         try:
@@ -293,11 +297,13 @@ def create_runtime_state_provider(
         srs = startup_reset_status_provider() if startup_reset_status_provider else None
         srg = startup_reset_gate_open_provider() if startup_reset_gate_open_provider else None
         pdr = per_device_results_provider() if per_device_results_provider else None
+        sensors = sensors_provider() if sensors_provider else None
         return build_runtime_read_model(
             devs,
             startup_reset_status=srs,
             startup_reset_gate_open=srg,
             per_device_results=pdr,
+            sensors=sensors,
         )
     return _provider
 
@@ -329,6 +335,7 @@ async def start_runtime_read_only_web_host(
     startup_reset_status_provider: Callable[[], str | None] | None = None,
     startup_reset_gate_open_provider: Callable[[], bool | None] | None = None,
     per_device_results_provider: Callable[[], dict[str, str] | None] | None = None,
+    sensors_provider: Callable[[], list[dict[str, Any]] | None] | None = None,
 ) -> RuntimeWebHostHandle | None:
     env = environ if environ is not None else os.environ
     if not is_runtime_web_host_enabled(env):
@@ -350,6 +357,7 @@ async def start_runtime_read_only_web_host(
         startup_reset_status_provider=startup_reset_status_provider,
         startup_reset_gate_open_provider=startup_reset_gate_open_provider,
         per_device_results_provider=per_device_results_provider,
+        sensors_provider=sensors_provider,
     )
     from app.web_host import create_app
     app = create_app(runtime_state_provider=provider)

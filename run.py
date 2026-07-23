@@ -16,6 +16,7 @@ from app.ml.timescale_data_collector import TimescaleDataCollector, timescale_co
 from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
 from app.service.startup_reset_coordinator import StartupResetCoordinator
+from app.service.telemetry_registry import TelemetryRegistry
 from app.tuya.relay_tuya_controller import RelayTuyaController
 from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
 from app.tuya.tuya_authorisation import TuyaAuthorisation
@@ -72,8 +73,10 @@ async def main() -> None:
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Асинхронный апдейтер статусов ──────────────────────
+    telemetry_registry = TelemetryRegistry()
     updater = TuyaStatusUpdaterAsync(
-        interval=120, dev_mgr=dev_mgr, authorisation=auth
+        interval=120, dev_mgr=dev_mgr, authorisation=auth,
+        telemetry_registry=telemetry_registry,
     )
     updater_task = asyncio.create_task(updater.run())
 
@@ -101,6 +104,7 @@ async def main() -> None:
             startup_reset_status_provider=lambda: reset_coordinator.reset_status,
             startup_reset_gate_open_provider=lambda: reset_coordinator.is_gate_open,
             per_device_results_provider=reset_coordinator.get_per_device_results,
+            sensors_provider=telemetry_registry.get_all_readings_dict,
         )
     except Exception as exc:
         important_log.warning(f"[WEB] Read-only host not started: {exc}")
