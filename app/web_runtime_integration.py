@@ -267,9 +267,11 @@ def _device_to_load_dict(
     else:
         status_str = "unhealthy"
 
+    description = _safe_str(getattr(device, "desc", ""))
     return {
         "load_id": load_id,
         "display_name": display_name,
+        "description": description,
         "configured_load_watts": configured_load_watts,
         "currently_on": currently_on,
         "controllable": controllable,

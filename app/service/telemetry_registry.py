@@ -38,6 +38,7 @@ class TelemetryRegistry:
         self,
         sensor_id: str,
         display_name: str,
+        description: str = "",
         metric: SensorMetric = SensorMetric.WATER_TEMPERATURE,
         unit: str = "celsius",
         communication_status: str = "unknown",
@@ -45,12 +46,14 @@ class TelemetryRegistry:
         """Register a configured sensor descriptor before any reading exists.
 
         This ensures the sensor appears in the Sensors section even before
-        the first valid telemetry reading.
+        the first valid telemetry reading.  Idempotent — only sets the
+        descriptor if no reading exists yet for this sensor_id.
         """
         if sensor_id not in self._readings:
             self._readings[sensor_id] = SensorTelemetryReading(
                 sensor_id=sensor_id,
                 display_name=display_name,
+                description=description,
                 metric=metric,
                 value=None,
                 unit=unit,
@@ -70,14 +73,15 @@ class TelemetryRegistry:
         sensor_id: str,
         display_name: str,
         raw_value: Any,
+        description: str = "",
         observed_at: datetime | None = None,
         source: str = "tuya",
         communication_status: str = "active",
     ) -> None:
         """Update or create a water temperature reading.
 
-        Normalizes the raw value to Celsius.
-        Accepts: int, float (directly), or int representing tenths of a degree.
+        Normalizes the raw value using the mapping's scale and offset.
+        Accepts: int, float.
         Rejects: None, bool, str, NaN, infinity, impossible values.
         """
         now = observed_at if observed_at is not None else datetime.now(timezone.utc)
@@ -92,6 +96,7 @@ class TelemetryRegistry:
                 self._readings[sensor_id] = SensorTelemetryReading(
                     sensor_id=existing.sensor_id,
                     display_name=existing.display_name,
+                    description=existing.description,
                     metric=SensorMetric.WATER_TEMPERATURE,
                     value=existing.value,
                     unit="celsius",
@@ -105,9 +110,11 @@ class TelemetryRegistry:
 
         freshness = SensorFreshness.FRESH
         status = SensorStatus.VALID
+        desc = description or (self._readings.get(sensor_id).description if self._readings.get(sensor_id) else "")
         self._readings[sensor_id] = SensorTelemetryReading(
             sensor_id=sensor_id,
             display_name=display_name,
+            description=desc,
             metric=SensorMetric.WATER_TEMPERATURE,
             value=normalized,
             unit="celsius",
@@ -153,6 +160,7 @@ class TelemetryRegistry:
             {
                 "sensor_id": r.sensor_id,
                 "display_name": r.display_name,
+                "description": r.description,
                 "metric": r.metric.value,
                 "value": r.value,
                 "unit": r.unit,

@@ -308,7 +308,7 @@
             dom.loadsTableBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 6;
+            emptyCell.colSpan = 7;
             emptyCell.className = "has-text-centered has-text-grey";
             emptyCell.textContent = "No loads available";
             emptyRow.appendChild(emptyCell);
@@ -359,6 +359,12 @@
             /* Device Name cell */
             var tdName = document.createElement("td");
             tdName.textContent = displayName;
+
+            /* Description cell */
+            var tdDesc = document.createElement("td");
+            var rawDesc = load.description || "";
+            tdDesc.textContent = rawDesc || "\u2014";
+            tr.appendChild(tdDesc);
             if (isLifeSupport) {
                 tdName.appendChild(document.createTextNode(" "));
                 var lsTag = document.createElement("span");
@@ -468,7 +474,7 @@
             dom.sensorsTableBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 5;
+            emptyCell.colSpan = 6;
             emptyCell.className = "has-text-centered has-text-grey";
             emptyCell.textContent = "No sensors available";
             emptyRow.appendChild(emptyCell);
@@ -483,6 +489,7 @@
             if (!sensor || typeof sensor !== "object") { continue; }
 
             var displayName = safeText(sensor.display_name);
+            var rawDescription = sensor.description || "";
             var rawValue = sensor.value;
             var unit = sensor.unit || "celsius";
             var observedAt = formatTimestamp(sensor.observed_at);
@@ -500,6 +507,11 @@
             var tdName = document.createElement("td");
             tdName.textContent = displayName;
             tr.appendChild(tdName);
+
+            /* Description cell */
+            var tdDesc = document.createElement("td");
+            tdDesc.textContent = rawDescription || "\u2014";
+            tr.appendChild(tdDesc);
 
             /* Value */
             var tdValue = document.createElement("td");
