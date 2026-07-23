@@ -3,8 +3,6 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from app.device_initializer import DeviceInitializer
-from app.tuya.tuya_authorisation import TuyaAuthorisation
 from app.utils.time_utils import smart_sleep
 from shared_state.shared_state import shared_state
 TUYA_RPC_TIMEOUT = 20
@@ -21,13 +19,17 @@ class TuyaStatusUpdaterAsync:
     As of PR 0034c, uses property_mapping.state_property instead
     of device.state_key.  Includes refresh_once() for one-shot
     observation used by startup reset.
+
+    As of PR 0034d, accepts explicit dev_mgr and authorisation.
+    Module-level import does NOT construct DeviceInitializer or
+    TuyaAuthorisation.
     """
 
-    def __init__(self, interval: int = 30, dev_mgr=None):
+    def __init__(self, interval: int = 30, dev_mgr=None, authorisation=None):
         self.interval = interval
         self._stop = asyncio.Event()
-        self.dev_mgr = dev_mgr or DeviceInitializer().device_controller
-        self.auth = TuyaAuthorisation()
+        self.dev_mgr = dev_mgr
+        self.auth = authorisation
 
     # -------------------------------------------------------------
     async def run(self):

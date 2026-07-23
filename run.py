@@ -60,11 +60,21 @@ async def main() -> None:
     dev_mgr = DeviceInitializer().device_controller
 
     # ─── 2. TUYA-авторизация и контроллер ─────────────────────
-    auth = TuyaAuthorisation()
+    tuya_cfg = DeviceInitializer().get_tuya_config()
+    access_id = tuya_cfg.get("ACCESS_ID", "")
+    access_key = tuya_cfg.get("ACCESS_KEY", "")
+    if not access_id or not access_key:
+        important_log.error(
+            "[TUYA] Missing ACCESS_ID or ACCESS_KEY in device configuration"
+        )
+        sys.exit(1)
+    auth = TuyaAuthorisation(access_id=access_id, access_key=access_key)
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Асинхронный апдейтер статусов ──────────────────────
-    updater = TuyaStatusUpdaterAsync(interval=120, dev_mgr=dev_mgr)
+    updater = TuyaStatusUpdaterAsync(
+        interval=120, dev_mgr=dev_mgr, authorisation=auth
+    )
     updater_task = asyncio.create_task(updater.run())
 
     # ─── 4. Монитор инвертора (Dess API) ──────────────────────

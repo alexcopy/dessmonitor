@@ -13,22 +13,63 @@ from app.devices.device_property_mapping import (
 
 DEVICE_CONFIG = "devices.yaml"
 
+
+class DeviceConfigNotFoundError(Exception):
+    """Raised when the device configuration file cannot be found."""
+    pass
+
+
 class DeviceInitializer:
+    """Initializes devices from a YAML configuration file.
+
+    Configuration path resolution precedence:
+    1. Explicit constructor argument (config_path).
+    2. DEVICE_CONFIG_PATH environment variable.
+    3. Legacy default "devices.yaml".
+
+    Module-level import does NOT read configuration.
+    """
+
     _instance = None
+    _instance_path = None
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    def __new__(cls, config_path=None):
+        resolved = cls._resolve_config_path(config_path)
+        if cls._instance is not None and cls._instance_path == resolved:
+            return cls._instance
+        instance = super().__new__(cls)
+        cls._instance = instance
+        cls._instance_path = resolved
+        return instance
 
-    def __init__(self):
+    @staticmethod
+    def _resolve_config_path(config_path: str | None) -> str:
+        """Resolve the device configuration file path.
+
+        Precedence:
+        1. Explicit constructor argument.
+        2. DEVICE_CONFIG_PATH environment variable.
+        3. Legacy default "devices.yaml".
+        """
+        if config_path is not None:
+            return config_path
+        env_path = os.environ.get("DEVICE_CONFIG_PATH")
+        if env_path:
+            return env_path
+        return DEVICE_CONFIG
+
+    def __init__(self, config_path: str | None = None):
         if getattr(self, "initialized", False):
             return
 
-        if not os.path.exists(DEVICE_CONFIG):
-            raise FileNotFoundError(f"Config file '{DEVICE_CONFIG}' not found")
+        self._config_path = self._resolve_config_path(config_path)
 
-        with open(DEVICE_CONFIG, encoding="utf-8") as f:
+        if not os.path.exists(self._config_path):
+            raise DeviceConfigNotFoundError(
+                f"Device config file not found: {self._config_path}"
+            )
+
+        with open(self._config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
 
         self.device_manager = RelayDeviceManager()
@@ -181,6 +222,6 @@ class DeviceInitializer:
         return self.device_manager
 
     def get_tuya_config(self):
-        with open(DEVICE_CONFIG, encoding="utf-8") as f:
+        with open(self._config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f)
         return config.get("tuya", {})
