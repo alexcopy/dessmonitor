@@ -31,6 +31,37 @@ class TelemetryRegistry:
         self._readings: dict[str, SensorTelemetryReading] = {}
 
     # ------------------------------------------------------------------
+    # Configured sensor descriptors
+    # ------------------------------------------------------------------
+
+    def register_sensor_descriptor(
+        self,
+        sensor_id: str,
+        display_name: str,
+        metric: SensorMetric = SensorMetric.WATER_TEMPERATURE,
+        unit: str = "celsius",
+        communication_status: str = "unknown",
+    ) -> None:
+        """Register a configured sensor descriptor before any reading exists.
+
+        This ensures the sensor appears in the Sensors section even before
+        the first valid telemetry reading.
+        """
+        if sensor_id not in self._readings:
+            self._readings[sensor_id] = SensorTelemetryReading(
+                sensor_id=sensor_id,
+                display_name=display_name,
+                metric=metric,
+                value=None,
+                unit=unit,
+                observed_at=None,
+                source="tuya",
+                freshness=SensorFreshness.UNAVAILABLE,
+                status=SensorStatus.UNAVAILABLE,
+                communication_status=communication_status,
+            )
+
+    # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------
 

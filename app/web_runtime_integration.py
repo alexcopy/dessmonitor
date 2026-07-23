@@ -154,7 +154,13 @@ def build_runtime_read_model(
     per_device_results: dict[str, str] | None = None,
     sensors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build a runtime state mapping from a list of device objects."""
+    """Build a runtime state mapping from a list of device objects.
+
+    Each configured device produces exactly one primary projection:
+    - LOAD-classified devices appear in loads.
+    - SENSOR-classified devices appear in sensors (via the sensors param).
+    - No device appears in both collections.
+    """
     if created_at is None:
         created_at = datetime.now(timezone.utc).isoformat()
     snapshot_id = _safe_str(uuid.uuid4())
@@ -162,6 +168,15 @@ def build_runtime_read_model(
     if devices:
         for device in devices:
             try:
+                from app.devices.relay_channel_device import (
+                    classify_projection_kind, DeviceProjectionKind,
+                )
+                proj = classify_projection_kind(
+                    getattr(device, "device_type", ""),
+                    getattr(device, "extra", None),
+                )
+                if proj != DeviceProjectionKind.LOAD:
+                    continue
                 load_dict = _device_to_load_dict(device, per_device_results)
                 if load_dict is not None:
                     loads.append(load_dict)
@@ -223,10 +238,7 @@ def _device_to_load_dict(
     available = getattr(device, "available", True)
     enabled = _safe_enabled(device)
     device_type = _normalize_device_type(getattr(device, "device_type", ""))
-    if not enabled or not available or state_key is None or device_type in (
-        "sensor", "thermo", "thermometer", "watertemp", "water_thermo",
-        "termo", "termo_sensor", "temp_sensor",
-    ):
+    if not enabled or not available or state_key is None:
         controllable = False
     else:
         controllable = True

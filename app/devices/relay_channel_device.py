@@ -18,7 +18,59 @@ from app.devices.device_property_mapping import (
 )
 
 # Типы «аналоговых» устройств, для которых аптайм не считаем
-ANALOG_TYPES = {"watertemp", "water_thermo", "thermo", "thermometer", "termo", "termo_sensor", "temp_sensor"}
+ANALOG_TYPES = {"watertemp", "water_thermo", "thermo", "thermometer",
+                "termo", "termo_sensor", "temp_sensor"}
+
+# Device projection kind — determines which read-model collection a device
+# appears in.  Each configured device has exactly one primary projection.
+
+
+class DeviceProjectionKind:
+    """Primary read-model projection for a configured device."""
+    LOAD = "load"
+    SENSOR = "sensor"
+    INVALID = "invalid"
+
+
+# Sensor device types — devices classified as sensors appear in Sensors only.
+SENSOR_DEVICE_TYPES = {
+    "thermo", "thermometer", "watertemp", "water_thermo",
+    "termo", "termo_sensor", "temp_sensor", "sensor",
+}
+
+
+def classify_projection_kind(device_type: str, extra: dict | None = None) -> str:
+    """Classify a device into its primary projection kind.
+
+    Uses normalized device_type and explicit roles from configuration.
+    Does NOT use device name or display_name.
+
+    Returns:
+        "load", "sensor", or "invalid".
+    """
+    dt = device_type.strip().lower() if device_type else ""
+
+    # Check explicit roles from extra dict
+    if extra and isinstance(extra, dict):
+        explicit_roles = extra.get("roles")
+        if isinstance(explicit_roles, (list, tuple)):
+            for role in explicit_roles:
+                r = str(role).strip().lower()
+                if r in SENSOR_DEVICE_TYPES:
+                    return DeviceProjectionKind.SENSOR
+
+    # Classify by device_type
+    if dt in SENSOR_DEVICE_TYPES:
+        return DeviceProjectionKind.SENSOR
+
+    if dt in ("pump", "switch", "relay", "multi_switch"):
+        return DeviceProjectionKind.LOAD
+
+    # Unknown device type — conservative: classify as load
+    if dt and dt not in ("", "unknown"):
+        return DeviceProjectionKind.LOAD
+
+    return DeviceProjectionKind.INVALID
 
 @dataclass
 class RelayChannelDevice:

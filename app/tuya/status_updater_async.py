@@ -314,6 +314,21 @@ class TuyaStatusUpdaterAsync:
             for dev in parent_to_devices[tuya_id]:
                 if not dev.enabled:
                     continue
+
+                # Determine projection kind
+                from app.devices.relay_channel_device import (
+                    classify_projection_kind, DeviceProjectionKind,
+                )
+                proj = classify_projection_kind(
+                    dev.device_type, getattr(dev, "extra", None)
+                )
+
+                if proj == DeviceProjectionKind.SENSOR:
+                    # Sensor-classified device: extract telemetry only
+                    self._extract_water_temperature(dev, status_by_code, now_utc)
+                    continue
+
+                # Load-classified device: process binary/numeric observation
                 sp = dev.property_mapping.state_property
                 if sp is None:
                     continue
@@ -325,10 +340,6 @@ class TuyaStatusUpdaterAsync:
                 parsed = dev.extract_status(status_list)
                 dev.update_status(parsed)
                 dev.tick(now_ts)
-
-                # Extract water temperature from watertemp devices
-                if dev.device_type.lower() in ("watertemp", "water_thermo", "temp_sensor"):
-                    self._extract_water_temperature(dev, status_by_code, now_utc)
 
                 if dev.device_type.lower() != "pump":
                     continue
@@ -349,7 +360,7 @@ class TuyaStatusUpdaterAsync:
         status_by_code: dict[str, object],
         now_utc: datetime,
     ) -> None:
-        """Extract water temperature from a device status response.
+        """Extract water temperature from a sensor device status response.
 
         Uses the configured temp_current property (bounded legacy recognition).
         Updates the telemetry registry with normalized Celsius value.
@@ -357,6 +368,17 @@ class TuyaStatusUpdaterAsync:
         """
         if self._telemetry is None:
             return
+
+        # Register configured sensor descriptor if not yet registered
+        sensor_id = f"{dev.id}_water_temp"
+        display_name = dev.name or "Water temperature"
+        existing = self._telemetry.get_reading(sensor_id)
+        if existing is None:
+            self._telemetry.register_sensor_descriptor(
+                sensor_id=sensor_id,
+                display_name=display_name,
+                communication_status="active" if dev.enabled else "disabled",
+            )
 
         raw_temp = status_by_code.get("temp_current")
         if raw_temp is None:
@@ -379,9 +401,6 @@ class TuyaStatusUpdaterAsync:
 
         if normalized is None:
             return
-
-        sensor_id = f"{dev.id}_water_temp"
-        display_name = "Water temperature"
 
         self._telemetry.update_water_temperature(
             sensor_id=sensor_id,
