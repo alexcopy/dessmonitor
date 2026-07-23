@@ -1,0 +1,509 @@
+PLAN REVIEW COMPLETE
+
+REVIEW TYPE
+corrected-plan re-review
+
+VERDICT
+approved
+
+READY FOR PLANNING COMMIT
+true
+
+PRIOR BLOCKER STATUS
+resolved
+
+The prior blocker (fix-auth-validation-python-discovery classified as
+canonical through raw ASCII lexical comparison of the full directory name)
+is fully resolved.
+
+The corrected plan replaces full-directory-name lexical comparison with a
+STRUCTURAL NUMERIC IDENTIFIER algorithm:
+
+  1. Parse the directory basename into numeric_part (leading decimal
+     digits) and suffix_part (single lowercase alpha after digits,
+     before first hyphen).
+
+  2. If numeric_part is empty: consult a frozen historical allowlist.
+     - Allowlisted -> legacy-accepting (no canonical requirements).
+     - Not allowlisted -> REJECTED.
+
+  3. If numeric_part is not empty: compare as integers.
+     - numeric_part < 34 -> LEGACY.
+     - numeric_part > 34 -> CANONICAL.
+     - numeric_part == 34 and suffix_part empty -> LEGACY.
+     - numeric_part == 34 and suffix_part == "a" -> CANONICAL (boundary).
+     - numeric_part == 34 and suffix_part > "a" -> CANONICAL.
+
+The frozen historical allowlist contains exactly one entry:
+
+  fix-auth-validation-python-discovery
+
+This directory contains only PRECOMMIT_REVIEW.yaml. The allowlist accepts
+it as legacy-accepting without any canonical format requirement and
+without renaming any file.
+
+Independently verified: exactly one non-numeric directory exists in the
+repository (fix-auth-validation-python-discovery). It contains exactly
+PRECOMMIT_REVIEW.yaml and no other file. The structural identifier
+correctly classifies it.
+
+Suffix ordering verified against all actual directories:
+
+  0034 (numeric=34, suffix='') < 0034a (numeric=34, suffix='a')
+    -> LEGACY < CANONICAL at boundary  CORRECT
+
+  0034a (numeric=34, suffix='a') < 0034b (numeric=34, suffix='b')
+    -> both CANONICAL, correctly ordered  CORRECT
+
+  0034b (numeric=34, suffix='b') < 0035 (numeric=35)
+    -> both CANONICAL, correctly ordered  CORRECT
+
+All numeric-prefix directories correctly classified:
+  0001-0033 -> LEGACY (all numeric < 34)
+  0018a, 0028b -> LEGACY (numeric < 34)
+  0034 -> LEGACY (numeric=34, suffix empty)
+  0034a -> CANONICAL (numeric=34, suffix='a')
+  0034b -> CANONICAL (numeric=34, suffix='b')
+
+Satisfies Hard Rule 8 (no lexical-comparison dependency) and Hard Rule 9
+(no historical rename requirement).
+
+PRIOR WARNING STATUS
+resolved
+
+The prior warning (legacy stage detection underspecified, vague
+"equivalent legacy names") is fully resolved.
+
+The corrected plan provides a complete LEGACY ARTIFACT INVENTORY with
+every observed variant, its path pattern, whether it is historical-only,
+whether accepted before the boundary, whether forbidden for canonical, and
+a list of directories where it is present.
+
+The LEGACY STAGE MAPPING uses exact artifact paths rather than vague
+descriptions:
+
+  COMPLETE (legacy):
+    PRECOMMIT_REVIEW.yaml exists in root directory.
+    OR reviews/precommit-review.yml exists.
+
+  IMPLEMENTATION (legacy):
+    CODER_REPORT.txt exists.
+    No PRECOMMIT_REVIEW.yaml or reviews/precommit-review.yml.
+
+  PLANNING (legacy):
+    PLAN_REVIEW.yaml exists in root directory.
+    OR reviews/plan-review.yml exists.
+    No CODER_REPORT.txt.
+
+  DRAFT (legacy):
+    PLAN.md exists.
+    No PLAN_REVIEW.yaml, reviews/plan-review.yml, CODER_REPORT.txt,
+    PRECOMMIT_REVIEW.yaml, or reviews/precommit-review.yml.
+
+  EMPTY:
+    No artifacts at all. PASS informational.
+
+This mapping handles all observed legacy layouts including PR 0007
+(CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml only, no PLAN.md), PR 0021
+(PLAN.md + CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml, no PLAN_REVIEW.yaml),
+PR 0026/0027 (PLAN.md + CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml +
+reviews/plan-review.yml), and PR 0033/0034 (PLAN.md + CODER_REPORT.txt +
+reviews/plan-review.yml + reviews/precommit-review.yml).
+
+BLOCKERS
+none
+
+WARNINGS
+
+1. Minor test description inaccuracy: "PR 0026 layout"
+
+   The LEGACY DIRECTORY ACCEPTANCE test list includes:
+
+     "Directory with PLAN.md + reviews/plan-review.yml only
+      -> PASS (PR 0026 layout)"
+
+   The actual PR 0026 directory also contains CODER_REPORT.txt and
+   PRECOMMIT_REVIEW.yaml.  The temp fixture described (PLAN.md +
+   reviews/plan-review.yml ONLY) does not match the actual 0026
+   contents.  The test scenario is valid — it checks that a minimal
+   partial layout passes — but the label "(PR 0026 layout)" is
+   incorrect and may confuse a future reader.
+
+   The PRECOMMIT_REVIEW.yaml inventory also omits 0026 and 0027 from
+   its "Present in" list (it lists 0025, then jumps to 0028b).  This
+   omission does not affect correctness because the legacy stage
+   detection rule "PRECOMMIT_REVIEW.yaml exists in root directory"
+   catches both directories correctly.  The coder should correct the
+   test label and, optionally, add 0026/0027 to the inventory note
+   for completeness.  This is not a blocker.
+
+ARTIFACT WRITTEN
+Yes
+
+ARTIFACT PATH
+.project-memory/pr/0034b-plain-text-agent-artifact-standard/reviews/PLAN_REVIEW.txt
+
+FORMAT REVIEW
+PLAN.txt is plain UTF-8 text.  No YAML, JSON, XML, or Markdown table
+structures.  Sections separated by blank lines.  Subsections use two-space
+indentation.  The review artifact follows the same plain-text convention.
+
+STRUCTURAL IDENTIFIER REVIEW
+
+The corrected plan defines a STRUCTURAL NUMERIC IDENTIFIER ALGORITHM that
+replaces the prior raw ASCII lexical comparison of the full directory
+name.
+
+Algorithm verified against every existing directory:
+
+  Directory              numeric  suffix  classification
+  ---------------------  -------  ------  --------------
+  0001-repository-*      1        ''      LEGACY (1<34)
+  0002-runtime-*         2        ''      LEGACY (2<34)
+  ...through...
+  0033-authentication-*  33       ''      LEGACY (33<34)
+  0034-live-read-only-*  34       ''      LEGACY (34==34, ''<'a')
+  0034a-canonical-*      34       'a'     CANONICAL (34==34, 'a'=='a')
+  0034b-plain-text-*     34       'b'     CANONICAL (34==34, 'b'>'a')
+  0018a-policy-engine-*  18       'a'     LEGACY (18<34)
+  0028b-bootstrap-*      28       'b'     LEGACY (28<34)
+  fix-auth-*             empty    N/A     ALLOWLISTED LEGACY
+  unknown-non-numeric    empty    N/A     REJECTED
+
+The algorithm uses integer comparison for numeric_part (so "0034" equals
+34) and single-character ASCII comparison for suffix_part (so '' < 'a' <
+'b').  This correctly orders:
+
+  0034 before 0034a before 0034b before 0035 before 0040
+
+No full-directory-name lexical comparison is used.  Satisfies Hard Rule 8.
+
+NON-NUMERIC HISTORICAL REVIEW
+
+The corrected plan provides a frozen historical allowlist containing
+exactly one entry:
+
+  fix-auth-validation-python-discovery
+
+Verified independently: this is the ONLY non-numeric directory under
+.project-memory/pr/.  It contains exactly one file: PRECOMMIT_REVIEW.yaml.
+
+Allowlist rules:
+
+  1. Legacy format is unconditionally accepted.
+  2. No canonical format requirement.
+  3. No artifact is renamed or deleted by the validator.
+  4. If a canonical artifact and a legacy artifact for the same stage
+     both exist, the validator reports an ambiguity error.
+
+Any non-numeric directory NOT in this allowlist is REJECTED.  This
+prevents future workflows from bypassing the canonical standard.  The
+allowlist can only be amended by a separate plan.
+
+Satisfies Hard Rule 9 (no historical rename), Hard Rule 10 (no open-ended
+exemption), and the requirement that unknown future non-numeric
+directories are rejected.
+
+LEGACY ARTIFACT INVENTORY REVIEW
+
+The corrected plan provides an exact inventory of every observed legacy
+artifact variant in the repository.  Independently verified against
+actual file system:
+
+PLAN.md:
+  Present in all 0001-0034 numeric directories except 0007.
+  Verified: 0007 has no PLAN.md.  All others have PLAN.md.  CORRECT.
+
+PLAN_REVIEW.yaml (root):
+  Plan inventory: 0001, 0002, 0003, 0004, 0005, 0006, 0008, 0009, 0010,
+  0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018a, 0018b, 0018c, 0018d,
+  0019, 0020, 0022, 0023, 0024, 0025, 0028b, 0029, 0030, 0031.
+  Verified: all 30 directories listed have PLAN_REVIEW.yaml.  Directories
+  NOT listed (0007, 0021, 0026, 0027, 0033, 0034) correctly lack it.
+  CORRECT.
+
+reviews/plan-review.yml:
+  Plan inventory: 0026, 0027, 0033, 0034.
+  Verified: all four have reviews/plan-review.yml.  No other directory
+  has this file.  CORRECT.
+
+Note also: NO directory contains both PLAN_REVIEW.yaml AND
+reviews/plan-review.yml.  Verified.  CORRECT.
+
+CODER_REPORT.txt:
+  Plan states present in 0001-0034, 0034a, 0034b.
+  Verified: all completed directories (0001-0034, 0034a) have
+  CODER_REPORT.txt.  0034b does not have one yet (planning stage).
+  CORRECT.
+
+PRECOMMIT_REVIEW.yaml (root):
+  Plan inventory: 0001-0007, 0008-0025, 0028b-0031, and
+  fix-auth-validation-python-discovery.
+  Note: 0026 and 0027 also have PRECOMMIT_REVIEW.yaml but are not listed
+  in the plan's inventory (lists 0025 then jumps to 0028b).  This is a
+  minor omission that does not affect correctness because the stage
+  detection rule "PRECOMMIT_REVIEW.yaml exists in root directory" catches
+  both.  The coder should add 0026 and 0027 to this list for completeness.
+  Not a blocker.
+
+reviews/precommit-review.yml:
+  Plan inventory: 0033, 0034.
+  Verified: both directories have it.  No other directory has it.
+  CORRECT.
+
+Directories with special layouts:
+
+  PR 0007: CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml.  No PLAN.md.
+    Verified.  CORRECT.
+
+  PR 0021: PLAN.md + CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml.
+    No PLAN_REVIEW.yaml.  Verified.  CORRECT.
+
+  PR 0014: PLAN.md + PLAN_REVIEW.yaml + CODER_REPORT.txt +
+    PRECOMMIT_REVIEW.yaml all in root.  Verified.  CORRECT.
+
+No implementation-report.md exists anywhere in the repository.
+Verified.  CORRECT (included as defensive rejection pattern).
+
+LEGACY STAGE MAPPING REVIEW
+
+The corrected plan provides an exact stage mapping using actual observed
+artifact paths:
+
+  COMPLETE: PRECOMMIT_REVIEW.yaml in root OR reviews/precommit-review.yml
+  IMPLEMENTATION: CODER_REPORT.txt exists, no PRECOMMIT
+  PLANNING: PLAN_REVIEW.yaml in root OR reviews/plan-review.yml, no CODER
+  DRAFT: PLAN.md only, no other artifacts
+  EMPTY: no artifacts
+
+Verified against every legacy directory:
+
+  0001-0006, 0008-0020, 0022-0025, 0028b-0031:
+    Have PLAN.md + PLAN_REVIEW.yaml + CODER_REPORT.txt +
+    PRECOMMIT_REVIEW.yaml -> COMPLETE.  CORRECT.
+
+  0007: CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml -> COMPLETE (PRECOMMIT
+    exists).  No PLAN.md is acceptable because legacy format has no
+    requirements.  CORRECT.
+
+  0021: PLAN.md + CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml -> COMPLETE
+    (PRECOMMIT exists).  No PLAN_REVIEW.yaml is acceptable.  CORRECT.
+
+  0026, 0027: PLAN.md + CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml +
+    reviews/plan-review.yml -> COMPLETE (PRECOMMIT exists in root).
+    CORRECT.
+
+  0033, 0034: PLAN.md + CODER_REPORT.txt + reviews/plan-review.yml +
+    reviews/precommit-review.yml -> COMPLETE (precommit-review.yml
+    exists).  CORRECT.
+
+The mapping is explicit, uses observable file paths, and contains no
+vague phrases such as "equivalent legacy name" or "legacy review file."
+Satisfies the prior warning resolution requirement.
+
+CANONICAL CONTRACT REVIEW
+
+Corrected plan defines exact paths:
+
+  PLAN.txt                        (plan agent, root)
+  reviews/PLAN_REVIEW.txt         (plan-review agent, reviews/)
+  CODER_REPORT.txt                (coder agent, root)
+  reviews/PRECOMMIT_REVIEW.txt    (precommit-review agent, reviews/)
+
+Exact casing verified: PLAN.txt, PLAN_REVIEW.txt, CODER_REPORT.txt,
+PRECOMMIT_REVIEW.txt.  All .txt extension, capital letters.
+
+Review artifacts always inside reviews/ subdirectory.  Plain UTF-8 text,
+no machine-format dependency.
+
+Legacy names are forbidden for canonical directories.  Canonical format
+rules 1-13 are unchanged from the initial plan and remain appropriate.
+
+STAGE-AWARE VALIDATION REVIEW
+
+Canonical stage mapping uses deterministic artifact existence order:
+
+  COMPLETE:               reviews/PRECOMMIT_REVIEW.txt exists
+  IMPLEMENTATION (coder): CODER_REPORT.txt exists, no PRECOMMIT
+  PLANNING COMPLETE:      reviews/PLAN_REVIEW.txt exists, no CODER
+  PLANNING DRAFT:         PLAN.txt exists, no PLAN_REVIEW, no CODER
+  EMPTY:                  no artifacts (PASS informational)
+
+All five stages are supported.  Future-stage artifacts are not required
+prematurely: a PLANNING DRAFT directory passes even without
+CODER_REPORT.txt or reviews/PRECOMMIT_REVIEW.txt.
+
+Rejection conditions for canonical directories are explicit:
+
+  - PLAN.md (or any .md plan artifact) -> REJECT
+  - PLAN_REVIEW.yaml or reviews/plan-review.yml -> REJECT
+  - PRECOMMIT_REVIEW.yaml or reviews/precommit-review.yml -> REJECT
+  - Any .yaml or .yml file in PR directory or reviews/ -> REJECT
+  - Wrong casing -> REJECT
+  - Wrong reviews placement -> REJECT
+  - Non-allowlisted non-numeric directory -> REJECT
+
+MIXED-FORMAT REVIEW
+
+Mixed-format behavior is defined:
+
+  - For allowlisted non-numeric directories: if a canonical artifact and
+    a legacy artifact for the same stage both exist, the validator reports
+    an ambiguity error.
+
+  - For canonical directories: legacy names are unconditionally rejected,
+    so the mixed state cannot arise (the legacy file is rejected first).
+
+  - For legacy directories: no format checks are applied, so mixed
+    canonical+legacy coexistence is accepted without error.
+
+The plan does not define mixed-format behavior for legacy (pre-boundary)
+numeric directories that coincidentally have both PLAN.md and PLAN.txt.
+This is an extremely unlikely edge case.  The legacy stage detection
+would see PLAN.md and classify it as DRAFT; the presence of PLAN.txt
+would be ignored because no format checks are applied.  The coder could
+add an explicit informational warning if desired.  Not a blocker.
+
+VALIDATOR FEASIBILITY REVIEW
+
+The validator design uses only:
+
+  - Shell string operations (parameter expansion for digit extraction)
+  - Integer comparison (-lt, -gt)
+  - File existence tests (-f)
+  - Standard shell loops and conditionals
+
+No network access required.  No origin/master remote required.  No Git
+history required.  No GitHub CLI.  No external tools beyond what exists
+in the Ubuntu CI runner (bash, coreutils).
+
+The validator does not mutate any file.  It reports errors and exits
+non-zero.
+
+Suitable for execution in the existing validate.yml step
+(bash scripts/check-project-memory.sh) without any CI pipeline changes.
+
+FILE SCOPE REVIEW
+
+Files to modify (4):
+
+  .project-memory/AGENT_STANDARD.txt
+    Update PLAN.md -> PLAN.txt references.  Add transition boundary with
+    structural identifier algorithm.  Add canonical format rules.  No
+    workflow or deployment changes.
+
+  .project-memory/ORCHESTRATOR_STANDARD.txt
+    Update artifact table.  Update locked/compliance references.  Add
+    transition boundary.  Remove legacy REVIEW YAML FIELDS section.  No
+    prompt structure or deployment changes.
+
+  .project-memory/ADR/ADR-0001-agent-workflow.md
+    Append dated transition section.  No rewrite.  No workflow sequence
+    or deployment changes.
+
+  scripts/check-project-memory.sh
+    Add structural identifier parsing, frozen allowlist, legacy/canonical
+    stage detection, format validation.  No historical artifact mutation.
+    No network access.  No CI pipeline changes.
+
+Files NOT modified:
+  .github/workflows/validate.yml (step already exists)
+  ROADMAP.md, .project-memory/ROADMAP.md, .project-memory/CURRENT_STATE.md
+
+Scope is minimal and justified.  No runtime, dashboard, Tuya, ML, GitOps,
+Kubernetes, Secret, or deployment files are changed.
+
+VALIDATION DESIGN REVIEW
+
+Test structure uses temporary fixture directories only.  No real
+historical artifacts are modified.  The actual repository directories
+are checked in read-only mode by the script.
+
+Test categories (41 total):
+
+  STRUCTURAL IDENTIFIER CLASSIFICATION (10 tests):
+    0034 -> LEGACY, 0034a -> CANONICAL, 0034b -> CANONICAL,
+    0035 -> CANONICAL, 0040 -> CANONICAL, 0018a -> LEGACY,
+    0028b -> LEGACY, 0001 -> LEGACY,
+    fix-auth-validation-python-discovery -> LEGACY,
+    unknown-non-numeric -> REJECTED
+
+  LEGACY DIRECTORY ACCEPTANCE (10 tests, temp fixtures):
+    Covers all observed legacy layouts: PLAN.md only, full root layout
+    (PR 0014), reviews/ subdirectory layout (PR 0033), PR 0021 layout
+    (no PLAN_REVIEW.yaml), PR 0007 layout (no PLAN.md), fix-auth layout
+    (PRECOMMIT_REVIEW.yaml only), PR 0026 partial, empty directory,
+    non-allowlisted non-numeric rejection.
+
+  CANONICAL DIRECTORY VALIDATION (12 tests, temp fixtures):
+    Planning draft, planning complete, implementation, complete,
+    PLAN.md rejection, PLAN_REVIEW.yaml rejection, reviews/plan-review.yml
+    rejection, PRECOMMIT_REVIEW.yaml rejection, reviews/precommit-review.yml
+    rejection, wrong casing, wrong placement, empty.
+
+  STAGE-AWARE VALIDATION (6 tests, temp fixtures, canonical):
+    Planning draft, planning complete, implementation, complete,
+    missing PLAN.txt, missing PLAN_REVIEW.txt.
+
+  MIXED AMBIGUITY (2 tests, canonical):
+    Both PLAN.md and PLAN.txt, both PLAN_REVIEW.yaml and
+    reviews/PLAN_REVIEW.txt -> REJECTED.
+
+  ACTUAL DIRECTORY (1 test, read-only):
+    All 38 repository directories pass.
+
+Coverage includes: numeric boundary ordering, suffix ordering, the actual
+non-numeric historical directory, unknown non-numeric rejection, all
+actual historical artifact layouts, canonical exact-name enforcement,
+wrong casing, wrong review placement, mixed duplicates, and every
+intermediate canonical stage.
+
+The test label "(PR 0026 layout)" is slightly inaccurate (see WARNING 1).
+The test scenario is valid, but the label should reference the tested
+artifact combination rather than claiming to match a specific directory.
+
+REQUIRED CORRECTIONS
+
+None.  Both prior findings are fully resolved.
+
+The coder should correct the minor test label inaccuracy noted in
+WARNING 1 (rename the test to describe the artifact combination tested
+rather than claiming "(PR 0026 layout)") and add 0026 and 0027 to the
+PRECOMMIT_REVIEW.yaml inventory list for completeness.
+
+These are advisory only, not blockers.
+
+FINAL SUMMARY
+
+The corrected PLAN.txt fully resolves both prior findings.
+
+BLOCKER (fix-auth-validation-python-discovery lexical comparison):
+Resolved by replacing full-directory-name ASCII lexical comparison with
+a STRUCTURAL NUMERIC IDENTIFIER algorithm that parses leading digits and
+an optional alphabetic suffix separately.  Non-numeric directories are
+handled through a frozen historical allowlist containing exactly
+fix-auth-validation-python-discovery.  Unknown non-numeric directories
+are rejected.
+
+WARNING (underspecified legacy stage mapping):
+Resolved by providing an exact LEGACY ARTIFACT INVENTORY enumerating
+every observed artifact variant with its path pattern, historical-only
+status, boundary acceptance, canonical rejection status, and directory
+presence list.  The LEGACY STAGE MAPPING uses exact file paths for
+stage detection with no vague terminology.
+
+The transition boundary is deterministic using integer numeric
+comparison plus single-character suffix comparison.  All 37 numeric-
+prefix directories and the one non-numeric historical directory are
+correctly classified.  Historical artifacts remain untouched.  New
+legacy artifacts are rejected in canonical directories.  Stage-aware
+validation supports all five canonical stages.  Mixed-format ambiguity
+is detected.  The validator requires no network, Git history, or
+external tools.  Test coverage is comprehensive with 41 deterministic
+fixture-based tests.
+
+The file scope is minimal (4 governance/module files modified, no
+application, CI, or deployment changes).  The plan is implementation-
+ready.
+
+Approved.

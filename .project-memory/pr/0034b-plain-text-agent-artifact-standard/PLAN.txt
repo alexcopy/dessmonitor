@@ -1,0 +1,747 @@
+TITLE: PR 0034b — Plain-Text Agent Artifact Standard
+
+STATUS: Planning correction — resolving rejected PLAN_REVIEW.txt.
+
+OBJECTIVE
+
+Establish the plain-text artifact convention as canonical for PR 0034a
+and all subsequent PR workflows while preserving all historical PR
+directories unchanged and correctly handling the non-numeric historical
+exception.
+
+KEY CORRECTIONS FROM INITIAL PLAN
+
+Blocker resolved: fix-auth-validation-python-discovery (a historical
+directory containing only PRECOMMIT_REVIEW.yaml) is now handled through
+a structural numeric identifier algorithm and a frozen historical
+allowlist instead of raw ASCII lexical comparison.
+
+Warning resolved: Legacy artifact stage mapping is now fully specified
+with an exact inventory of every observed legacy variant in the
+repository.
+
+BACKGROUND
+
+PR 0034a introduced the first plain-text artifact convention. PR 0034a
+uses PLAN.txt, reviews/PLAN_REVIEW.txt, CODER_REPORT.txt, and
+reviews/PRECOMMIT_REVIEW.txt.
+
+The existing governance documents (AGENT_STANDARD.txt,
+ORCHESTRATOR_STANDARD.txt, ADR-0001-agent-workflow.md) still describe
+the legacy format using PLAN.md and YAML review artifacts.
+
+The validation script (scripts/check-project-memory.sh) checks for
+PLAN.md and PLAN_REVIEW.yaml in PR 0003's directory but does not
+validate any convention, does not enforce any format rules, and has
+no awareness of the transition boundary.
+
+This PR makes the new convention canonical, updates governance
+documents, and adds deterministic validation that accepts historical
+legacy artifacts while rejecting new legacy-format artifacts after the
+transition boundary.
+
+CURRENT GOVERNANCE
+
+AGENT_STANDARD.txt (current relevant lines):
+
+  1. plan — Inspects repository, writes PLAN.md.
+  2. plan-review — Reviews PLAN.md only, writes PLAN_REVIEW.yaml.
+  3. coder — Implements approved PLAN.md, writes CODER_REPORT.txt.
+  4. precommit-review — Reviews final diff + validation, writes
+     PRECOMMIT_REVIEW.yaml.
+
+  PLAN.md and PLAN_REVIEW.yaml are LOCKED after the planning commit.
+  Coder and precommit-review must NOT edit PLAN.md or PLAN_REVIEW.yaml.
+
+  Allowed files:
+    .project-memory/pr/<PR-ID>/CODER_REPORT.txt (coder only)
+    .project-memory/pr/<PR-ID>/PRECOMMIT_REVIEW.yaml (precommit only)
+
+  Forbidden files:
+    .project-memory/pr/<PR-ID>/PLAN.md
+    .project-memory/pr/<PR-ID>/PLAN_REVIEW.yaml
+
+  Compliance:
+    The approved PLAN.md for the current PR
+    The PLAN_REVIEW.yaml warnings and constraints
+
+ORCHESTRATOR_STANDARD.txt (current relevant lines):
+
+  Step | Agent | Artifact
+  1    | plan  | PLAN.md
+  2    | plan-review | PLAN_REVIEW.yaml
+  4    | precommit-review | PRECOMMIT_REVIEW.yaml
+
+  PLAN.md and PLAN_REVIEW.yaml are locked after the planning commit.
+
+  Compliance:
+    The approved PLAN.md for the current PR
+    The PLAN_REVIEW.yaml warnings and constraints
+
+ADR-0001-agent-workflow.md (current):
+
+  artifact column in workflow table:
+    1 | plan   | PLAN.md
+    2 | plan-review | PLAN_REVIEW.yaml
+    3 | coder  | CODER_REPORT.txt
+    4 | precommit-review | PRECOMMIT_REVIEW.yaml
+
+scripts/check-project-memory.sh:
+  Checks governance files exist (AGENT_STANDARD.txt, etc.)
+  Checks PR 0003 has PLAN.md and PLAN_REVIEW.yaml
+  No convention validation, no transition boundary, no canonical format
+  enforcement.
+
+APPROVED CANONICAL ARTIFACT CONTRACT
+
+All agent workflow artifacts from PR 0034a onward must use these exact
+paths and names:
+
+  plan            -> .project-memory/pr/<pr-id>/PLAN.txt
+  plan-review     -> .project-memory/pr/<pr-id>/reviews/PLAN_REVIEW.txt
+  coder           -> .project-memory/pr/<pr-id>/CODER_REPORT.txt
+  precommit-review -> .project-memory/pr/<pr-id>/reviews/PRECOMMIT_REVIEW.txt
+
+Canonical format rules:
+
+  1. All files use plain UTF-8 text encoding.
+  2. No YAML, JSON, XML, or Markdown document structure is required
+     or expected.
+  3. Files use readable headings and sections separated by blank lines.
+  4. Files may contain ordinary prose, labels, lists, paths, and
+     command results formatted as plain text.
+  5. Files must accurately report commands that were actually run.
+  6. Files must not contain secrets, credentials, tokens, or keys.
+  7. Filenames use exact casing: PLAN.txt, PLAN_REVIEW.txt,
+     CODER_REPORT.txt, PRECOMMIT_REVIEW.txt.
+  8. PLAN.txt and reviews/PLAN_REVIEW.txt are locked after the
+     planning commit. Coder and precommit-review agents may not
+     modify them.
+  9. Review artifacts are always inside a reviews/ subdirectory
+     relative to the PR directory.
+  10. CODER_REPORT.txt is the implementation agent's output.
+  11. PRECOMMIT_REVIEW.txt is the precommit-review agent's output.
+  12. Any agent generating any artifact must not stage, commit, push,
+      or create a Pull Request unless the task prompt explicitly
+      assigns that action.
+  13. An artifact that reports commands not actually run, or that
+      fabricates validation results, is invalid.
+
+TRANSITION BOUNDARY
+
+The transition boundary uses STRUCTURAL NUMERIC IDENTIFIER PARSING,
+not raw ASCII lexical comparison of the full directory name.
+
+IDENTIFIER ALGORITHM
+
+Parse the PR directory basename into:
+
+  numeric_part: the leading decimal digits (0-9) before the first
+    non-digit character, or empty string if the basename does not
+    start with a digit.
+
+  suffix_part: the lowercase alphabetic character immediately after
+    the numeric_part, before the first hyphen, or empty string if
+    no alphabetic suffix exists.
+
+Boundary constant: numeric_part = "0034", suffix_part = "a"
+
+Classification procedure:
+
+  1. If numeric_part is empty: the directory is NON-NUMERIC.
+     Check against the frozen historical allowlist (see section
+     NON-NUMERIC HISTORICAL ALLOWLIST).
+     - If allowlisted: legacy-accepting. Accept all artifacts.
+     - If not allowlisted: REJECTED. Unknown non-numeric directory
+       name. Legacy names are not permitted for new directories.
+
+  2. If numeric_part is not empty: the directory is NUMERIC.
+     Compare numerically:
+     - If numeric_part < 34: LEGACY. Accept all artifacts.
+     - If numeric_part > 34: CANONICAL. Require canonical format.
+       Reject legacy format.
+     - If numeric_part == 34: compare suffix_part:
+       - If suffix_part is empty: LEGACY.
+       - If suffix_part < "a": LEGACY.
+       - If suffix_part == "a": CANONICAL (boundary).
+       - If suffix_part > "a": CANONICAL.
+
+Note: numeric_part is parsed as an integer for numeric comparison.
+The leading zeros (e.g., "0034") are ignored in numeric comparison.
+34 equals 0034 as integers.
+
+Required examples:
+
+  0034 -> numeric_part=34, suffix=empty, 34==34, suffix empty < "a" -> LEGACY
+  0034a -> numeric_part=34, suffix="a", 34==34, suffix=="a" -> CANONICAL
+  0034b -> numeric_part=34, suffix="b", 34==34, suffix>"a" -> CANONICAL
+  0035 -> numeric_part=35, suffix=empty, 35>34 -> CANONICAL
+  0040 -> numeric_part=40, suffix=empty, 40>34 -> CANONICAL
+  0018a -> numeric_part=18, suffix="a", 18<34 -> LEGACY
+  0028b -> numeric_part=28, suffix="b", 28<34 -> LEGACY
+  0001 -> numeric_part=1, suffix=empty, 1<34 -> LEGACY
+  fix-auth-validation-python-discovery -> numeric_part=empty, allowlisted -> LEGACY
+  unknown-non-numeric-future -> numeric_part=empty, not allowlisted -> REJECTED
+
+NON-NUMERIC HISTORICAL ALLOWLIST
+
+Exactly one non-numeric historical directory exists in the repository
+as of 2026-07-23:
+
+  fix-auth-validation-python-discovery
+
+This directory contains:
+
+  PRECOMMIT_REVIEW.yaml   (legacy YAML review artifact)
+
+No other file.
+
+This directory predates the governance framework. It is frozen in the
+historical allowlist.
+
+Rules for allowlisted non-numeric directories:
+
+  1. Legacy format is unconditionally accepted.
+  2. No canonical format requirement.
+  3. No artifact is renamed or deleted by the validator.
+  4. If a canonical artifact and a legacy artifact for the same stage
+     both exist, the validator reports an ambiguity error (mixed stage
+     artifacts detected).
+
+A non-numeric directory NOT in this allowlist is REJECTED by
+validation. This prevents future workflows from bypassing the canonical
+standard by using a non-numeric directory name.
+HISTORICAL COMPATIBILITY
+
+All PR directories created before the transition boundary remain
+unchanged. The validation script accepts both legacy and canonical
+artifacts in pre-boundary directories.
+
+No historical file is renamed, rewritten, or migrated.
+
+No historical PLAN.md, PLAN_REVIEW.yaml, PRECOMMIT_REVIEW.yaml,
+CODER_REPORT.txt, reviews/plan-review.yml, or
+reviews/precommit-review.yml is touched.
+
+Pre-boundary directories may contain any combination of legacy
+artifacts. The validator does not require them to conform to the
+canonical format.
+
+LEGACY ARTIFACT INVENTORY
+
+The following is an exact inventory of every legacy artifact variant
+observed in the repository. Each variant is documented with its
+workflow stage, path pattern, whether it is historical-only, whether
+it is accepted before the boundary, and whether it is forbidden for
+canonical directories.
+
+PLAN (plan agent output):
+
+  PLAN.md
+    Stage: plan output / plan input for review.
+    Path: .project-memory/pr/<id>/PLAN.md
+    Historical-only: YES (no new PLAN.md after boundary).
+    Accepted before boundary: YES.
+    Forbidden for canonical: YES — only PLAN.txt allowed.
+
+PLAN REVIEW (plan-review agent output):
+
+  PLAN_REVIEW.yaml
+    Stage: plan-review output.
+    Path: .project-memory/pr/<id>/PLAN_REVIEW.yaml (root directory).
+    Historical-only: YES (no new YAML reviews after boundary).
+    Accepted before boundary: YES.
+    Forbidden for canonical: YES — only reviews/PLAN_REVIEW.txt allowed.
+    Present in: 0001, 0002, 0003, 0004, 0005, 0006, 0008, 0009, 0010,
+      0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018a, 0018b, 0018c,
+      0018d, 0019, 0020, 0022, 0023, 0024, 0025, 0028b, 0029, 0030,
+      0031.
+
+  reviews/plan-review.yml
+    Stage: plan-review output.
+    Path: .project-memory/pr/<id>/reviews/plan-review.yml
+    Historical-only: YES (no new .yml reviews after boundary).
+    Accepted before boundary: YES.
+    Forbidden for canonical: YES — only reviews/PLAN_REVIEW.txt allowed.
+    Present in: 0026, 0027, 0033, 0034.
+
+Note: NO directory contains both PLAN_REVIEW.yaml AND
+reviews/plan-review.yml. The two naming conventions are mutually
+exclusive in the repository.
+
+CODER REPORT (coder agent output):
+
+  CODER_REPORT.txt
+    Stage: coder output / precommit-review input.
+    Path: .project-memory/pr/<id>/CODER_REPORT.txt
+    Historical-only: NO — also used in canonical format.
+    Accepted before boundary: YES.
+    Accepted after boundary: YES (same name, canonical).
+    Present in: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009,
+      0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018a, 0018b,
+      0018c, 0018d, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026,
+      0027, 0028b, 0029, 0030, 0031, 0033, 0034, 0034a, 0034b.
+
+  implementation-report.md
+    Stage: coder output alternative.
+    Path: .project-memory/pr/<id>/implementation-report.md
+    NOT PRESENT in any directory. Included as a defensive rejection
+    pattern for canonical directories.
+    Accepted before boundary: (not applicable, not present).
+    Forbidden for canonical: YES.
+
+PRECOMMIT REVIEW (precommit-review agent output):
+
+  PRECOMMIT_REVIEW.yaml
+    Stage: precommit-review output.
+    Path: .project-memory/pr/<id>/PRECOMMIT_REVIEW.yaml (root).
+    Historical-only: YES (no new YAML reviews after boundary).
+    Accepted before boundary: YES.
+    Forbidden for canonical: YES — only reviews/PRECOMMIT_REVIEW.txt.
+    Present in: 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009,
+      0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018a, 0018b,
+      0018c, 0018d, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0028b,
+      0029, 0030, 0031, and fix-auth-validation-python-discovery.
+
+  reviews/precommit-review.yml
+    Stage: precommit-review output.
+    Path: .project-memory/pr/<id>/reviews/precommit-review.yml
+    Historical-only: YES (no new .yml reviews after boundary).
+    Accepted before boundary: YES.
+    Forbidden for canonical: YES.
+    Present in: 0033, 0034.
+
+DIRECTORIES WITH NO LEGACY PLAN REVIEW ARTIFACT:
+
+  PR 0007: contains CODER_REPORT.txt and PRECOMMIT_REVIEW.yaml only.
+    No PLAN.md, no PLAN_REVIEW.yaml. The directory was created for
+    documentation-only planning (PR 0007 was strategy documentation).
+
+  PR 0021: contains PLAN.md, CODER_REPORT.txt, PRECOMMIT_REVIEW.yaml.
+    No PLAN_REVIEW.yaml in root, no reviews/ directory.
+
+  PR 0014: contains PLAN.md, PLAN_REVIEW.yaml, CODER_REPORT.txt,
+    PRECOMMIT_REVIEW.yaml (all in root, no reviews/ subdirectory).
+    This is the most complete legacy layout with all four artifacts
+    in the root.
+
+LEGACY STAGE MAPPING
+
+For pre-boundary directories, stage detection uses this exact mapping.
+The validator checks artifacts in this order:
+
+  COMPLETE stage (legacy):
+    PRECOMMIT_REVIEW.yaml exists in root directory.
+    OR reviews/precommit-review.yml exists.
+
+  IMPLEMENTATION stage (legacy):
+    CODER_REPORT.txt exists.
+    PRECOMMIT_REVIEW.yaml or reviews/precommit-review.yml does NOT
+    exist.
+
+  PLANNING stage (legacy):
+    PLAN_REVIEW.yaml exists in root directory.
+    OR reviews/plan-review.yml exists.
+    CODER_REPORT.txt does NOT exist.
+
+  DRAFT stage (legacy):
+    PLAN.md exists.
+    No PLAN_REVIEW.yaml, reviews/plan-review.yml, CODER_REPORT.txt,
+    PRECOMMIT_REVIEW.yaml, or reviews/precommit-review.yml exists.
+
+  EMPTY:
+    No artifacts at all. PASS with informational message.
+
+Note: The validator does NOT require all legacy directories to have
+the same layout. Each directory is validated against its actual
+present artifacts. The stage detection merely determines which checks
+are appropriate.
+
+A legacy directory with PRECOMMIT_REVIEW.yaml but no PLAN_REVIEW.yaml
+or PLAN.md (e.g., PR 0007) is handled correctly: it is classified as
+LEGACY (pre-boundary), detected as COMPLETE (PRECOMMIT exists), and
+no canonical-format checks are applied.
+
+A legacy directory with only CODER_REPORT.txt (none exist in the
+repository, but possible) would be detected as IMPLEMENTATION and
+accepted because no canonical-format checks apply.
+
+CANONICAL STAGE MAPPING
+
+For canonical (post-boundary) directories, stage detection uses the
+deterministic existence order:
+
+  COMPLETE stage:
+    reviews/PRECOMMIT_REVIEW.txt exists.
+    Validation: all four canonical artifacts must exist and be valid.
+
+  IMPLEMENTATION (coder complete) stage:
+    CODER_REPORT.txt exists.
+    reviews/PRECOMMIT_REVIEW.txt does NOT exist.
+    Validation: PLAN.txt, reviews/PLAN_REVIEW.txt, and
+    CODER_REPORT.txt exist and are valid.
+
+  PLANNING COMPLETE stage:
+    reviews/PLAN_REVIEW.txt exists.
+    CODER_REPORT.txt does NOT exist.
+    Validation: PLAN.txt and reviews/PLAN_REVIEW.txt exist and are
+    valid.
+
+  PLANNING DRAFT stage:
+    PLAN.txt exists.
+    reviews/PLAN_REVIEW.txt does NOT exist.
+    CODER_REPORT.txt does NOT exist.
+    Validation: PLAN.txt exists and is valid. Future-stage artifacts
+    are NOT required.
+
+  EMPTY directory:
+    No artifacts.
+    PASS with informational message. No format validation applied.
+
+  REJECTION conditions for canonical directories:
+    - PLAN.md exists -> REJECT (legacy PLAN name).
+    - PLAN_REVIEW.yaml or reviews/plan-review.yml exists
+      -> REJECT (legacy review name).
+    - PRECOMMIT_REVIEW.yaml or reviews/precommit-review.yml exists
+      -> REJECT (legacy review name).
+    - Any .yaml or .yml file inside the PR directory or reviews/
+      subdirectory -> REJECT (legacy format extension).
+    - PLAN.txt with wrong casing -> REJECT.
+    - PLAN_REVIEW.txt not inside reviews/ -> REJECT.
+    - PRECOMMIT_REVIEW.txt not inside reviews/ -> REJECT.
+    - Non-numeric directory NOT in frozen allowlist -> REJECT.
+
+  The validator must not require future-stage artifacts prematurely.
+  A directory at PLANNING DRAFT stage passes even though
+  CODER_REPORT.txt and reviews/PRECOMMIT_REVIEW.txt are absent.
+
+WORKFLOW AND OWNERSHIP
+
+Preserved from the initial plan. See the corresponding section in this
+document.
+
+LOCKED PLANNING ARTIFACTS
+
+Preserved from the initial plan. See the corresponding section.
+
+AGENT STANDARD CHANGES
+
+Preserved from the initial plan. See the corresponding section.
+
+ORCHESTRATOR STANDARD CHANGES
+
+Preserved from the initial plan. See the corresponding section.
+
+ADR DECISION
+
+Preserved from the initial plan. See the corresponding section.
+
+VALIDATOR DESIGN
+
+The updated scripts/check-project-memory.sh implements:
+
+  1. Keep existing governance file checks unchanged (AGENT_STANDARD.txt
+     etc.).
+
+  2. Replace the hardcoded PR 0003 artifact check with generic
+     iteration over all PR directories.
+
+  3. For each PR directory under .project-memory/pr/:
+
+     a. Extract basename.
+     b. Classify using the STRUCTURAL IDENTIFIER ALGORITHM:
+        - Parse numeric_part and suffix_part.
+        - If numeric_part is empty: check frozen allowlist.
+          Allowlisted -> legacy, not allowlisted -> reject.
+        - If numeric_part < 34: legacy.
+        - If numeric_part > 34: canonical.
+        - If numeric_part == 34 and suffix_part is empty: legacy.
+        - If numeric_part == 34 and suffix_part == "a": canonical.
+        - If numeric_part == 34 and suffix_part > "a": canonical.
+
+     c. Detect stage using artifact existence:
+        - Legacy directories use LEGACY STAGE MAPPING.
+        - Canonical directories use CANONICAL STAGE MAPPING.
+
+     d. Validate artifacts:
+        - Legacy: accept any layout. No format checks.
+          Report ambiguous duplicate stage artifacts if both legacy
+          and canonical artifacts for the same stage exist.
+        - Canonical: require exact filenames, reject legacy names,
+          reject non-allowlisted non-numeric directories, reject
+          wrong casing, reject wrong reviews placement.
+
+  4. Accumulate errors. Exit 0 only if zero errors.
+
+The validator works without network access, Git history, origin/master
+remote, or GitHub CLI. It uses only local file existence tests and
+string operations. It does not mutate any file.
+
+CI INTEGRATION
+
+The existing "Project-memory structure check" step in
+.github/workflows/validate.yml runs bash scripts/check-project-memory.sh.
+No new CI step is required.
+
+EXACT FILE PLAN
+
+Files to modify:
+
+  .project-memory/AGENT_STANDARD.txt (modify)
+    Responsibility: Define agent roles, artifact names, locked rules.
+    Changes: Update PLAN.md to PLAN.txt. Update YAML review references
+    to .txt. Add transition boundary section with structural identifier
+    algorithm. Add canonical format rules. Add review subdirectory
+    path requirement.
+    Forbidden: No agent sequence, workflow ordering, or deployment
+    changes.
+
+  .project-memory/ORCHESTRATOR_STANDARD.txt (modify)
+    Responsibility: Define prompt generation rules.
+    Changes: Update artifact table. Update locked references. Update
+    compliance references. Add transition boundary documentation.
+    Remove the legacy "REVIEW YAML FIELDS" section.
+    Forbidden: No prompt format structure, deployment model, or safety
+    changes.
+
+  .project-memory/ADR/ADR-0001-agent-workflow.md (modify)
+    Responsibility: Document the four-agent workflow decision.
+    Changes: Append dated transition section. No rewrite of original.
+    Forbidden: No historical content removal. No workflow sequence
+    changes. No runtime/deployment scope.
+
+  scripts/check-project-memory.sh (modify)
+    Responsibility: Validate project-memory structure.
+    Changes: Add structural numeric identifier parsing. Add frozen
+    non-numeric historical allowlist (fix-auth-validation-python-discovery).
+    Add stage-aware validation for both legacy and canonical directories.
+    Add legacy format rejection for canonical directories. Add wrong
+    casing and wrong placement detection. Remove hardcoded PR 0003
+    check. Add comprehensive per-directory reporting.
+    Forbidden: No historical artifact modification. No network access.
+    No CI pipeline structure changes beyond script update.
+
+Files NOT modified:
+
+  .github/workflows/validate.yml (no CI change needed)
+  ROADMAP.md (governance format below roadmap scope)
+  .project-memory/ROADMAP.md (historical, unchanged)
+  .project-memory/CURRENT_STATE.md (historical, unchanged)
+
+IMPLEMENTATION SEQUENCE
+
+Step 1: Update AGENT_STANDARD.txt with new artifact names and
+  structural identifier transition boundary.
+
+Step 2: Update ORCHESTRATOR_STANDARD.txt with new artifact table and
+  transition boundary. Remove legacy YAML section.
+
+Step 3: Update ADR-0001-agent-workflow.md with appended dated
+  transition section.
+
+Step 4: Update scripts/check-project-memory.sh:
+  - Implement structural numeric identifier parsing.
+  - Embed frozen allowlist for fix-auth-validation-python-discovery.
+  - Implement stage detection for both legacy and canonical.
+  - Implement canonical format validation.
+  - Remove hardcoded PR 0003 check.
+
+Step 5: Verify validation script against all 38 PR directories and
+  the fix-auth-validation-python-discovery directory.
+
+Step 6: Create CODER_REPORT.txt.
+
+Step 7: Create reviews/PRECOMMIT_REVIEW.txt.
+VALIDATION PLAN
+
+All tests use temporary fixture directories created under a test temp
+path. No real historical artifact is modified or accessed. The actual
+repository PR directories are checked in read-only mode by the
+validation script itself.
+
+Test categories:
+
+STRUCTURAL IDENTIFIER CLASSIFICATION (10 tests)
+
+  0034                -> numeric_part=34, suffix=empty, 34==34,
+                          suffix empty < "a" -> LEGACY
+  0034a               -> numeric_part=34, suffix="a", 34==34,
+                          suffix=="a" -> CANONICAL
+  0034b               -> numeric_part=34, suffix="b", 34==34,
+                          suffix>"a" -> CANONICAL
+  0035                -> numeric_part=35, suffix=empty, 35>34
+                          -> CANONICAL
+  0040                -> numeric_part=40, suffix=empty, 40>34
+                          -> CANONICAL
+  0018a               -> numeric_part=18, suffix="a", 18<34 -> LEGACY
+  0028b               -> numeric_part=28, suffix="b", 28<34 -> LEGACY
+  0001                -> numeric_part=1, suffix=empty, 1<34 -> LEGACY
+  fix-auth-validation-python-discovery -> numeric_part=empty,
+                          allowlisted -> LEGACY
+  unknown-non-numeric-future -> numeric_part=empty, not allowlisted
+                          -> REJECTED
+
+LEGACY DIRECTORY ACCEPTANCE (10 tests, temp fixtures)
+
+  Directory with PLAN.md only -> PASS
+  Directory with PLAN.md + PLAN_REVIEW.yaml -> PASS
+  Directory with PLAN.md + PLAN_REVIEW.yaml + CODER_REPORT.txt
+    + PRECOMMIT_REVIEW.yaml -> PASS (PR 0014 layout)
+  Directory with PLAN.md + reviews/plan-review.yml + CODER_REPORT.txt
+    + reviews/precommit-review.yml -> PASS (PR 0033 layout)
+  Directory with PLAN.md + CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml
+    -> PASS (PR 0021 layout)
+  Directory with CODER_REPORT.txt + PRECOMMIT_REVIEW.yaml only
+    -> PASS (PR 0007 layout)
+  Directory with PRECOMMIT_REVIEW.yaml only
+    -> PASS (fix-auth-validation-python-discovery layout)
+  Directory with PLAN.md + reviews/plan-review.yml only
+    -> PASS (PR 0026 layout)
+  Directory with no artifacts -> PASS (informational)
+  Non-numeric directory NOT in allowlist -> REJECTED
+
+CANONICAL DIRECTORY VALIDATION (12 tests, temp fixtures)
+
+  PLAN.txt only -> PASS (planning draft)
+  PLAN.txt + reviews/PLAN_REVIEW.txt -> PASS (planning complete)
+  PLAN.txt + reviews/PLAN_REVIEW.txt + CODER_REPORT.txt
+    -> PASS (implementation)
+  All four canonical artifacts -> PASS (complete)
+  PLAN.md (instead of PLAN.txt) -> REJECTED
+  PLAN.txt + PLAN_REVIEW.yaml -> REJECTED (legacy review name)
+  PLAN.txt + reviews/plan-review.yml -> REJECTED (.yml review name)
+  PLAN.txt + PRECOMMIT_REVIEW.yaml -> REJECTED (legacy review name)
+  PLAN.txt + reviews/precommit-review.yml -> REJECTED (.yml name)
+  plan.txt (lowercase p) -> REJECTED (wrong casing)
+  PLAN_REVIEW.txt in root (not in reviews/) -> REJECTED (wrong
+    placement)
+  Empty directory -> PASS (informational)
+
+STAGE-AWARE VALIDATION (6 tests, temp fixtures, canonical)
+
+  Only PLAN.txt exists -> PASS (planning draft)
+  PLAN.txt + reviews/PLAN_REVIEW.txt -> PASS (planning complete)
+  PLAN.txt + reviews/PLAN_REVIEW.txt + CODER_REPORT.txt
+    -> PASS (implementation, PRECOMMIT not yet required)
+  All four canonical files -> PASS (complete)
+  Missing PLAN.txt but has CODER_REPORT.txt -> FAIL (missing required
+    plan artifact)
+  Missing reviews/PLAN_REVIEW.txt but has CODER_REPORT.txt -> FAIL
+    (missing required review artifact)
+
+MIXED AMBIGUITY (2 tests, temp fixtures)
+
+  Both PLAN.md and PLAN.txt in same canonical directory -> REJECTED
+    (ambiguous plan artifact)
+  Both PLAN_REVIEW.yaml and reviews/PLAN_REVIEW.txt in same canonical
+    directory -> REJECTED (ambiguous stage)
+
+ACTUAL DIRECTORY VALIDATION (1 test, read-only)
+
+  scripts/check-project-memory.sh runs against the real repository:
+    - All 37 numeric-prefix PR directories pass
+    - fix-auth-validation-python-discovery passes
+    - No errors reported
+
+Total: 41 tests.
+
+RISKS AND MITIGATIONS
+
+Risk: Structural identifier parsing is more complex than string
+  comparison.
+  Mitigation: The parser extracts only leading digits and single
+  optional alphabetic suffix. Pure shell string operations suffice.
+  No regex library needed. The added complexity handles the known
+  non-numeric historical directory correctly.
+
+Risk: New non-numeric PR directory rejected by validation.
+  Mitigation: This is intended behavior. New directories must use
+  the numeric prefix convention. If a genuine non-numeric directory
+  is required, the allowlist must be amended by a separate plan.
+
+Risk: Legacy stage detection misses a variant.
+  Mitigation: The inventory covers every observed variant in the
+  repository. The detection uses flexible ordering (check existence
+  of each artifact type). Any additional variant discovered later
+  can be added to the inventory during implementation.
+
+ROLLBACK
+
+Preserved from the initial plan.
+
+ACCEPTANCE CRITERIA
+
+1. The structural identifier algorithm classifies all 38 repository
+   directories correctly (37 numeric + 1 non-numeric allowlist).
+2. The frozen historical allowlist contains exactly
+   fix-auth-validation-python-discovery.
+3. Unknown non-numeric directories are rejected.
+4. Legacy directories with any historical artifact layout pass.
+5. Canonical directories require exact .txt filenames and reject
+   .md, .yaml, .yml.
+6. Wrong casing and wrong reviews placement are rejected.
+7. Stage-aware validation permits intermediate stages.
+8. AGENT_STANDARD.txt, ORCHESTRATOR_STANDARD.txt, ADR-0001, and
+   check-project-memory.sh are the only governance files changed.
+9. No application, dashboard, device, ML, or deployment files are
+   modified.
+10. ROADMAP.md and .project-memory/ROADMAP.md unchanged.
+
+EXPLICIT NON-GOALS
+
+- No application code changes.
+- No dashboard, device-observation, or ML changes.
+- No runtime or web behavior changes.
+- No authentication, CSP, or session changes.
+- No GitOps, Kubernetes, or deployment manifest changes.
+- No credential changes.
+- No migration or rename of historical PR directories or artifacts.
+- No conversion of existing .md or .yaml files to .txt.
+- No CI structure changes beyond the validation script update.
+- No changes to task prompt generation or orchestrator behavior.
+
+CODER CONSTRAINTS
+
+1. Do not modify any application code.
+2. Do not modify ROADMAP.md or .project-memory/ROADMAP.md.
+3. Do not modify .project-memory/CURRENT_STATE.md.
+4. Do not modify ADR-0002*.md or ADR-0003*.md.
+5. Do not modify .github/workflows/validate.yml.
+6. Do not rename or modify any file under .project-memory/pr/ that is
+   not PR 0034b.
+7. Do not touch any historical PR directory or artifact.
+8. Do not add new dependencies.
+9. Do not commit secrets.
+10. The structural identifier parsing must not use raw ASCII lexical
+    comparison of the full directory name.
+
+REVIEWER CHECKLIST
+
+The plan-review agent must verify:
+
+- [ ] Branch is pr-0034b-plain-text-agent-artifact-standard
+- [ ] Only PLAN.txt changed during this correction
+- [ ] PLAN_REVIEW.txt remains the rejected review artifact
+- [ ] No tracked governance, application, CI, roadmap, ADR, config,
+      or historical file changed
+- [ ] PLAN.txt is plain UTF-8 text
+- [ ] All required sections present
+- [ ] Blocker resolved: fix-auth-validation-python-discovery classified
+      as legacy through structural identifier + frozen allowlist
+- [ ] Warning 1 resolved: exact legacy stage mapping specified with
+      complete inventory of all observed variants
+- [ ] Canonical filenames are exact (PLAN.txt, PLAN_REVIEW.txt,
+      CODER_REPORT.txt, PRECOMMIT_REVIEW.txt)
+- [ ] Transition boundary uses structural numeric identifier parsing,
+      not raw lexical comparison
+- [ ] Non-numeric directories: frozen allowlist documented; unknown
+      non-numeric directories rejected
+- [ ] Historical artifacts remain unchanged
+- [ ] New legacy artifacts rejected in canonical directories
+- [ ] Stage-aware validation defined for both legacy and canonical
+- [ ] Mixed-format ambiguity detection specified
+- [ ] AGENT_STANDARD.txt, ORCHESTRATOR_STANDARD.txt changes specified
+- [ ] ADR-0001 update approach is append, not rewrite
+- [ ] Validator design uses local file tests only, no network
+- [ ] Implementation file scope is minimal
+- [ ] ROADMAP.md and all application files unchanged
