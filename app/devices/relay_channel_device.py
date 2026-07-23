@@ -55,6 +55,8 @@ class RelayChannelDevice:
         default=logging.getLogger("DeviceCore")
     )
     today_wh: float = 0.0
+    enabled: bool = True
+    communication_status: str = "unknown"
     def __post_init__(self):
         #  ← если в YAML ещё лежит api_key / api_sw
         if not self.control_key and self.api_key:
