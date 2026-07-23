@@ -494,25 +494,22 @@ if len(off_devs2) == 1 and off_devs2[0].id == "f1":
 else:
     fail(f"all_devices_off2: {[d.id for d in off_devs2]}")
 
-# [35] control_key fix: RelayTuyaController uses control_key not api_key
-# (Tested indirectly — switch_on_device/switch_off_device now use
-#  control_key or fallback to api_key. The test verifies the
-#  method exists with corrected logic.)
+# [35] control_key fix: RelayTuyaController uses property_mapping.control_property
+# (Tested indirectly — switch_on_device/switch_off_device are deprecated stubs
+#  that delegate to switch_on/switch_off which use property_mapping.control_property)
 from app.tuya.relay_tuya_controller import RelayTuyaController
-# We can't easily test without mocking Tuya, but verify the module
-# exists and the methods use control_key
 import inspect
-src = inspect.getsource(RelayTuyaController.switch_on_device)
-if "control_key" in src:
-    ok("switch_on_device references control_key (not just api_key)")
+src = inspect.getsource(RelayTuyaController.switch_on)
+if "property_mapping.control_property" in src or "mapping.control_property" in src:
+    ok("switch_on uses property_mapping.control_property (canonical path)")
 else:
-    fail("switch_on_device may still use api_key only")
+    fail("switch_on may not use property_mapping.control_property")
 
-src2 = inspect.getsource(RelayTuyaController.switch_off_device)
-if "control_key" in src2:
-    ok("switch_off_device references control_key (not just api_key)")
+src2 = inspect.getsource(RelayTuyaController.switch_off)
+if "property_mapping.control_property" in src2 or "mapping.control_property" in src2:
+    ok("switch_off uses property_mapping.control_property (canonical path)")
 else:
-    fail("switch_off_device may still use api_key only")
+    fail("switch_off may not use property_mapping.control_property")
 
 # ================================================================
 # FRESHNESS CONSTANTS (1 test)

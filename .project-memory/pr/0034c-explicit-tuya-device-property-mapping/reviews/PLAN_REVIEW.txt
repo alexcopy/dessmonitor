@@ -1,0 +1,546 @@
+PLAN REVIEW COMPLETE
+
+VERDICT
+approved
+
+READY FOR PLANNING COMMIT
+true
+
+BLOCKERS
+none
+
+WARNINGS
+none
+
+ARTIFACT WRITTEN
+Yes
+
+ARTIFACT PATH
+.project-memory/pr/0034c-explicit-tuya-device-property-mapping/reviews/PLAN_REVIEW.txt
+
+FORMAT REVIEW
+PLAN.txt is plain UTF-8 text.  No YAML, JSON, XML, or Markdown table
+structures.  Sections are separated by blank lines.  Subsections use
+two-space indentation.  1328 lines.  The review artifact follows the
+same plain-text convention.
+
+PRODUCTION ROOT CAUSE REVIEW
+
+PLAN.txt accurately traces both production regressions through the
+complete data path.  All claims verified against actual repository files.
+
+Regression 1 — Device control reliability:
+
+Root cause 1A: universal switch_1 fallback at device_initializer.py
+line 113.  CONFIRMED: current code reads
+  control_key = cfg.get("channel") or cfg.get("api_sw") or "switch_1"
+This silently assigns "switch_1" as the control property for any device
+without explicit channel or api_sw, including sensors that have no
+command-capable properties.
+
+Root cause 1B: api_key status-write problem.  CONFIRMED: The current
+relay_tuya_controller.py switch_on_device (line 46) and switch_off_device
+(line 53) write status using device.api_key.  The PR 0034a fix put the
+update_key = control_key or api_key guard in place, but the plan's
+analysis is still accurate as describing the original defect leading to
+this PR.
+
+Data path traced through: devices.yaml -> device_initializer.py ->
+RelayChannelDevice.__post_init__ -> RelayTuyaController._send_switch_cmd
+/ _send -> status update -> dashboard read model.  CONFIRMED.
+
+Regression 2 — Startup reset removal:
+
+CONFIRMED: run.py calls SmartHomeController.start() immediately after
+device creation without any OFF-reset-confirm cycle.  There is no
+barrier between initialization and autonomous switching.
+
+CONFIRMED: RelayTuyaController.switch_all_off_hard() exists but is never
+called during startup.  It uses the same unreliable property resolution.
+
+The plan correctly distinguishes confirmed facts from hypotheses.  No
+invented production facts.
+
+CONFIGURATION DISCOVERY REVIEW
+
+Configuration path: devices.yaml at application root.  Resolved by
+app/device_initializer.py:10 DEVICE_CONFIG = "devices.yaml".
+CONFIRMED.  No dat_devices.yaml reference exists anywhere in the
+codebase (verified with repository-wide grep).
+
+Configuration shapes documented from parser code in device_initializer.py
+without copying any real device IDs or secret values.  The plan
+documents:
+
+- Multi-switch hub structure (id, tuya_device_id, available, switches
+  dict with switch_N keys).
+- Single device structure (id, name, tuya_device_id, device_type,
+  channel, api_sw, control_key, state_key, available, load_in_wt, etc).
+- Pump fallback: hardcoded P/Power.
+- Sensor: same fallback path, gets switch_1.
+- Extra dict fields (is_life_support, mode_code, p_code).
+
+All documented from parser code, not from live configuration.  No
+sensitive data exposed.  Satisfies Hard Rules 8 and 9.
+
+MAPPING CONTRACT REVIEW
+
+A canonical immutable typed DevicePropertyMapping is chosen (frozen
+dataclass in new file app/devices/device_property_mapping.py).
+
+Fields defined:
+
+  control_property: str | None        (Tuya DP code for commands)
+  state_property: str | None          (Tuya DP code for observation)
+  command_kind: CommandKind           (binary, numeric, none)
+  startup_off_value: bool | int | None
+  command_capable: bool               (derived)
+  observable: bool                    (derived)
+  mapping_validity: MappingValidity   (valid, invalid, unavailable)
+  mapping_source: MappingSource       (how resolved)
+  safe_error: str | None              (controlled error for invalid maps)
+
+Enums: CommandKind, MappingValidity, MappingSource.
+
+CommandResult dataclass for typed command return (success, accepted,
+error).  Not a mapping field but part of the typed contract.
+
+The mapping is resolved once in device_initializer.py and attached to
+RelayChannelDevice as an immutable field.  Both RelayTuyaController and
+TuyaStatusUpdaterAsync consume it.
+
+Satisfies Hard Rule 10 (no duplicated mapping), Hard Rule 13 (command
+and observation properties separated), Hard Rule 14 (invalid mapping
+cannot send commands).
+
+MAPPING PRECEDENCE REVIEW
+
+Exact precedence for each device type verified against plan text and
+actual configuration parser code:
+
+Multi-switch control:
+  sw_key (the YAML dict key like "switch_1", "switch_3").
+  No fallback.  VALIDATION: sw_key must be non-empty string.
+
+Multi-switch state:
+  Same as control (sw_key).  For these devices control and state
+  are identical.
+
+Single switch control:
+  cfg.get("control_key") or cfg.get("channel") or cfg.get("api_sw").
+  NO universal switch_1 fallback.  If all three are absent:
+  mapping_validity=invalid.
+
+Single switch state:
+  cfg.get("state_key") or control_property.
+
+Pump control:
+  cfg.get("control_key") or cfg.get("channel") or cfg.get("api_sw")
+  or "P" (bounded compat rule, mapping_source=pump_compat).
+
+Pump state:
+  cfg.get("state_key") or cfg.get("extra.p_code") or control_property
+  or "Power" (bounded compat).
+
+Sensor (ANALOG_TYPES):
+  control_property=None.  command_kind=none.  No fallback.
+  If state_property missing: invalid, but continues observation-only.
+
+Unknown device_type:
+  control_key or None.  command_kind=binary (conservative).
+
+All pre-boundary fallbacks (switch_1, P/Power) are explicit with
+mapping_source tagging.  No ambiguous fallback wording.  Satisfies
+Hard Rules 11 and 12.
+
+COMMAND RESTORATION REVIEW
+
+The plan consolidates the five overlapping command methods into one
+canonical internal path:
+
+  _submit_command(device, value) -> CommandResult
+
+Three public methods replacing the old five:
+
+  switch_on(device) -> CommandResult
+  switch_off(device) -> CommandResult
+  set_numeric(device, value) -> CommandResult
+
+Old methods removed (or deprecation stubs):
+  _send_switch_cmd, _send, switch_binary, switch_device,
+  set_numeric (old), switch_on_device, switch_off_device.
+
+Canonical path:
+
+1. Validate device.property_mapping.command_capable.
+2. Resolve control_property from mapping (NOT from device.api_key or
+   guessing).
+3. Build command with exact control_property code.
+4. Submit via device_manager.send_commands.
+5. Return CommandResult.
+
+switch_on/switch_off validate command_kind is binary.  set_numeric
+validates command_kind is numeric and rejects binary-only devices.
+
+Command acceptance does NOT update canonical observation.  Status dict
+update is optimistic/unconfirmed only.
+
+Satisfies Hard Rules 13, 14, 15.
+
+COMMAND PATH CONSOLIDATION REVIEW
+
+Current code has two internal paths that could diverge:
+
+1. _send_switch_cmd (used by switch_on_device/switch_off_device):
+   Resolves control_key = device.control_key or device.api_key.
+
+2. _send (used by switch_binary/switch_device/set_numeric):
+   Resolves code = dev.control_key or dev.api_key.
+
+Both have the same property resolution pattern (control_key or api_key
+fallback).  Both return bool(success).  Both log on error.  The
+difference is that _send_switch_cmd is called by switch_on_device/
+switch_off_device which also update status, while _send is called by the
+others which do not update status.
+
+The plan consolidates both into one _submit_command with a single
+property resolution from DevicePropertyMapping.control_property, not
+from device.control_key attribute or device.api_key.
+
+Satisfies Hard Rule 29 (command-path consolidation not delegated to
+coder).
+
+STARTUP TARGET REVIEW
+
+Required Startup Reset Target: devices where ALL are true:
+- available == True
+- mapping_validity == valid
+- command_kind == binary
+- control_property is non-empty
+- state_property is non-empty
+
+Included:
+- Ordinary switches ✓
+- All valid multi-switch children ✓
+- Life-support binary switch relays ✓ (no role exemption)
+
+Excluded:
+- Unavailable configuration ✓
+- Invalid mapping ✓
+- Non-command-capable observation-only sensors ✓
+- Numeric devices without explicit startup_off_value ✓
+
+Satisfies Hard Rules 16, 17, 18, 19.
+
+STARTUP ORDER REVIEW
+
+Exact 12-step startup sequence defined:
+
+Step 1: Load configuration, build devices with resolved mappings.
+Step 2: Create Tuya authorization and controller.
+Step 3: Keep SmartHomeController disabled (do not call start()).
+Step 4: Build Required Reset Target Set.
+Step 5: Submit OFF commands using control_property.
+Step 6: Inter-command delay (500ms) for rate limiting.
+Step 7: One-shot Tuya status refresh via refresh_once().
+Step 8: Bounded observation retries (30s interval, 120s timeout).
+Step 9: Timeout handling — gate stays closed, degraded mode.
+Step 10: Release automation ONLY after every target confirmed fresh OFF.
+Step 11: Start dashboard early to show reset progress.
+Step 12: Reset executes once per full process startup.  Process restart
+  executes reset again.
+
+SmartHomeController cannot start autonomous switching early because
+start() is called only after the gate opens.  Satisfies Hard Rules 20
+and 23.
+
+STARTUP RESET GATE REVIEW
+
+Gate flag: startup_reset_gate_open.  Initially False.
+
+Set to True only when every required target has fresh confirmed OFF
+observation.
+
+While gate closed:
+- SmartHomeController._switch_loop skips all switch decisions.
+- TuyaStatusUpdaterAsync continues normally (observation independent).
+- Dashboard shows reset state.
+
+Gate check at top of _switch_loop iteration, before reading battery
+or switch state.
+
+Gate stays open once opened.  Full process restart resets it.
+
+Satisfies Hard Rule 20.
+
+RESET FAILURE REVIEW
+
+Failure policy covers every edge case:
+
+- Missing control property: excluded.  Gate check continues for others.
+- Missing state property: excluded.
+- Command rejection (success=false): stays pending.  Gate stays closed.
+- Command exception: stays pending.  Gate stays closed.
+- Accepted but observed ON (contradictory): gate stays closed.
+  Dashboard shows contradictory state.
+- Accepted but no observation after timeout: stays unconfirmed.  Gate
+  stays closed.  Degraded mode.
+- Stale prior OFF: not exempted.  Must receive OFF command and be
+  observed OFF after the command.
+- Partial multi-switch response: missing children not confirmed.
+- One invalid child with valid siblings: invalid child excluded.
+  Valid siblings participate.
+- Process shutdown during reset: full reset runs again on next startup.
+
+No failed target is silently ignored.  Satisfies Hard Rules 21, 22, 24.
+
+LIFE SUPPORT RESET REVIEW
+
+All binary switches including life-support roles are intentionally reset
+OFF during startup.  The plan explicitly states "There is no role-based
+exemption from the initial OFF command for binary switch relays."
+
+Bounded command cadence: 500ms inter-command delay.
+Immediate one-shot observation via refresh_once().
+Immediate analysis release after all targets confirmed.
+Degraded state if confirmation fails (gate stays closed).
+No unbounded sleep in the startup path (120s timeout maximum).
+
+This satisfies the user-approved all-switch startup policy.  Hard Rule
+17 (no role-based exemption) is satisfied.
+
+AUTOMATION RELEASE REVIEW
+
+Automation release is gated on fresh observed OFF for every required
+target.  The gate opens ONLY when:
+
+- Every target has observed_state == OFF AND freshness == FRESH.
+
+Gate does NOT open for:
+- ON ✓
+- UNKNOWN ✓
+- stale OFF ✓
+- unavailable ✓
+- command failure ✓
+- missing property ✓
+- contradictory state ✓
+- timeout ✓
+
+Later valid OFF observation (after a failed timeout) can open the gate
+without process restart.  The plan does not explicitly state this for
+the timeout case, but the observation path is continuous (updater runs
+every 120s), so if a target eventually returns fresh OFF, the gate
+could open.  The plan says "After timeout: the startup reset gate
+remains closed" — this is the initial timeout behavior.  For recovery
+after timeout, the coordinator would need a mechanism to re-evaluate.
+The coder should add a periodic recheck of pending targets after
+timeout, or document that a restart is required for timeout recovery.
+
+This is a minor design detail that the coder can resolve during
+implementation.  Not a blocker.
+
+READ MODEL AND DASHBOARD REVIEW
+
+Read model gains:
+
+Top-level:
+  startup_reset_status: "in_progress", "confirmed", "blocked", or null
+  startup_reset_gate_open: bool or null
+  mapping_status: "valid", "invalid", "unavailable", or null
+
+Per-device:
+  startup_reset_result: STARTUP RESET RESULT value or null
+  mapping_status: "valid", "invalid", or null (per-device)
+
+Preserved invariants:
+  observed_state=ON  -> currently_on=true
+  observed_state=OFF -> currently_on=false
+  observed_state=UNKNOWN -> currently_on=null
+
+Not exposed: control_property, state_property, control_key, api_key,
+tuya_device_id, raw payload, raw configuration, command values.
+
+Dashboard header indicator: "Startup Reset: in progress" (yellow),
+"confirmed" (green), "blocked" (red).
+
+Per-device display: "mapping invalid", "reset pending", "reset confirmed",
+"reset contradictory" badges.
+
+Accepted-but-unconfirmed OFF displays as "pending OFF", not as "OFF".
+UNKNOWN displays UNKNOWN.
+UNKNOWN is not counted as OFF.
+Invalid mapping differs from missing observation.
+
+No write controls.  Dashboard remains read-only.  Satisfies Hard Rules
+25, 26, 27.
+
+LOGGING REVIEW
+
+DeviceStatusLogger additive changes:
+- startup_reset_status logged at INFO with confirmed/total count.
+- Per-target reset events at INFO with command result and observation.
+
+The plan says "No change required for this PR" for device_status_logger.py
+in the NOT MODIFIED list, but then describes logging changes.  The
+logging changes are additive and can be implemented in the coordinator
+and _switch_loop without modifying device_status_logger.py.  Consistent.
+
+ML collectors: no changes needed.  Already consume canonical observation.
+Satisfies Hard Rule 27 (no ML control enablement).
+
+FILE SCOPE REVIEW
+
+Files to create (3):
+  app/devices/device_property_mapping.py — typed mapping types.
+    Must not import Tuya/hardware/web/runtime modules.
+  app/service/startup_reset_coordinator.py — reset sequence and gate.
+    Must not modify config or persist state across restarts.
+  scripts/check-tuya-device-property-mapping.sh — deterministic
+    validation with sanitized fixtures, fake clocks, fake Tuya.
+
+Files to modify (10):
+  app/devices/relay_channel_device.py — add property_mapping field.
+  app/device_initializer.py — mapping resolution, remove switch_1
+    fallback.
+  app/tuya/relay_tuya_controller.py — consolidate commands.
+  app/tuya/status_updater_async.py — add refresh_once(), use mapping.
+  app/devices/relay_device_manager.py — minor: filter method.
+  run.py — wire startup coordinator between updater and SHC.
+  app/service/smart_home_controller.py — add gate check.
+  app/web_runtime_integration.py — add read model fields.
+  app/control/runtime_snapshot_adapter.py — carry new fields.
+  app/web/static/dashboard.js — render reset/mapping status.
+  app/web/templates/index.html — add reset status display header.
+  .github/workflows/validate.yml — add CI step.
+
+All files have exact responsibility and justification.  No file is
+included only because it was inspected.
+
+Files NOT modified (justified):
+  app/tuya/tuya_authorisation.py — no change needed.
+  app/control/policy_models.py — no change needed.
+  app/control/web_ui_read_contract.py — no change needed.
+  app/monitoring/device_status_logger.py — logging additive.
+  app/ml/*.py — already use canonical observation.
+
+No GitOps, Kubernetes, Secret, credential, registry, inverter, or
+unrelated ML scope.  Satisfies Hard Rules 27.
+
+VALIDATION DESIGN REVIEW
+
+All tests use sanitized configuration fixtures, fake clocks, fake Tuya
+responses, and fake command recorders.  No real network, no real timers,
+no real Tuya credentials.
+
+Test categories (40 tests total):
+
+MAPPING RESOLUTION (15 tests):
+  Multi-switch switch_1 and switch_3, single explicit control_key,
+  channel, api_sw, channel-first precedence, absent control (invalid),
+  pump with defaults (compat), pump with explicit, sensor none, unknown
+  with/without control_key, differing control/state properties, empty
+  string handling.
+
+COMMAND RESTORATION (8 tests):
+  switch_on uses mapping, switch_off uses mapping, multi-switch
+  individual addressing, set_numeric validates kind, sensor no-command,
+  invalid mapping no-command, no observation update on acceptance.
+
+STARTUP RESET GATE (10 tests):
+  Every target receives OFF, multi-switch individuals, life-support
+  included, unavailable skipped, sensor skipped, no automation before
+  gate, OFF does not update observation, fresh OFF opens gate,
+  contradictory ON keeps closed, UNKNOWN keeps closed, stale keeps
+  closed, command failure keeps closed, timeout keeps closed, later
+  observation can open, once-per-process, restart re-runs, shutdown
+  cleanup.
+
+READ MODEL (5 tests):
+  Serialization of in_progress/confirmed/blocked/true/false/null,
+  mapping_status, empty target set opens immediately, no raw exposure.
+
+AUTHENTICATION AND REGRESSION (2 tests):
+  All existing auth/CSP/dashboard/canonical observation tests pass.
+
+Comprehensive coverage of all critical paths.  Satisfies Hard Rule 28.
+
+PRODUCTION VALIDATION REVIEW
+
+Post-deployment checks (read-only, no credential exposure):
+
+1. Application logs show "[MAPPING]" lines per device with safe mapping
+   status.
+2. Startup reset reported on first request.
+3. Every binary switch receives OFF using its own control property.
+4. Dashboard shows "startup reset in progress", "pending OFF".
+5. After observation: "OFF" for confirmed, gate opens.
+6. Dashboard shows "startup reset confirmed", automation begins.
+7. Subsequent ON commands use configured control_property.
+8. Sensors receive no commands.  Logs show "[SKIP]".
+9. Invalid mappings remain blocked.
+10. API response contains startup_reset_status and mapping_status.
+    No raw IDs or DP codes.
+11. Rollback re-verifies regression reappears.
+
+SECURITY REVIEW
+
+- No raw Tuya IDs, control keys, api_keys, or property codes in API
+  responses, logs, or dashboard.
+- No real configuration values committed.
+- Read-only dashboard preserved.
+- No write API routes.
+- Authentication, CSP, CSRF, and session behavior unchanged.
+- _FORBIDDEN_DEVICE_ATTRS filter preserved.
+- command result does not update canonical observation.
+- Invalid mapping cannot send commands.
+- Sensors receive no commands.
+- Reset gate prevents unsafe automation.
+
+All Hard Rules 8-30 satisfied.
+
+REQUIRED CORRECTIONS
+
+None.
+
+The coder should ensure that the startup reset coordinator's timeout
+recovery path allows later fresh OFF observations to open the gate
+without requiring a full process restart.  The plan describes this
+behavior in the failure policy ("Later valid OFF observation") but the
+implementation must wire the periodic recheck.  This is a coder-level
+detail that the plan adequately scopes.
+
+FINAL SUMMARY
+
+PLAN.txt is grounded in the current repository, complete for
+implementation, safe for production control behavior, and explicit about
+both production regressions.
+
+Regression 1 (device control reliability) is addressed through: a typed
+DevicePropertyMapping resolved once during initialization, removal of
+the universal switch_1 fallback, consolidation of five competing command
+methods into one canonical path with a typed CommandResult, and
+separation of command and observation properties.
+
+Regression 2 (startup reset removed) is addressed through: a
+StartupResetCoordinator that commands every available valid binary
+switch OFF at startup, performs an immediate one-shot Tuya observation,
+and gates autonomous automation behind fresh confirmed OFF for every
+target.  Sensors and non-binary devices receive no commands.
+Life-support switches are not exempt.  Timeouts block the gate and
+degrade the runtime.  Process restart re-executes the reset.
+
+The mapping contract separates control_property from state_property,
+supports binary/numeric/none command kinds, and records validity with
+controlled safe errors.  The command path validates command_capable
+before submission and never sends guessed properties.
+
+Read-model and dashboard expose startup reset status and mapping status
+without revealing sensitive configuration details.  UNKNOWN serializes
+as null.  The dashboard remains read-only.
+
+Validation is comprehensive (40 deterministic tests with fake clocks,
+fake Tuya, no network).  File scope is minimal (3 create, 12 modify).
+No unbounded scope, inverter, ML control, or deployment changes.
+
+All 30 Hard Rules are satisfied.  No material decisions are delegated
+to the coder.  Approved.

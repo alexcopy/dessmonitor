@@ -1,0 +1,1328 @@
+TITLE: PR 0034c — Explicit Tuya Device Property Mapping and Startup Reset Gate
+
+STATUS: Planning — complete, locked after commit.
+
+OBJECTIVE
+
+Define an explicit typed DevicePropertyMapping for every logical device,
+resolved once during initialization, consumed consistently by the command
+and observation paths. Implement a deterministic startup reset gate that
+confirms every available binary switch is OFF before autonomous operation
+may begin. Consolidate the five competing command methods in
+RelayTuyaController into one canonical path. Remove the universal
+switch_1 fallback.
+
+PRODUCTION REGRESSION
+
+Two related regressions must be addressed.
+
+REGRESSION 1 — DEVICE CONTROL RELIABILITY
+
+The application no longer reliably controls physical devices. The root
+cause is that command and observation Tuya DP property codes are guessed
+or hardcoded rather than resolved from the actual operational
+configuration.
+
+Current behavior per device type:
+
+Multi-switch children: use the YAML switches dictionary key (e.g.,
+"switch_1", "switch_3") as both control_key and state_key. This is
+correct for the existing fleet but fragile — no validation confirms the
+dictionary key is actually a valid Tuya DP property code for that device.
+
+Single switches: resolve control_key from cfg.get("channel") or
+cfg.get("api_sw") or the universal fallback "switch_1". This silent
+switch_1 fallback is a guessing rule that can send commands to the wrong
+DP property or to a property that does not exist.
+
+Pump devices: hardcode control_key="P" and state_key="Power". While
+P/Power is correct for the current pump, it is a universal assumption
+that may not apply to all pump products.
+
+Sensors: receive a guessed control_key via the same fallback path but
+sensors have no command-capable properties.
+
+Command path duplication: RelayTuyaController has five overlapping
+methods for sending commands: _send_switch_cmd, _send, switch_binary,
+switch_device, and set_numeric. These methods duplicate property
+resolution logic (control_key vs api_key) and handle success/failure
+inconsistently.
+
+Status update after command: switch_on_device and switch_off_device
+write to device.status using device.api_key as the key — but
+multi-switch devices have api_key=None. The status update goes to
+status[None] while the observation code reads status[state_key]. The
+command was sent using control_key, the status was written using
+api_key, and the dashboard reads state_key — three different keys for
+one operation.
+
+REGRESSION 2 — STARTUP RESET REMOVED
+
+run.py creates devices, TuyaStatusUpdaterAsync, and
+SmartHomeController in sequence. SmartHomeController.start() begins
+autonomous switch analysis immediately. There is no startup barrier
+that:
+
+- commands all switches OFF;
+- waits for fresh OFF observations;
+- only then releases autonomous decisions.
+
+RelayTuyaController.switch_all_off_hard() exists but:
+- uses the same unreliable property resolution;
+- is never called during startup;
+- depends on is_device_on() which returns bool not UNKNOWN.
+
+The required operational behavior is: on every full process restart, all
+available binary switches must be commanded OFF and confirmed OFF through
+Tuya observation before autonomous analysis may begin.
+
+CURRENT STARTUP SEQUENCE
+
+run.py main():
+
+1. DeviceInitializer creates RelayDeviceManager, populates it with
+   RelayChannelDevice instances parsed from devices.yaml.
+
+2. TuyaAuthorisation creates TuyaOpenAPI connection and
+   TuyaDeviceManager.
+
+3. RelayTuyaController wraps the authorisation object.
+
+4. TuyaStatusUpdaterAsync starts background observation polling.
+
+5. SmartHomeController(start) begins _switch_loop immediately.
+
+6. Web host starts (if enabled).
+
+7. Main loop: log snapshot, log details, wait 60s.
+
+There is no startup reset step between steps 4 and 5.
+
+CURRENT COMMAND PATH
+
+RelayTuyaController has these command methods:
+
+_send_switch_cmd(device, value)
+  Resolves control_key = device.control_key or device.api_key.
+  Sends {"devId": device.tuya_device_id, "commands": [{"code":
+  control_key, "value": value}]}.
+  Returns bool(resp.get("success")).
+  Called by switch_on_device and switch_off_device.
+
+switch_on_device(device)
+  Calls _send_switch_cmd(device, True).
+  On success: update_status({device.api_key: True}), mark_switched().
+  Problem: uses api_key (often None) instead of control_key.
+
+switch_off_device(device)
+  Same pattern with False.
+
+switch_all_off_hard(devices)
+  Iterates all devices, calls switch_off_device unconditionally.
+  Never called from run.py.
+
+switch_all_on_hard(devices)
+  Same pattern with ON.
+
+switch_all_on_soft / switch_all_off_soft
+  Condition-based wrappers around switch_on_device/switch_off_device.
+
+switch_binary(dev, on)
+  Calls _send(dev, value=on).
+
+set_numeric(dev, value)
+  Calls _send(dev, value=value).
+
+switch_device(dev, value)
+  Calls _send(dev, value).
+
+_send(dev, value)
+  Resolves code = dev.control_key or dev.api_key.
+  Sends command via send_commands.
+  Returns success bool.
+
+This is five overlapping methods all doing essentially the same thing
+with slightly different property resolution and error handling.
+
+CURRENT CONFIGURATION PATH
+
+Configuration file: devices.yaml at the application root.
+
+Resolved at: app/device_initializer.py:10 DEVICE_CONFIG = "devices.yaml".
+
+Mounted in production at: /app/devices.yaml (Kubernetes ConfigMap/Secret).
+
+The file is gitignored and not in the repository. No dat_devices.yaml
+reference exists in code or deployment manifests.
+
+Backup legacy initializer: app/devices/initiate_devices.py also uses
+devices.yaml.
+
+Examples directory: examples/energy_policy.example.yaml (unrelated).
+
+CURRENT CONFIGURATION SHAPES
+
+The devices.yaml structure was determined from the parser code in
+app/device_initializer.py. The structure contains:
+
+Top-level keys:
+  devices: list of device configuration dicts
+  tuya: dict with ACCESS_ID and ACCESS_KEY
+
+Each device in the devices list has one of two shapes:
+
+Multi-switch hub:
+  device_type: "multi_switch"
+  id: string
+  tuya_device_id: string
+  available: bool (default true for parent)
+  min_volt: number
+  max_volt: number
+  priority: number
+  switches: dict where each key is a switch_id (e.g., "switch_1",
+    "switch_3") and each value is:
+    id: string (optional, defaults to "{hub_id}_{switch_id}")
+    name: string
+    desc: string (optional)
+    available: bool (defaults to parent available)
+    control_key: not used (defaults to the switches dict key)
+    state_key: not used (defaults to the switches dict key)
+    load_in_wt: number
+    priority: number (optional)
+    time_delay: number (optional)
+
+Single device (switch / pump / thermometer / sensor):
+  device_type: string ("switch", "pump", "thermometer", etc.)
+  id: string
+  name: string
+  tuya_device_id: string
+  channel: string (optional — used as control_key)
+  api_sw: string (optional — fallback for control_key)
+  control_key: string (optional — explicit control DP property)
+  state_key: string (optional — explicit state DP property)
+  available: bool (default false for singles)
+  load_in_wt: number
+  min_volt: number
+  max_volt: number
+  priority: number
+  time_delay: number
+  extra: dict (optional, may contain is_life_support, mode_code, p_code)
+
+Fallback rules in current code:
+- For multi-switch: control_key=sw_key (the YAML dict key like
+  "switch_1"), state_key=control_key.
+- For pump: control_key="P", state_key="Power" (hardcoded).
+- For other: control_key=channel or api_sw or "switch_1".
+- state_key=control_key (copied from control).
+- __post_init__: if state_key is None, set to control_key.
+- __post_init__: if not control_key and api_key, control_key=api_key.
+- Sensors go through the same non-pump path and get the switch_1
+  fallback.
+
+ROOT CAUSE
+
+Regression 1 (control reliability) has two root causes:
+
+1. The universal switch_1 fallback in app/device_initializer.py line 113:
+     control_key = cfg.get("channel") or cfg.get("api_sw") or "switch_1"
+   This silently assigns "switch_1" as the control property for any
+   device without explicit channel or api_sw configuration. Sensors,
+   pumps with missing config, and any device that does not use switch_1
+   as its DP property receive an incorrect command code.
+
+2. The api_key status-write problem in relay_tuya_controller.py:
+     switch_on_device and switch_off_device write to
+     device.status[device.api_key] but device.api_key is None for
+     multi-switch devices. The command was sent using control_key, but
+     the status update goes to status[None] instead of
+     status[state_key].
+
+Regression 2 (startup reset) has one root cause:
+  run.py starts SmartHomeController autonomously immediately after
+  creating devices. There is no required startup OFF-reset-confirm
+  cycle, no gate, no barrier between device initialization and
+  autonomous switching.
+
+ARCHITECTURAL BOUNDARIES
+
+This PR operates within these constraints:
+
+- No new Python dependencies.
+- No changes to web authentication, CSP, CSRF, sessions, or read-only
+  web behavior.
+- No manual dashboard controls.
+- No public write API.
+- No inverter observability (PR 0035).
+- No persistent device registry.
+- No ML control enablement.
+- No TimescaleDB production enablement.
+- No GitOps or deployment manifest changes.
+- devices.yaml remains the device configuration source. No migration to
+  dat_devices.yaml.
+- Configuration is authoritative for addressing and command semantics.
+- Tuya observations are authoritative for physical state.
+- A command-accepted response is not physical-state confirmation.
+- Canonical UNKNOWN and freshness semantics from PR 0034a are preserved.
+
+CANONICAL TERMINOLOGY
+
+PARENT DEVICE: The Tuya physical device containing one or more DP
+  properties. Identified by tuya_device_id.
+
+CONTROL PROPERTY: The exact configured Tuya DP property code used for
+  command submission (e.g., "switch_1", "switch_3", "P").
+
+STATE PROPERTY: The exact configured Tuya DP property code used to
+  observe physical state through get_device_list_status. May be the
+  same as control_property or different.
+
+COMMAND KIND: The type of command a device accepts.
+  binary: boolean true/false (switches, relays).
+  numeric: integer value (pump speed).
+  none: device receives no commands (sensors, thermometers).
+
+STARTUP OFF VALUE: The command value used during startup reset.
+  For binary switches: false.
+  For numeric devices: the explicitly configured startup_off_value
+  (must be validated; boolean false is never sent blindly).
+
+REQUIRED STARTUP RESET TARGET: An available device with a valid binary
+  command mapping that the startup policy requires to be turned OFF
+  before autonomous operation begins.
+
+STARTUP RESET GATE: The runtime barrier that prevents autonomous
+  SmartHomeController switching decisions until all required targets
+  have fresh confirmed OFF observations.
+
+STARTUP RESET RESULT:
+  pending — command not yet submitted.
+  command_accepted — Tuya accepted the OFF command.
+  command_failed — Tuya rejected or the submission raised an exception.
+  confirmed_off — observation cycle confirmed OFF since reset command.
+  contradictory — observation shows ON after OFF command.
+  timed_out — reset cycle exceeded the configured timeout.
+  skipped_not_command_capable — device has command_kind=none.
+  invalid_mapping — device has no valid control_property.
+
+MAPPING VALIDITY:
+  valid — both control_property and state_property are configured and
+    non-empty.
+  invalid — one or both properties are missing, empty, or unrecognized.
+  unavailable — device is not available (available=false).
+
+DEVICE PROPERTY MAPPING CONTRACT
+
+A frozen typed dataclass resolved once per device during initialization,
+consumed by both RelayTuyaController and TuyaStatusUpdaterAsync.
+
+File: app/devices/device_property_mapping.py (new)
+
+Fields:
+
+  control_property: str | None
+    The Tuya DP property code for command submission.
+
+  state_property: str | None
+    The Tuya DP property code for status observation.
+
+  command_kind: CommandKind
+    binary — boolean commands (switches, relays).
+    numeric — integer commands (pump speed).
+    none — no commands (sensors, thermometers).
+
+  startup_off_value: bool | int | None
+    false for binary.
+    An explicit configured value for numeric.
+    None for command_kind=none.
+
+  command_capable: bool (derived)
+    True when command_kind is binary or numeric and control_property
+    is not None and mapping_validity is valid.
+
+  observable: bool (derived)
+    True when state_property is not None and mapping_validity is valid.
+
+  mapping_validity: MappingValidity
+    valid, invalid, unavailable.
+
+  mapping_source: MappingSource
+    Describes how the mapping was resolved: explicit_config, legacy_key,
+    multi_switch_key, pump_compat, inferred.
+
+  safe_error: str | None
+    A safe, controlled error string for invalid mappings.
+    Contains no IDs, keys, or secrets.
+
+Enums:
+
+  CommandKind: binary, numeric, none.
+  MappingValidity: valid, invalid, unavailable.
+  MappingSource: explicit_config, explicit_control_key,
+    explicit_state_key, multi_switch_key, legacy_channel,
+    legacy_api_sw, pump_compat, inferred, fallback_rejected.
+
+RelayChannelDevice gains a new field:
+
+  property_mapping: DevicePropertyMapping = field(
+      default_factory=DevicePropertyMapping.invalid_default)
+
+MAPPING RESOLUTION POLICY
+
+Resolved exactly once in app/device_initializer.py when constructing
+each RelayChannelDevice. No later reinterpretation by command or
+observation consumers.
+
+Multi-switch child:
+
+  control_property = explicit sw_key (the YAML dict key).
+  state_property = explicit sw_key (same as control for these devices).
+  command_kind = binary.
+  startup_off_value = false.
+  mapping_source = multi_switch_key.
+
+  Validation: sw_key must be a non-empty string. No check against
+  real Tuya property catalog — that requires a live API call which
+  is not available during initialization. The validation is
+  syntactic: must not be empty, must not contain spaces or special
+  characters that Tuya rejects.
+
+Single switch device:
+
+  control_property = cfg.get("control_key") or cfg.get("channel") or
+    cfg.get("api_sw").
+  If none of these are present: mapping_validity=invalid,
+    safe_error="no-control-property".
+  NO universal "switch_1" fallback.
+
+  state_property = cfg.get("state_key") or control_property.
+  If state_property is empty: mapping_validity=invalid,
+    safe_error="no-state-property".
+
+Pump device:
+
+  control_property = cfg.get("control_key") or cfg.get("channel") or
+    cfg.get("api_sw") or "P".
+  state_property = cfg.get("state_key") or cfg.get("extra.p_code") or
+    control_property or "Power".
+  The P/Power defaults are preserved as a bounded compatibility rule,
+  NOT a universal pump assumption. If a future pump does not use
+  P/Power, explicit control_key and state_key must be configured.
+  mapping_source = pump_compat when defaults are used.
+
+Sensor device (device_type in ANALOG_TYPES):
+
+  control_property = None (explicitly — no fallback).
+  state_property = cfg.get("state_key") or cfg.get("channel") or
+    cfg.get("api_sw") or None.
+  command_kind = none.
+  command_capable = false.
+  If state_property is missing: mapping_validity=invalid,
+    safe_error="no-state-property", but device continues to operate
+    as observation-only (the updater skips it).
+  startup_off_value = None.
+
+Unknown device_type:
+
+  control_property = cfg.get("control_key") or None.
+  state_property = cfg.get("state_key") or control_property or None.
+  If both are None: mapping_validity=invalid,
+    safe_error="unknown-device-no-properties".
+  command_kind = binary (conservative — assume switch until proven
+    otherwise).
+  mapping_source = inferred.
+
+COMMAND KIND CONTRACT
+
+binary:
+  Command value: true (ON) or false (OFF).
+  Tuya command code: control_property.
+  Supported by: switches, relays.
+
+numeric:
+  Command value: integer.
+  Tuya command code: control_property.
+  Supported by: pump speed controls.
+
+none:
+  No command ever sent.
+  Supported by: sensors, thermometers, watertemp devices.
+
+Determination:
+  Based on device_type:
+    "switch", "relay" -> binary.
+    "pump" -> numeric.
+    ANALOG_TYPES -> none.
+    default -> binary (conservative).
+  Overridable by an explicit "command_kind" field in configuration
+  (not required now, but the mapping supports it).
+
+CONFIGURATION VALIDATION
+
+During initialization, for each device:
+
+1. Parse devices.yaml entry into DevicePropertyMapping using the
+   resolution policy above.
+
+2. If mapping_validity is invalid:
+   - Log a structured warning: "[CONFIG] Device {name}: {safe_error}".
+   - Do not create a RelayChannelDevice? No — the device is still
+     created, but it is marked as non-command-capable.
+   - The dashboard shows "invalid mapping" for this device.
+   - The device is excluded from the startup reset target set.
+
+3. If mapping_validity is valid and command_kind is binary but
+   control_property is empty: exclude from startup reset,
+   safe_error="binary-missing-control".
+
+4. If available=true but mapping is invalid: structured warning logged
+   once. Dashboard shows degraded state.
+
+No configuration file is modified by this validation. Validation is
+runtime-only, logged at startup.
+STARTUP RESET POLICY
+
+At every full application-process startup, all available valid binary
+switch devices (including multi-switch children and life-support roles)
+must be commanded OFF and confirmed OFF through independent Tuya
+observation before autonomous switch decisions may begin.
+
+Scope: every device where all of the following are true:
+- available == true.
+- mapping_validity == valid.
+- command_kind == binary.
+- control_property is non-empty.
+- state_property is non-empty.
+
+Life-support switches are included. There is no role-based exemption
+from the initial OFF command for binary switch relays.
+
+Excluded from startup reset:
+- Sensors (command_kind=none).
+- Numeric devices without an explicit startup_off_value.
+- Devices with mapping_validity=invalid.
+- Unavailable devices (available=false).
+- Devices already confirmed OFF with a fresh observation (observed
+  OFF within the last polling interval).
+
+Observation-only sensors receive no commands at any time.
+
+Non-binary numeric devices receive an initialization command only
+when the configuration explicitly defines a valid startup_off_value
+and command semantics. Boolean false must never be sent to a numeric
+property.
+
+STARTUP RESET TARGET SELECTION
+
+Algorithm:
+
+1. Collect all devices from RelayDeviceManager.get_devices().
+2. Filter to devices where:
+   - property_mapping.command_capable is True.
+   - property_mapping.command_kind is binary.
+   - property_mapping.startup_off_value is not None (must be
+     explicitly false for binary).
+   - available is True.
+   - property_mapping.mapping_validity is valid.
+3. The resulting set is the Required Reset Target Set.
+4. If the set is empty (no binary switches configured), the reset
+   gate opens immediately. Log info: no binary switches to reset.
+
+STARTUP RESET SEQUENCE
+
+Minimum required sequence:
+
+Step 1: Load and validate the runtime device configuration. Construct
+  logical devices with resolved immutable DevicePropertyMapping.
+
+Step 2: Create Tuya authorization and RelayTuyaController.
+
+Step 3: Keep SmartHomeController disabled. Do not call start().
+
+Step 4: Build the Required Reset Target Set.
+
+Step 5: For each target, submit OFF command:
+  - Use the canonical command path (see TUYA COMMAND RESTORATION).
+  - Use control_property as the Tuya DP property code.
+  - Submit boolean false.
+  - Record command result (command_accepted or command_failed).
+  - Do NOT update canonical observation. Command acceptance is not
+    observation.
+  - Do NOT set observed_state=off.
+  - The status dict may be updated for backward compat, but the
+    canonical DeviceObservationState remains unchanged.
+
+Step 6: Command cadence: submit commands with a small inter-command
+  delay (500ms) to avoid overwhelming the Tuya API rate limit.
+
+Step 7: Perform an immediate one-shot Tuya status refresh using the
+  resolved state_property for each target. This refresh is the
+  first status check, not part of the background polling loop.
+
+Step 8: Continue bounded observation retries:
+  - Retry interval: 30 seconds (aligned with the Tuya updater
+    interval).
+  - Maximum total reset duration: timeout of 120 seconds.
+  - After each retry, check every target:
+    - If observed_state == OFF and freshness == FRESH: confirmed.
+    - If observed_state == ON: contradictory — log warning, keep
+      gate closed.
+    - If observed_state is UNKNOWN: keep gate closed (no
+      observation yet).
+    - If observation is stale: keep gate closed.
+
+Step 9: After timeout:
+  - Log which targets failed: "[RESET] Startup reset timeout:
+    {n} target(s) not confirmed OFF".
+  - The startup reset gate remains closed. Autonomous switching
+    does NOT begin.
+  - The runtime enters a degraded state.
+  - Dashboard shows "startup reset blocked".
+
+Step 10: Start or release autonomous switch analysis ONLY after
+  every required target is fresh confirmed OFF.
+
+Step 11: Start the dashboard and diagnostics early enough to show
+  reset progress and failures, without allowing writes. The web host
+  starts before the reset completes so the operator can see
+  "startup reset in progress".
+
+Step 12: Execute this reset once per full application-process
+  startup. Do not repeat on every polling cycle or dashboard
+  refresh. A complete process restart (container restart) executes
+  the startup reset again.
+
+STARTUP RESET GATE
+
+The gate is a boolean flag: startup_reset_gate_open.
+
+Initially: False.
+
+Set to True only when every required target has been confirmed OFF
+with a fresh observation.
+
+While the gate is closed:
+
+- SmartHomeController._switch_loop() must not execute any switch ON
+  or OFF decisions. The loop may run but must skip all switch
+  decisions. The pump loop may run if pump automation is enabled
+  (pumps are not binary switches and are not reset targets unless
+  explicitly configured as binary).
+
+- TuyaStatusUpdaterAsync continues to run normally (observation is
+  independent of the automation gate).
+
+- The dashboard shows startup reset state (see DASHBOARD CONTRACT).
+
+The gate must be checked inside _switch_loop at the top of each
+iteration, before reading battery voltage or making any switch
+decision.
+
+If the gate never opens due to failures or timeout, the runtime
+operates in degraded mode: observations continue, dashboard shows
+device states, logging works, but autonomous switching is blocked.
+Manual operator commands (future PR) would still be evaluated through
+the command pipeline.
+
+Timeouts must never open the gate.
+
+STARTUP RESET FAILURE POLICY
+
+Missing control property: device excluded from reset target set.
+  safe_error recorded. Reset continues for other devices.
+
+Missing state property: device excluded. Reset continues.
+
+Command rejection (Tuya returns success=false): target remains
+  pending. Log: "[RESET] {name}: command rejected". Gate stays
+  closed. Retry on next observation cycle.
+
+Command exception (network error, SDK exception): target remains
+  pending. Log warning with safe error. Gate stays closed. Retry.
+
+Accepted command but observed ON: contradictory. Log warning.
+  "[RESET] {name}: accepted OFF but observed ON". Gate stays
+  closed. Dashboard shows contradictory state.
+
+Accepted command but no observation after timeout: target remains
+  unconfirmed. Gate stays closed. Degraded mode.
+
+Stale prior OFF: a device that was OFF before the process restarted
+  is not excluded from the reset. It receives an OFF command and
+  must be observed OFF after the command. Stale OFF does not confirm
+  current state.
+
+Partial multi-switch response: some children observed, others
+  missing. The missing children are not confirmed. Gate stays
+  closed. The observed children show as confirmed-off individually.
+
+One invalid child with valid siblings: the invalid child is excluded
+  from the target set (invalid mapping). The valid siblings still
+  participate in the reset. The invalid child is excluded from the
+  gate check.
+
+Process shutdown during reset: on next startup, the full reset runs
+  again. No state is persisted across restarts.
+
+TUYA COMMAND RESTORATION
+
+Consolidate all command submission into one canonical internal
+method on RelayTuyaController:
+
+  def _submit_command(self, device: RelayChannelDevice,
+                      value: Any) -> CommandResult
+
+Returns a typed result: CommandResult(success: bool, accepted: bool,
+  error: str | None). This replaces _send_switch_cmd, _send,
+  switch_binary, switch_device, and the low-level send_commands call.
+
+The public API becomes:
+
+  switch_on(device) -> CommandResult
+  switch_off(device) -> CommandResult
+  set_numeric(device, value) -> CommandResult
+
+These replace switch_on_device, switch_off_device, switch_binary,
+switch_device, and set_numeric. The old names are deprecated and
+removed or left as stubs logging deprecation warnings.
+
+Canonical command path:
+
+1. Validate device.property_mapping.command_capable.
+   If false: return CommandResult(success=False,
+   accepted=False, error="device-not-command-capable").
+
+2. Resolve control_property from device.property_mapping.
+   Must not fall back to device.api_key or guess.
+
+3. Build command:
+   {"devId": device.tuya_device_id,
+    "commands": [{"code": control_property, "value": value}]}
+
+4. Submit via device_manager.send_commands(devId, commands).
+   Catch exceptions. Do not log raw response bodies.
+
+5. Parse response: determine success and accepted.
+   Do not log the complete Tuya response.
+
+6. Return CommandResult.
+
+switch_on(device):
+  Validates command_kind is binary.
+  Calls _submit_command(device, True).
+  On acceptance: update status dict with control_property: True
+    (optimistic, unconfirmed — does not update canonical observation).
+
+switch_off(device):
+  Same pattern with False.
+
+set_numeric(device, value):
+  Validates command_kind is numeric.
+  Calls _submit_command(device, value).
+  On acceptance: update status dict with control_property: value.
+  Does not update canonical observation.
+
+switch_all_off_hard(devices):
+  Reimplemented using switch_off with inter-device delay.
+  Used by the startup reset coordinator.
+
+The old methods are removed:
+- _send_switch_cmd
+- _send
+- switch_binary
+- switch_device
+- set_numeric (replaced by set_numeric on the canonical path)
+- switch_on_device, switch_off_device (replaced by switch_on, switch_off)
+
+Synchronous vs asynchronous: the current code mixes sync and async
+command methods. The canonical command path should remain synchronous
+(the underlying Tuya SDK call is synchronous, wrapped in
+asyncio.to_thread by the caller). switch_all_off_hard becomes async
+to support the inter-device delay.
+
+Distinct outcomes:
+
+  CommandResult.accepted == True
+    The Tuya SDK returned success=true. The command was accepted.
+    This does NOT confirm the physical device reached the requested
+    state.
+
+  CommandResult.accepted == False
+    The Tuya SDK returned success=false. The command was rejected.
+    Reason: unknown (Tuya does not always provide a reason).
+
+  _submit_command raised an exception
+    Network error, timeout, or SDK error. Command may or may not
+    have been received by the device.
+
+No CommandResult outcome may update the canonical observation.
+
+TUYA OBSERVATION POLICY
+
+TuyaStatusUpdaterAsync._update_once():
+
+1. For each Tuya device response, parse the status list into
+   code->value mapping.
+
+2. For each logical channel on that Tuya device:
+   - Resolve state_property from device.property_mapping.
+   - If state_property is None: skip this device (nothing to
+     observe).
+   - Look up value by state_property key in the parsed status.
+   - If value exists: call
+     device.update_observation_from_tuya(value, now_utc).
+     This updates the canonical DeviceObservationState.
+   - If value does not exist: leave prior observation unchanged.
+     Do not set to UNKNOWN. Do not change observed_at.
+   - Call dev.tick(now_ts) as before.
+
+For the startup reset one-shot refresh:
+
+  A new method refresh_once() performs exactly one _update_once
+  cycle and returns. It is called by the startup reset coordinator
+  immediately after submitting OFF commands.
+
+  refresh_once() is also testable independently — it accepts an
+  optional list of Tuya device IDs and returns a dict of
+  device_id -> (observed_state, observed_at).
+
+The existing background run() loop continues unchanged. The startup
+reset coordinator calls refresh_once() additionally during the
+reset window.
+
+AUTOMATION RELEASE POLICY
+
+SmartHomeController._switch_loop() checks the startup_reset_gate_open
+flag at the top of each iteration:
+
+  if not self.startup_reset_coordinator.is_gate_open():
+      self.log_business.info("[SWITCH] Startup reset gate closed — skipping switch decisions")
+      await self._sleep(self.switch_int)
+      continue
+
+Pump loop is NOT blocked by the gate (pumps are not binary reset
+targets unless explicitly configured as binary).
+
+The gate check is the ONLY condition that prevents switch decisions.
+Existing logic (preset check, AC mode, battery voltage) remains
+evaluated after the gate opens.
+
+Once the gate opens, it stays open for the lifetime of the process.
+No subsequent event closes it. A full process restart is required to
+reset the gate.
+
+READ MODEL CONTRACT
+
+The read model (currently in app/web_runtime_integration.py
+_device_to_load_dict()) gains these controlled fields:
+
+  startup_reset_status: str or null
+    "in_progress", "confirmed", "blocked", or null (when reset
+    has not started or is not applicable).
+
+  startup_reset_gate_open: bool or null
+
+  mapping_status: str or null
+    "valid", "invalid", "unavailable", or null (for legacy devices
+    without property_mapping).
+
+Per device, add:
+
+  startup_reset_result: str or null
+    One of the STARTUP RESET RESULT values, or null.
+
+  mapping_status: str or null (per-device).
+    "valid", "invalid", or null.
+
+Preserved invariants:
+  observed_state=ON -> currently_on=true
+  observed_state=OFF -> currently_on=false
+  observed_state=UNKNOWN -> currently_on=null
+
+Not exposed:
+  control_property, state_property, control_key, api_key,
+  tuya_device_id, raw payload, raw configuration, command values.
+
+DASHBOARD CONTRACT
+
+Existing display remains for ON, OFF, UNKNOWN, stale.
+
+New display for startup reset:
+
+  Header indicator:
+    "Startup Reset: in progress" (yellow badge)
+    "Startup Reset: confirmed" (green badge, gate open)
+    "Startup Reset: blocked" (red badge, gate stayed closed)
+
+  Per device:
+    "mapping invalid" badge for devices with
+    mapping_status=invalid.
+    "reset pending" badge for devices awaiting confirmation.
+    "reset confirmed" badge for confirmed- OFF.
+    "reset contradictory" badge if ON observed after OFF command.
+
+  The dashboard remains read-only. No write controls.
+
+  UNKNOWN must never render as OFF.
+
+  A startup OFF command that was accepted but not yet observed must
+  display as "pending OFF", not as "OFF".
+
+  Dashboard.js immediately displays the startup_reset_status and
+  startup_reset_gate_open fields from the API. The existing polling
+  mechanism handles live updates during the reset window.
+
+LOGGING CONTRACT
+
+DeviceStatusLogger:
+
+- State column uses canonical observation (already implemented).
+- startup_reset_status is logged at INFO level:
+  "[RESET] Startup reset: {status} ({n_confirmed}/{n_total}
+   targets confirmed)"
+- Per-target reset events at INFO:
+  "[RESET] {name}: command {result}, observation {obs_state}"
+
+ML AND METRICS CONTRACT
+
+MLDataCollector.collect():
+- devices_on_count uses observation (already implemented).
+- total_load_watt uses observation (already implemented).
+- No change required for this PR.
+
+TimescaleDataCollector:
+- No change. The collector reads device.state_key or
+  device.is_device_on() depending on implementation; this PR's
+  changes flow through the canonical observation path.
+
+ML control is NOT enabled by this PR.
+CONFIGURATION MIGRATION POLICY
+
+This PR does NOT rename fields in devices.yaml.
+
+Existing fields (channel, api_sw, control_key, state_key) are consumed
+by the resolution policy. New explicit fields are not required.
+Backward compatibility for existing configurations is preserved.
+
+The deprecated universal switch_1 fallback is removed. Any device that
+previously relied on switch_1 and has no explicit channel, api_sw, or
+control_key will now have mapping_validity=invalid. This is intentional
+— it forces explicit configuration for those devices.
+
+A sanitized configuration example or template may be added for
+reference. No real device IDs or secrets are included.
+
+EXACT FILE PLAN
+
+Files to create:
+
+  app/devices/device_property_mapping.py (create)
+  Responsibility: DevicePropertyMapping dataclass, CommandKind,
+  MappingValidity, MappingSource enums, CommandResult dataclass.
+  Must not: import Tuya, hardware, web, or runtime modules. Must not
+  parse YAML or read configuration files. Pure type definitions.
+
+  app/service/startup_reset_coordinator.py (create)
+  Responsibility: StartupResetCoordinator class with reset sequence,
+  target selection, command submission, observation confirmation,
+  timeout handling, and gate management.
+  Must not: modify device configuration. Must not: persist state
+  across restarts. Must not: update canonical observation.
+
+  scripts/check-tuya-device-property-mapping.sh (create)
+  Responsibility: Deterministic validation of property mapping
+  resolution, command path, startup reset gate, and read model
+  fields. Uses sanitized configuration fixtures, fake clocks, fake
+  Tuya responses, and fake command recorders.
+  Must not: access network, use real Tuya, use real timers, use real
+  credentials.
+
+Files to modify:
+
+  app/devices/relay_channel_device.py (modify)
+  Add: property_mapping field (DevicePropertyMapping). Add:
+  is_command_capable property. Modify: __post_init__ to set
+  property_mapping default. Modify: set_on/set_off to use
+  property_mapping.control_property instead of control_key attribute.
+  Must not: remove existing status dict or observation. Must not:
+  change is_device_on or get_observation behavior.
+
+  app/device_initializer.py (modify)
+  Add: property mapping resolution for each device type. Remove:
+  universal switch_1 fallback. Modify: multi-switch and single device
+  creation to construct and attach DevicePropertyMapping. Modify:
+  pump construction to use explicit or compat mapping, not hardcoded
+  P/Power unconditionally. Must not: change devices.yaml reading
+  logic. Must not: rename configuration fields.
+
+  app/tuya/relay_tuya_controller.py (modify)
+  Consolidate: all command methods into switch_on, switch_off,
+  set_numeric, and one internal _submit_command. Remove:
+  _send_switch_cmd, _send, switch_binary, switch_device,
+  switch_on_device, switch_off_device. Modify: switch_all_off_hard
+  to use switch_off with delay. Must not: log raw Tuya responses.
+  Must not: access device.api_key as command property.
+
+  app/tuya/status_updater_async.py (modify)
+  Add: refresh_once() method for one-shot observation. Modify:
+  _update_once() to use property_mapping.state_property instead of
+  device.state_key attribute. Must not: change polling interval or
+  RPC timeout. Must not: log raw Tuya payloads.
+
+  app/devices/relay_device_manager.py (modify)
+  Minor: possibly add method to filter command-capable devices.
+  Must not: change device management logic.
+
+  run.py (modify)
+  Add: StartupResetCoordinator between TuyaStatusUpdaterAsync
+  creation and SmartHomeController.start(). Modify:
+  SmartHomeController receives gate reference or startup_reset
+  dependency. Must not: change logging, ML, weather, inverter, or
+  web host startup order. Must not: change signal handling or
+  shutdown sequence.
+
+  app/service/smart_home_controller.py (modify)
+  Add: startup_reset_gate check in _switch_loop. Must not: change
+  pump loop behavior. Must not: change automation interval or
+  safety rules. Must not: re-enable disabled pump automation.
+
+  app/web_runtime_integration.py (modify)
+  Modify: _device_to_load_dict() to include startup_reset_status,
+  startup_reset_gate_open, mapping_status (top-level and per-device).
+  Must not: expose control_property, state_property, or raw
+  configuration. Must not: change existing auth or security.
+
+  app/control/runtime_snapshot_adapter.py (modify)
+  Modify: RuntimeLoadState and adapter to carry startup_reset and
+  mapping fields through the pipeline. Must not: change control
+  logic.
+
+  app/web/static/dashboard.js (modify)
+  Add: startup_reset header indicator rendering. Add: per-device
+  mapping_status and startup_reset_result rendering. Must not:
+  change polling, auth, connection state machine, or existing
+  device rendering.
+
+  app/web/templates/index.html (modify)
+  Add: startup_reset_status display section in the dashboard header.
+  Must not: add write controls. Must not: remove existing fields.
+
+  .github/workflows/validate.yml (modify)
+  Add: canonical step after existing "Canonical device observation
+  check":
+    - name: Device property mapping check
+      run: bash scripts/check-tuya-device-property-mapping.sh
+
+Files NOT modified:
+
+  app/tuya/tuya_authorisation.py — no change needed.
+  app/control/policy_models.py — no change needed.
+  app/control/control_state_snapshot.py — no change needed.
+  app/control/web_ui_read_contract.py — no change needed.
+  app/monitoring/device_status_logger.py — no change needed for
+    this PR; logging changes are additive.
+  app/ml/ml_data_collector.py — no change needed; already uses
+    canonical observation.
+  app/ml/timescale_data_collector.py — no change needed.
+
+IMPLEMENTATION SEQUENCE
+
+Step 1: Create DevicePropertyMapping types (new file).
+Step 2: Add property_mapping field to RelayChannelDevice.
+Step 3: Implement mapping resolution in device_initializer.py.
+Step 4: Consolidate RelayTuyaController command methods.
+Step 5: Implement refresh_once() in status_updater_async.py.
+Step 6: Create StartupResetCoordinator.
+Step 7: Wire coordinator into run.py.
+Step 8: Add gate check to SmartHomeController.
+Step 9: Update read model (web_runtime_integration.py).
+Step 10: Update dashboard.js and index.html.
+Step 11: Create validation script.
+Step 12: Add CI step.
+Step 13: Run full regression suite.
+
+VALIDATION PLAN
+
+All tests use sanitized configuration fixtures, fake clocks, fake
+Tuya responses, and fake command recorders. No network. No real
+timers.
+
+MAPPING RESOLUTION (15 tests)
+
+- Multi-switch child "switch_1" gets control_property="switch_1",
+  state_property="switch_1", command_kind=binary.
+- Multi-switch child "switch_3" gets control_property="switch_3".
+- Single switch with explicit control_key="switch_2" gets that value.
+- Single switch with channel="switch_1" gets that value.
+- Single switch with api_sw="switch_1" gets that value.
+- Single switch with channel="something", api_sw="other": channel
+  wins (first in resolution chain).
+- Single switch with NO channel, NO api_sw, NO control_key:
+  mapping_validity=invalid, no switch_1 fallback.
+- Pump with no explicit properties gets control_property="P",
+  state_property="Power" (compat rule).
+- Pump with explicit control_key="my_ctrl",
+  state_key="my_state": uses explicit values.
+- Sensor gets control_property=None, command_kind=none.
+- Unknown device_type with control_key="sw" gets binary, valid.
+- Unknown device_type with no control_key: invalid mapping.
+- Mapping resolution does not read devices.yaml itself (called with
+  pre-parsed dict).
+- control_key and state_key may differ (one for command, one for
+  observation).
+- Empty property string treated as None (invalid).
+
+COMMAND RESTORATION (8 tests)
+
+- switch_on uses DevicePropertyMapping.control_property.
+- switch_off uses DevicePropertyMapping.control_property.
+- Multi-switch child uses its individual control_property, not a
+  shared value.
+- set_numeric validates command_kind is numeric before submitting.
+- set_numeric rejects binary-only device.
+- Sensor command returns not-command-capable, sends nothing.
+- Invalid mapping returns not-command-capable, sends nothing.
+- switch_on does not update canonical observation.
+
+STARTUP RESET GATE (10 tests)
+
+- Every available valid binary switch receives exactly one OFF
+  command during reset.
+- Multi-switch children each receive individual OFF.
+- Life-support switch receives OFF (no exemption).
+- Unavailable switch is skipped.
+- Sensor receives no OFF command.
+- SmartHomeController._switch_loop does not execute switch commands
+  before gate opens.
+- Accepted OFF does not update observed_state.
+- Fresh observed OFF after command opens the gate.
+- Observed ON after command keeps gate closed (contradictory).
+- UNKNOWN after command keeps gate closed.
+- Stale OFF after command keeps gate closed.
+- Command failure keeps gate closed.
+- Timeout keeps gate closed and marks degraded.
+- Later fresh observation opens the gate after it was blocked.
+- Reset runs once per process initialization; background poll does
+  not repeat.
+- Simulated process restart runs reset again.
+- Shutdown during reset cancels pending tasks cleanly.
+
+READ MODEL CONTRACT (5 tests)
+
+- startup_reset_status "in_progress", "confirmed", "blocked"
+  serialize correctly.
+- startup_reset_gate_open is boolean.
+- mapping_status "valid", "invalid", null serialize correctly.
+- Empty target set opens gate immediately.
+- No raw property codes, tuya IDs, or keys in API response.
+
+AUTHENTICATION AND REGRESSION (2 tests)
+
+- All existing auth, CSP, dashboard, and canonical observation
+  tests pass.
+- No write routes added.
+
+CI INTEGRATION
+
+New step in .github/workflows/validate.yml after the canonical
+device observation check:
+
+  - name: Device property mapping check
+    run: bash scripts/check-tuya-device-property-mapping.sh
+
+PRODUCTION VALIDATION
+
+Post-deployment checks (read-only, no credential exposure):
+
+1. Application logs show "[MAPPING]" lines for each device with
+   mapping_validity, control_property (safe), state_property (safe).
+
+2. Application reports startup reset in progress on first request.
+
+3. Every configured binary switch receives an OFF command using its
+   own configured control property. Physical relays turn OFF.
+
+4. Dashboard shows "startup reset in progress". Devices show
+   "pending OFF" after command acceptance.
+
+5. After observation cycle, dashboard shows "OFF" for confirmed
+   devices. Gate opens.
+
+6. Dashboard shows "startup reset confirmed" and automation begins.
+
+7. Subsequent ON commands use each device's configured control
+   property. Physical state and dashboard agree.
+
+8. Sensors receive no commands. Logs show "[SKIP] {name}: not
+   command capable".
+
+9. Invalid mappings remain blocked. Logs show safe error.
+
+10. API response at GET /control/state contains startup_reset_status
+    and mapping_status. No raw Tuya IDs or DP codes.
+
+11. Roll back to verify the regression re-appears (dashboard shows
+    false ON, commands fail, no reset gate).
+
+DEPLOYMENT BOUNDARY
+
+- No credential or Secret changes.
+- No GitOps changes (app/docker/ manifests unchanged).
+- Existing image publication flow (Docker Hub -> ArgoCD) unchanged.
+- Production already exposes the full host.
+- Rollback is application-image rollback only.
+- No database or persistent-state migration.
+
+RISKS AND MITIGATIONS
+
+Risk: Universal switch_1 fallback removal breaks devices with
+  implicit switch_1 configuration.
+  Mitigation: This is intentional. Missing explicit property mapping
+  is logged as a configuration error at startup. The dashboard shows
+  "invalid mapping" for affected devices. The operator must add the
+  correct control_key to devices.yaml.
+
+Risk: Startup reset sending OFF to a device that was intentionally
+  left ON during maintenance.
+  Mitigation: This is the specified operational requirement. Every
+  full process restart commands all switches OFF. The requirement is
+  user-approved. Maintenance activities should avoid restarting the
+  application container.
+
+Risk: Race between startup reset and TuyaStatusUpdaterAsync
+  background observation.
+  Mitigation: The startup coordinator calls refresh_once() after
+  OFF commands. The background updater also runs. Observation is
+  independent of command. The coordinator uses the same observation
+  data (canonical DeviceObservationState) and waits for fresh OFF
+  confirmations from any cycle.
+
+Risk: Command consolidation breaks existing callers of old method
+  names.
+  Mitigation: The old methods (switch_on_device, switch_off_device,
+  switch_binary, switch_device, set_numeric) are removed and all
+  callers updated in the same PR. SmartHomeController,
+  RelayDeviceManager, and the new coordinator use the new names.
+
+Risk: Existing configuration has a device where channel=null or
+  api_sw=null and the device relies on switch_1 fallback.
+  Mitigation: The device receives mapping_validity=invalid and is
+  excluded from commands. The operator must add the correct mapping.
+  This is a one-time configuration correction, not a runtime hazard.
+
+ROLLBACK
+
+Rollback is an application-image rollback only:
+
+1. Revert to the previous known-good Docker image tag or digest.
+2. GitOps (ArgoCD) points to the previous image.
+3. No database rollback, Secret change, or config change.
+
+Rollback restores:
+- Guessed or hardcoded command properties (switch_1 fallback,
+  P/Power universal assumption).
+- Loss of the startup reset barrier — autonomous switching begins
+  immediately.
+- The api_key status-write defect.
+- Unreliable physical control for devices without explicit
+  configuration.
+
+Operators deploying a rollback must be aware of these risks.
+The fix must be re-implemented in a subsequent deployment.
+
+ACCEPTANCE CRITERIA
+
+1. DevicePropertyMapping is resolved once per device during
+   initialization.
+2. No universal switch_1 fallback exists in the codebase.
+3. RelayTuyaController has exactly three public command methods:
+   switch_on, switch_off, set_numeric.
+4. All old command methods (_send_switch_cmd, _send, switch_binary,
+   switch_device, switch_on_device, switch_off_device) are removed
+   or reduced to deprecation stubs.
+5. Every available valid binary switch receives an OFF command
+   during startup reset.
+6. Command acceptance does not update canonical observation.
+7. Startup reset gate prevents SmartHomeController switch decisions
+   until all targets are fresh confirmed OFF.
+8. Timeout never opens the gate.
+9. Sensors receive no commands.
+10. Invalid mappings receive no commands, display safe error.
+11. Read model includes startup_reset_status, mapping_status.
+12. No raw Tuya IDs, control keys, or property codes in API
+    responses.
+13. All existing validation scripts exit 0.
+14. scripts/check-tuya-device-property-mapping.sh exits 0.
+15. Only files listed in EXACT FILE PLAN are modified.
+
+EXPLICIT NON-GOALS
+
+- No manual dashboard controls or write API.
+- No persistent device registry.
+- No devices.yaml format change or rename.
+- No inverter observability (PR 0035).
+- No ML control enablement.
+- No TimescaleDB production enablement.
+- No GitOps or Kubernetes changes.
+- No credential changes.
+- No authentication, CSP, CSRF, or session changes.
+- No web host route changes.
+- No changes to polling interval, stale thresholds, or dashboard
+  connection state machine.
+
+CODER CONSTRAINTS
+
+1. Do not modify run.py signal handling or shutdown sequence except
+   to add the startup reset coordinator.
+2. Do not modify app/tuya/tuya_authorisation.py.
+3. Do not modify app/control/policy_models.py or
+   app/control/web_ui_read_contract.py.
+4. Do not modify app/monitoring/device_status_logger.py unless
+   adding additive logging for reset events.
+5. Do not modify app/ml/*.py unless the canonical observation path
+   requires additive changes.
+6. Do not rename or remove existing fields in devices.yaml reading
+   logic. Only add resolution logic.
+7. Do not add new Python dependencies.
+8. Do not add write API routes or dashboard controls.
+9. Do not expose raw Tuya IDs, control keys, api_keys, or property
+   codes in API responses, logs, or dashboard.
+10. Do not commit credentials, secrets, tokens, or real
+    configuration values.
+11. Do not change the dashboard polling, auth, CSP, or connection
+    state machine.
+12. Do not enable ML control or TimescaleDB production.
+13. All startup reset tests must use injectable clocks and fake
+    command recorders. No real network, no real timers, no real
+    Tuya.
+
+REVIEWER CHECKLIST
+
+The plan-review agent must verify:
+
+- [ ] Branch is pr-0034c-explicit-tuya-device-property-mapping
+- [ ] Only PLAN.txt is changed
+- [ ] PLAN.txt is plain UTF-8 text
+- [ ] Configuration path resolution is documented (devices.yaml,
+  no dat_devices.yaml)
+- [ ] Configuration shape inventory is documented from parser code
+- [ ] Universal switch_1 fallback is removed
+- [ ] Explicit DevicePropertyMapping type is defined
+- [ ] Mapping resolution policy is specified for all device types
+- [ ] Control and state property may differ
+- [ ] Five competing command methods consolidated to one canonical
+  path
+- [ ] Command acceptance does not update canonical observation
+- [ ] Startup reset targets every available valid binary switch
+- [ ] Sensors and numeric devices without explicit startup value are
+  excluded from reset
+- [ ] Life-support switches are NOT exempt from initial OFF command
+- [ ] Gate prevents autonomous switching before all targets
+  confirmed OFF
+- [ ] Timeout does not open gate
+- [ ] Read model includes startup_reset and mapping_status fields
+- [ ] No raw Tuya IDs, keys, or property codes exposed
+- [ ] No dashboard write controls
+- [ ] Deterministic tests with fake clocks and fake Tuya responses
+- [ ] Implementation file scope is minimal
+- [ ] ROADMAP.md and all application files unspecified in exact
+  file plan are unchanged

@@ -90,6 +90,8 @@ class RuntimeLoadState:
     observed_at: str | None = None
     observation_source: str | None = None
     freshness: str | None = None
+    mapping_status: str | None = None
+    startup_reset_result: str | None = None
 
 
 # ===================================================================

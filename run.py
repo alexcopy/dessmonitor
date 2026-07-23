@@ -15,6 +15,7 @@ from app.ml.ml_data_collector import MLDataCollector, ml_collection_loop
 from app.ml.timescale_data_collector import TimescaleDataCollector, timescale_collection_loop
 from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
+from app.service.startup_reset_coordinator import StartupResetCoordinator
 from app.tuya.relay_tuya_controller import RelayTuyaController
 from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
 from app.tuya.tuya_authorisation import TuyaAuthorisation
@@ -63,7 +64,7 @@ async def main() -> None:
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Асинхронный апдейтер статусов ──────────────────────
-    updater = TuyaStatusUpdaterAsync(interval=120)
+    updater = TuyaStatusUpdaterAsync(interval=120, dev_mgr=dev_mgr)
     updater_task = asyncio.create_task(updater.run())
 
     # ─── 4. Монитор инвертора (Dess API) ──────────────────────
@@ -72,7 +73,39 @@ async def main() -> None:
     inverter_mon = InverterMonitor(dess_api, poll_sec=60)
     inverter_task = asyncio.create_task(inverter_mon.run())
 
-    # ─── 5. Бизнес-логика SmartHomeController ─────────────────
+    # ─── 4b. OPTIONAL WEB HOST (start early for reset visibility) ──
+    web_host_handle: RuntimeWebHostHandle | None = None
+
+    # ─── 5. STARTUP RESET — command all binary switches OFF ──
+    reset_coordinator = StartupResetCoordinator(
+        dev_mgr=dev_mgr,
+        tuya_ctrl=tuya_ctrl,
+        status_updater=updater,
+    )
+
+    # Start web host before reset so dashboard shows progress
+    try:
+        web_host_handle = await start_runtime_read_only_web_host(
+            devices_provider=dev_mgr.get_devices,
+            logger=important_log,
+            startup_reset_status_provider=lambda: reset_coordinator.reset_status,
+            startup_reset_gate_open_provider=lambda: reset_coordinator.is_gate_open,
+            per_device_results_provider=reset_coordinator.get_per_device_results,
+        )
+    except Exception as exc:
+        important_log.warning(f"[WEB] Read-only host not started: {exc}")
+
+    important_log.info(
+        "[RESET] Starting startup reset (max %.0fs) ...",
+        reset_coordinator._timeout,
+    )
+    await reset_coordinator.execute()
+    important_log.info(
+        "[RESET] Startup reset complete — status=%s gate_open=%s",
+        reset_coordinator.reset_status, reset_coordinator.is_gate_open,
+    )
+
+    # ─── 6. Бизнес-логика SmartHomeController ─────────────────
     pump_automation_enabled = os.getenv("PUMP_AUTOMATION_ENABLED", "").lower() in ("true", "1", "yes")
 
     smart_ctrl = SmartHomeController(
@@ -81,6 +114,7 @@ async def main() -> None:
         switch_int=180,  # сек между проверками свитчей
         pump_int=120,  # сек между коррекцией насоса
         pump_automation_enabled=pump_automation_enabled,
+        startup_reset_coordinator=reset_coordinator,
     )
 
     important_log.info(
@@ -97,7 +131,7 @@ async def main() -> None:
         loop.add_signal_handler(sig, stop_event.set)
 
     # ─── 6b. OPTIONAL WEB HOST ──────────────────────────────────
-    web_host_handle: RuntimeWebHostHandle | None = None
+    # (started earlier in step 4b for reset visibility)
 
     # ─── 7. DUAL ML DATA COLLECTORS (CSV + TimescaleDB) ────────
     # CSV/JSON коллектор (бэкап)
@@ -205,13 +239,7 @@ async def main() -> None:
         ml_db_task = None
 
     # ─── 7b. OPTIONAL EMBEDDED WEB HOST START ───────────────────
-    try:
-        web_host_handle = await start_runtime_read_only_web_host(
-            devices_provider=dev_mgr.get_devices,
-            logger=important_log,
-        )
-    except Exception as exc:
-        important_log.warning(f"[WEB] Read-only host not started: {exc}")
+    # (started earlier in step 4b)
 
     # ─── 8. ОСНОВНОЙ ЦИКЛ ──────────────────────────────────────
     try:

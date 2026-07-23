@@ -4,8 +4,12 @@ import yaml
 import os
 import logging
 
-from app.devices.relay_channel_device import RelayChannelDevice
+from app.devices.relay_channel_device import RelayChannelDevice, ANALOG_TYPES
 from app.devices.relay_device_manager import RelayDeviceManager
+from app.devices.device_property_mapping import (
+    DevicePropertyMapping,
+    MappingValidity,
+)
 
 DEVICE_CONFIG = "devices.yaml"
 
@@ -55,6 +59,7 @@ class DeviceInitializer:
 
         for sw_key, sw_cfg in hub_cfg.get("switches", {}).items():
             try:
+                mapping = DevicePropertyMapping.multi_switch_child(sw_key)
                 dev = RelayChannelDevice(
                     # --- обязательные поля ---
                     id=sw_cfg.get("id", f"{hub_id}_{sw_key}"),
@@ -80,8 +85,14 @@ class DeviceInitializer:
                     # --- стартовый статус / extra ---
                     # physical state begins UNKNOWN — available is NOT physical ON/OFF
                     status={},
+                    property_mapping=mapping,
                     extra={"switch_time": sw_cfg.get("time_delay", 10)},
                 )
+                if mapping.mapping_validity == MappingValidity.INVALID:
+                    logging.warning(
+                        "[CONFIG] Device %s (%s): %s",
+                        dev.name, dev.id, mapping.safe_error or "invalid-mapping",
+                    )
                 self.device_manager.add_device(dev)
 
             except Exception as exc:
@@ -91,19 +102,43 @@ class DeviceInitializer:
     def _process_single_device(self, cfg: dict) -> None:
         """
         pump / switch / thermometer …
-        • для насоса задаём control_key='P',  state_key='Power'
-        • для остальных  control_key=state_key=channel|api_sw
+        Uses explicit DevicePropertyMapping — no universal fallbacks.
         """
         try:
             dtype = cfg.get("device_type", "switch").lower()
 
-            # ---- ключи управления/статуса ---------------------------------
+            # ---- resolve DevicePropertyMapping ---------------------------
             if dtype == "pump":
-                control_key = "P"
-                state_key = "Power"
+                mapping = DevicePropertyMapping.pump_device(
+                    control_key=cfg.get("control_key"),
+                    channel=cfg.get("channel"),
+                    api_sw=cfg.get("api_sw"),
+                    state_key=cfg.get("state_key"),
+                    p_code=(cfg.get("extra") or {}).get("p_code"),
+                )
+            elif dtype in ANALOG_TYPES:
+                mapping = DevicePropertyMapping.sensor_device(
+                    state_key=cfg.get("state_key"),
+                    channel=cfg.get("channel"),
+                    api_sw=cfg.get("api_sw"),
+                )
+            elif dtype == "switch":
+                mapping = DevicePropertyMapping.single_switch(
+                    control_key=cfg.get("control_key"),
+                    channel=cfg.get("channel"),
+                    api_sw=cfg.get("api_sw"),
+                    state_key=cfg.get("state_key"),
+                )
             else:
-                control_key = cfg.get("channel") or cfg.get("api_sw") or "switch_1"
-                state_key = control_key
+                # Unknown device type — conservative binary mapping
+                mapping = DevicePropertyMapping.inferred_device(
+                    control_key=cfg.get("control_key"),
+                    state_key=cfg.get("state_key"),
+                )
+
+            # Legacy control_key/state_key for backward compat
+            control_key = mapping.control_property or ""
+            state_key = mapping.state_property or mapping.control_property or ""
 
             dev = RelayChannelDevice(
                 id=cfg["id"],
@@ -127,11 +162,15 @@ class DeviceInitializer:
                 time_delay=cfg.get("time_delay", 10),
 
                 # стартовый статус / extra
-                # Legacy YAML status dict is deprecated for physical observation.
-                # Physical state begins UNKNOWN regardless of YAML status values.
                 status={},
+                property_mapping=mapping,
                 extra=cfg.get("extra", {}),
             )
+            if mapping.mapping_validity == MappingValidity.INVALID:
+                logging.warning(
+                    "[CONFIG] Device %s (%s): %s",
+                    dev.name, dev.id, mapping.safe_error or "invalid-mapping",
+                )
             self.device_manager.add_device(dev)
 
         except Exception as exc:

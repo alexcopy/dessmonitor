@@ -70,6 +70,9 @@
         dom.warningsBody = document.getElementById("warnings-body");
         dom.snapshotTimestamp = document.getElementById("snapshot-timestamp");
         dom.loadsTableBody = document.getElementById("loads-table-body");
+    dom.startupResetBadge = document.getElementById("startup-reset-badge");
+    dom.startupResetInfo = document.getElementById("startup-reset-info");
+    dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
     }
 
     /* -----------------------------------------------------------------------
@@ -210,6 +213,48 @@
         }
     }
 
+    /* Startup reset badge rendering */
+    function renderStartupReset(snapshot) {
+        if (!snapshot) {
+            return;
+        }
+        var startupResetStatus = snapshot.startup_reset_status;
+        var gateOpen = snapshot.startup_reset_gate_open;
+
+        if (!startupResetStatus) {
+            dom.startupResetBadge.classList.add("is-hidden");
+            return;
+        }
+
+        dom.startupResetBadge.classList.remove("is-hidden");
+
+        var badgeClass = "tag is-info";
+        var label = "Startup Reset: " + startupResetStatus;
+
+        if (startupResetStatus === "in_progress") {
+            badgeClass = "tag is-warning";
+            dom.startupResetInfoText.textContent = "Resetting switches to OFF...";
+        } else if (startupResetStatus === "confirmed") {
+            badgeClass = "tag is-success";
+            dom.startupResetInfoText.textContent = "All switches confirmed OFF.";
+        } else if (startupResetStatus === "blocked") {
+            badgeClass = "tag is-danger";
+            dom.startupResetInfoText.textContent = "Startup reset blocked — some switches not confirmed OFF.";
+        } else if (startupResetStatus === "cancelled" || startupResetStatus === "not_started") {
+            badgeClass = "tag is-light";
+            dom.startupResetInfoText.textContent = "";
+        }
+
+        dom.startupResetBadge.className = badgeClass;
+        dom.startupResetBadge.textContent = label;
+
+        if (gateOpen === true) {
+            dom.startupResetInfoText.textContent = "Automation gate is open.";
+        } else if (gateOpen === false && startupResetStatus === "confirmed") {
+            dom.startupResetInfoText.textContent = "";
+        }
+    }
+
     /* -----------------------------------------------------------------------
      * Rendering
      * -----------------------------------------------------------------------
@@ -294,6 +339,8 @@
             var isLifeSupport = load.is_life_support === true;
             var freshness = load.freshness || "";
             var isStale = (freshness === "stale");
+            var mappingStatus = load.mapping_status || null;
+            var startupResetResult = load.startup_reset_result || null;
 
             if (currentlyOn === true) {
                 onCount++;
@@ -359,6 +406,42 @@
             var tdStatus = document.createElement("td");
             tdStatus.textContent = status;
             tr.appendChild(tdStatus);
+
+            /* Mapping status cell */
+            var tdMapping = document.createElement("td");
+            if (mappingStatus === "invalid") {
+                var invTag = document.createElement("span");
+                invTag.className = "tag is-danger is-light";
+                invTag.textContent = "mapping invalid";
+                tdMapping.appendChild(invTag);
+            } else if (mappingStatus && mappingStatus !== "valid") {
+                tdMapping.textContent = mappingStatus;
+            }
+            tr.appendChild(tdMapping);
+
+            /* Reset result cell */
+            var tdReset = document.createElement("td");
+            if (startupResetResult === "confirmed_off") {
+                var confTag = document.createElement("span");
+                confTag.className = "tag is-success is-light";
+                confTag.textContent = "reset confirmed";
+                tdReset.appendChild(confTag);
+            } else if (startupResetResult === "pending") {
+                var pendTag = document.createElement("span");
+                pendTag.className = "tag is-warning is-light";
+                pendTag.textContent = "pending OFF";
+                tdReset.appendChild(pendTag);
+            } else if (startupResetResult === "contradictory") {
+                var contTag = document.createElement("span");
+                contTag.className = "tag is-danger is-light";
+                contTag.textContent = "reset contradictory";
+                tdReset.appendChild(contTag);
+            } else if (startupResetResult && startupResetResult.indexOf("skipped") === 0) {
+                /* Skip rendering for skipped devices */
+            } else if (startupResetResult && startupResetResult !== "unknown") {
+                tdReset.textContent = startupResetResult;
+            }
+            tr.appendChild(tdReset);
 
             /* Roles cell */
             var tdRoles = document.createElement("td");
