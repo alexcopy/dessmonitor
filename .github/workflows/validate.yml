@@ -125,3 +125,6 @@ jobs:
 
       - name: 🔍 Web authentication check
         run: bash scripts/check-web-authentication.sh
+
+      - name: 🔍 Web dashboard check
+        run: bash scripts/check-web-dashboard.sh
