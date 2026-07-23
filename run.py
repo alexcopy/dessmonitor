@@ -72,8 +72,32 @@ async def main() -> None:
     auth = TuyaAuthorisation(access_id=access_id, access_key=access_key)
     tuya_ctrl = RelayTuyaController(auth)
 
-    # ─── 3. Асинхронный апдейтер статусов ──────────────────────
+    # ─── 3. Telemetry registry + sensor descriptor bootstrap ────
     telemetry_registry = TelemetryRegistry()
+
+    # Register configured sensor descriptors BEFORE any polling or reset
+    from app.devices.relay_channel_device import (
+        classify_projection_kind, DeviceProjectionKind,
+    )
+    for dev in dev_mgr.get_devices():
+        proj = classify_projection_kind(
+            dev.device_type, getattr(dev, "extra", None)
+        )
+        if proj == DeviceProjectionKind.SENSOR:
+            sensor_id = f"{dev.id}_water_temp"
+            display_name = getattr(dev, "name", "Sensor") or "Sensor"
+            description = getattr(dev, "desc", "") or ""
+            telemetry_registry.register_sensor_descriptor(
+                sensor_id=sensor_id,
+                display_name=display_name,
+                description=description,
+                communication_status="unknown",
+            )
+            important_log.info(
+                "[SENSOR] Registered configured sensor: %s (id=%s)",
+                display_name, sensor_id,
+            )
+
     updater = TuyaStatusUpdaterAsync(
         interval=120, dev_mgr=dev_mgr, authorisation=auth,
         telemetry_registry=telemetry_registry,

@@ -45,6 +45,7 @@ class SensorTelemetryReading:
     Attributes:
         sensor_id: Stable logical identifier.
         display_name: Safe operator-facing name.
+        description: Operator-configured safe description.
         metric: Controlled metric type.
         value: Normalized float value, or None when unavailable.
         unit: Controlled unit string (e.g., "celsius").
@@ -57,6 +58,7 @@ class SensorTelemetryReading:
     """
     sensor_id: str = ""
     display_name: str = ""
+    description: str = ""
     metric: SensorMetric = SensorMetric.WATER_TEMPERATURE
     value: float | None = None
     unit: str = "celsius"

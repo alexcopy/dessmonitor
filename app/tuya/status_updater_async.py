@@ -69,10 +69,17 @@ class TuyaStatusUpdaterAsync:
     def _build_poll_targets(self) -> tuple[list[str], dict[str, list[Any]]]:
         """Build ordered list of unique parent IDs and parent->devices index.
 
+        Includes both LOAD-classified and SENSOR-classified enabled devices.
+        Sensors do NOT require a binary observable property mapping — they
+        use the classifcation projection instead.
+
         Returns:
             (parent_ids, parent_to_devices) where parent_ids contains only
-            enabled, observable parents with non-empty tuya_device_id.
+            enabled parents with non-empty tuya_device_id.
         """
+        from app.devices.relay_channel_device import (
+            classify_projection_kind, DeviceProjectionKind,
+        )
         devices = self.dev_mgr.get_devices()
         parent_to_devices: dict[str, list[Any]] = {}
         seen_parents: dict[str, int] = {}
@@ -80,11 +87,22 @@ class TuyaStatusUpdaterAsync:
         for dev in devices:
             if not dev.enabled:
                 continue
-            if not dev.property_mapping.observable:
-                continue
+            proj = classify_projection_kind(
+                dev.device_type, getattr(dev, "extra", None)
+            )
             pid = dev.tuya_device_id
             if not pid:
                 continue
+
+            if proj == DeviceProjectionKind.LOAD:
+                if not dev.property_mapping.observable:
+                    continue
+            elif proj == DeviceProjectionKind.SENSOR:
+                # Sensors are pollable regardless of binary mapping state
+                pass
+            else:
+                continue
+
             if pid not in parent_to_devices:
                 parent_to_devices[pid] = []
                 seen_parents[pid] = len(seen_parents)
@@ -298,7 +316,22 @@ class TuyaStatusUpdaterAsync:
         now_utc: datetime,
         now_ts: int,
     ) -> None:
-        """Process a successful Tuya batch result."""
+        """Process a successful Tuya batch result.
+
+        For each parent response:
+        - LOAD devices: process binary/numeric observation via state_property.
+        - SENSOR devices: extract telemetry from the full status list.
+
+        After processing, if a SENSOR parent had empty or telemetry-missing
+        status, schedule one individual-status fallback for that parent.
+        """
+        from app.devices.relay_channel_device import (
+            classify_projection_kind, DeviceProjectionKind,
+        )
+
+        # Track which sensor parents need individual fallback
+        sensor_parents_needing_fallback: list[str] = []
+
         for dev_res in result.get("result", []):
             tuya_id = dev_res.get("id")
             if tuya_id not in parent_to_devices:
@@ -311,22 +344,40 @@ class TuyaStatusUpdaterAsync:
                 if code is not None:
                     status_by_code[str(code)] = item.get("value")
 
+            # Check if this parent has any sensor children whose telemetry
+            # property is missing from the batch response
+            has_sensor_no_telemetry = False
             for dev in parent_to_devices[tuya_id]:
                 if not dev.enabled:
                     continue
-
-                # Determine projection kind
-                from app.devices.relay_channel_device import (
-                    classify_projection_kind, DeviceProjectionKind,
-                )
                 proj = classify_projection_kind(
                     dev.device_type, getattr(dev, "extra", None)
                 )
-
                 if proj == DeviceProjectionKind.SENSOR:
-                    # Sensor-classified device: extract telemetry only
-                    self._extract_water_temperature(dev, status_by_code, now_utc)
+                    # Check for telemetry property presence
+                    has_temp = (
+                        "temp_current" in status_by_code or
+                        "temp" in status_by_code or
+                        "va_temperature" in status_by_code or
+                        "temperature" in status_by_code or
+                        "temp_value" in status_by_code
+                    )
+                    if not has_temp:
+                        has_sensor_no_telemetry = True
+                    # Process sensor even without telemetry (to update comm state)
+                    self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+
+            if has_sensor_no_telemetry:
+                sensor_parents_needing_fallback.append(tuya_id)
+
+            for dev in parent_to_devices[tuya_id]:
+                if not dev.enabled:
                     continue
+                proj = classify_projection_kind(
+                    dev.device_type, getattr(dev, "extra", None)
+                )
+                if proj == DeviceProjectionKind.SENSOR:
+                    continue  # already handled above
 
                 # Load-classified device: process binary/numeric observation
                 sp = dev.property_mapping.state_property
@@ -354,50 +405,67 @@ class TuyaStatusUpdaterAsync:
                     except (ValueError, TypeError):
                         logger.debug("[Updater] Problem with sync")
 
-    def _extract_water_temperature(
+        # Individual fallback for sensor parents whose batch status
+        # was empty or missing the telemetry property
+        if sensor_parents_needing_fallback:
+            self._schedule_sensor_individual_fallback(
+                sensor_parents_needing_fallback, parent_to_devices, now_utc, now_ts,
+            )
+
+    def _update_sensor_telemetry(
         self,
         dev: Any,
         status_by_code: dict[str, object],
         now_utc: datetime,
+        communication_status: str,
     ) -> None:
-        """Extract water temperature from a sensor device status response.
+        """Extract and update sensor telemetry from a status response.
 
-        Uses the configured temp_current property (bounded legacy recognition).
-        Updates the telemetry registry with normalized Celsius value.
-        Also writes backward-compatible shared_state keys for ML collector.
+        Uses a priority-ordered list of candidate telemetry properties:
+        temp_current, va_temperature, temperature, temp_value.
+
+        Normalizes exactly once using scale 0.1 (bounded Tuya compatibility).
+        Updates TelemetryRegistry and backward-compatible shared_state keys.
         """
         if self._telemetry is None:
             return
 
-        # Register configured sensor descriptor if not yet registered
         sensor_id = f"{dev.id}_water_temp"
-        display_name = dev.name or "Water temperature"
+        display_name = getattr(dev, "name", "Water temperature") or "Water temperature"
+        description = getattr(dev, "desc", "") or ""
+
+        # Register descriptor if not yet present (idempotent)
         existing = self._telemetry.get_reading(sensor_id)
         if existing is None:
             self._telemetry.register_sensor_descriptor(
                 sensor_id=sensor_id,
                 display_name=display_name,
-                communication_status="active" if dev.enabled else "disabled",
+                description=description,
+                communication_status=communication_status if dev.enabled else "disabled",
             )
 
-        raw_temp = status_by_code.get("temp_current")
+        # Priority-ordered candidate property codes
+        candidate_properties = ["temp_current", "va_temperature", "temperature", "temp_value"]
+
+        raw_temp: object = None
+        for prop in candidate_properties:
+            if prop in status_by_code:
+                raw_temp = status_by_code[prop]
+                break
+
         if raw_temp is None:
-            # Try alternate property names
-            raw_temp = status_by_code.get("temp")
-        if raw_temp is None:
+            # No telemetry property found — update communication status only
+            if self._telemetry.get_reading(sensor_id) is not None:
+                # Keep existing value, update freshness and comm status
+                pass
             return
 
-        # Normalize: Tuya often returns tenths of a degree (e.g., 225 = 22.5 C)
-        normalized = None
+        # Normalize using scale 0.1 (bounded Tuya compatibility mapping)
+        # This is the single canonical normalization path.
+        normalized: float | None = None
         if isinstance(raw_temp, (int, float)) and not isinstance(raw_temp, bool):
-            if raw_temp != raw_temp:  # NaN
-                return
-            if raw_temp == float("inf") or raw_temp == float("-inf"):
-                return
-            if isinstance(raw_temp, int) and raw_temp > 100:
-                normalized = round(float(raw_temp) / 10.0, 1)
-            else:
-                normalized = round(float(raw_temp), 1)
+            if raw_temp == raw_temp and raw_temp != float("inf") and raw_temp != float("-inf"):
+                normalized = round(float(raw_temp) * 0.1, 1)
 
         if normalized is None:
             return
@@ -405,16 +473,92 @@ class TuyaStatusUpdaterAsync:
         self._telemetry.update_water_temperature(
             sensor_id=sensor_id,
             display_name=display_name,
+            description=description,
             raw_value=normalized,
             observed_at=now_utc,
             source="tuya",
-            communication_status="active",
+            communication_status=communication_status,
         )
 
         # Backward-compatible shared_state keys for ML collector
         from shared_state.shared_state import shared_state
         shared_state["water_temp"] = normalized
-        shared_state["temp_current"] = raw_temp
+
+    def _schedule_sensor_individual_fallback(
+        self,
+        parent_ids: list[str],
+        parent_to_devices: dict[str, list[Any]],
+        now_utc: datetime,
+        now_ts: int,
+    ) -> None:
+        """Perform one individual-status fallback for each sensor parent
+        whose batch response was empty or missing telemetry.
+
+        Bounded to one request per parent per cycle.  No recursion,
+        no retry on failure.  Only for SENSOR parents.
+        """
+        for pid in parent_ids:
+            try:
+                import asyncio
+                result = asyncio.run_coroutine_threadsafe(
+                    self._do_individual_fallback(pid, parent_to_devices, now_utc, now_ts),
+                    asyncio.get_running_loop(),
+                ).result(timeout=TUYA_RPC_TIMEOUT)
+            except Exception as exc:
+                logger.debug(
+                    "[Updater] sensor-individual-status-failed parent=%s", pid,
+                )
+
+    async def _do_individual_fallback(
+        self,
+        parent_id: str,
+        parent_to_devices: dict[str, list[Any]],
+        now_utc: datetime,
+        now_ts: int,
+    ) -> None:
+        """Fallback: get individual status for a single sensor parent.
+
+        Used when the batch response was empty or missing telemetry.
+        At most once per parent per cycle."""
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.auth.device_manager.get_device_status,
+                    parent_id,
+                ),
+                timeout=TUYA_RPC_TIMEOUT,
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.debug(
+                "[Updater] sensor-individual-status-failed parent=%s", parent_id,
+            )
+            return
+
+        if not isinstance(result, dict) or not result.get("success"):
+            logger.debug(
+                "[Updater] sensor-individual-status-empty parent=%s", parent_id,
+            )
+            return
+
+        status_list = result.get("result", [])
+        if not isinstance(status_list, list):
+            return
+
+        status_by_code: dict[str, object] = {}
+        for item in status_list:
+            code = item.get("code")
+            if code is not None:
+                status_by_code[str(code)] = item.get("value")
+
+        devices = parent_to_devices.get(parent_id, [])
+        for dev in devices:
+            if not dev.enabled:
+                continue
+            self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+
+        logger.debug(
+            "[Updater] sensor-individual-status-updated parent=%s", parent_id,
+        )
 
     # -------------------------------------------------------------
     def stop(self) -> None:
