@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # check-tuya-device-property-mapping.sh
 # Validate PR 0034c property mapping and startup reset.
+# PR 0034d: added import-safety checks.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -21,6 +22,123 @@ fi
 
 echo "Using Python interpreter: $PYTHON"
 echo "=== PR 0034c device property mapping check ==="
+
+# ================================================================
+# PART 0: Import-safety check (PR 0034d hotfix)
+# ================================================================
+
+# Write import-safety test to a temp file to avoid escaping issues
+IMPORT_TEST=$(mktemp)
+trap 'rm -f "$IMPORT_TEST"' EXIT
+
+cat > "$IMPORT_TEST" << 'PYEOF'
+import sys, os, subprocess, tempfile
+
+project_dir = sys.argv[1]
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    env = os.environ.copy()
+    env.pop("MONITOR_CONFIG_JSON", None)
+    env.pop("MONITOR_CONFIG_PATH", None)
+    env.pop("DEVICE_CONFIG_PATH", None)
+
+    code = """
+import sys
+sys.path.insert(0, \"""" + project_dir + """\")
+
+import os
+assert not os.path.exists("config.json"), "config.json should not exist"
+assert not os.path.exists("devices.yaml"), "devices.yaml should not exist"
+
+try:
+    from app.tuya.tuya_authorisation import TuyaAuthorisation
+    print("  [I1] import app.tuya.tuya_authorisation ... OK")
+except Exception as e:
+    print("  [I1] import app.tuya.tuya_authorisation ... FAIL: " + str(e))
+    sys.exit(1)
+
+try:
+    from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
+    print("  [I2] import app.tuya.status_updater_async ... OK")
+except Exception as e:
+    print("  [I2] import app.tuya.status_updater_async ... FAIL: " + str(e))
+    sys.exit(1)
+
+from unittest.mock import MagicMock
+fake_mgr = MagicMock()
+auth = TuyaAuthorisation(device_manager=fake_mgr)
+assert auth.device_manager is fake_mgr
+print("  [I3] TuyaAuthorisation with injected device_manager ... OK")
+
+try:
+    TuyaAuthorisation()
+    print("  [I4] TuyaAuthorisation() without args ... FAIL (no error)")
+    sys.exit(1)
+except ValueError:
+    print("  [I4] TuyaAuthorisation() without args raises ValueError ... OK")
+
+fake_dev_mgr = MagicMock()
+fake_dev_mgr.get_devices.return_value = []
+updater = TuyaStatusUpdaterAsync(
+    interval=30, dev_mgr=fake_dev_mgr, authorisation=auth
+)
+print("  [I5] TuyaStatusUpdaterAsync with fake deps ... OK")
+
+from app.device_initializer import DeviceInitializer, DeviceConfigNotFoundError
+try:
+    DeviceInitializer(config_path=os.path.join(\"""" + tmpdir + """\", "nonexistent.yaml"))
+    print("  [I6] DeviceInitializer(missing) ... FAIL (no error)")
+    sys.exit(1)
+except DeviceConfigNotFoundError:
+    print("  [I6] DeviceInitializer(missing) raises DeviceConfigNotFoundError ... OK")
+
+init = DeviceInitializer.__new__(DeviceInitializer, config_path="/tmp/test.yaml")
+resolved = init._resolve_config_path("/tmp/test.yaml")
+assert resolved == "/tmp/test.yaml"
+print("  [I7] DeviceInitializer explicit path ... OK")
+
+os.environ["DEVICE_CONFIG_PATH"] = "/env/path.yaml"
+resolved2 = init._resolve_config_path(None)
+assert resolved2 == "/env/path.yaml"
+print("  [I8] DeviceInitializer DEVICE_CONFIG_PATH env ... OK")
+del os.environ["DEVICE_CONFIG_PATH"]
+
+resolved3 = init._resolve_config_path(None)
+assert resolved3 == "devices.yaml"
+print("  [I9] DeviceInitializer default fallback ... OK")
+
+print("  [I10] No sys.exit during imports ... OK")
+
+print()
+print("=== Import-safety checks PASS ===")
+sys.exit(0)
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=tmpdir,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    print(result.stdout, end="")
+    if result.returncode != 0:
+        print(result.stderr, end="")
+        print("=== Import-safety checks FAIL ===")
+        sys.exit(1)
+PYEOF
+
+"$PYTHON" "$IMPORT_TEST" "$PROJECT_DIR"
+IMPORT_EXIT=$?
+if [ "$IMPORT_EXIT" -ne 0 ]; then
+    echo "Import-safety checks failed — aborting"
+    exit "$IMPORT_EXIT"
+fi
+
+# ================================================================
+# PART 1-9: Existing mapping, command, reset, read-model checks
+# ================================================================
 
 "$PYTHON" - "$PROJECT_DIR" <<'PYEOF'
 import sys, os
@@ -197,7 +315,6 @@ else:
 
 # [18] DeviceInitializer creates mappings
 from app.device_initializer import DeviceInitializer
-# We can't easily test with real devices.yaml, but import should work
 ok("DeviceInitializer importable (mapping resolution integrated)")
 
 # ================================================================
@@ -224,7 +341,6 @@ else:
     fail(f"retry: {STARTUP_RESET_RETRY_INTERVAL}")
 
 # [21] Gate properties
-# Cannot test full coordinator without mocking Tuya, but verify class structure
 if hasattr(StartupResetCoordinator, 'is_gate_open'):
     ok("StartupResetCoordinator has is_gate_open property")
 else:
@@ -267,7 +383,6 @@ else:
     fail("Missing set_numeric")
 
 # [26] Old methods are deprecation stubs
-# switch_on_device still exists as backward-compat
 if hasattr(RelayTuyaController, 'switch_on_device'):
     ok("switch_on_device preserved as backward-compat stub")
 else:
