@@ -39,13 +39,15 @@ class TuyaStatusUpdaterAsync:
     - Disabled devices are not polled, not updated.
     """
 
-    def __init__(self, interval: int = 30, dev_mgr=None, authorisation=None):
+    def __init__(self, interval: int = 30, dev_mgr=None, authorisation=None,
+                 telemetry_registry=None):
         self.interval = interval
         self._stop = asyncio.Event()
         self.dev_mgr = dev_mgr
         self.auth = authorisation
         self._parent_states: dict[str, ParentCommState] = {}
         self._isolation_budget: int = 0
+        self._telemetry = telemetry_registry
 
     # -------------------------------------------------------------
     async def run(self):
@@ -324,6 +326,10 @@ class TuyaStatusUpdaterAsync:
                 dev.update_status(parsed)
                 dev.tick(now_ts)
 
+                # Extract water temperature from watertemp devices
+                if dev.device_type.lower() in ("watertemp", "water_thermo", "temp_sensor"):
+                    self._extract_water_temperature(dev, status_by_code, now_utc)
+
                 if dev.device_type.lower() != "pump":
                     continue
                 mode_val = next(
@@ -336,6 +342,60 @@ class TuyaStatusUpdaterAsync:
                         shared_state["pump_mode"] = int(mode_val)
                     except (ValueError, TypeError):
                         logger.debug("[Updater] Problem with sync")
+
+    def _extract_water_temperature(
+        self,
+        dev: Any,
+        status_by_code: dict[str, object],
+        now_utc: datetime,
+    ) -> None:
+        """Extract water temperature from a device status response.
+
+        Uses the configured temp_current property (bounded legacy recognition).
+        Updates the telemetry registry with normalized Celsius value.
+        Also writes backward-compatible shared_state keys for ML collector.
+        """
+        if self._telemetry is None:
+            return
+
+        raw_temp = status_by_code.get("temp_current")
+        if raw_temp is None:
+            # Try alternate property names
+            raw_temp = status_by_code.get("temp")
+        if raw_temp is None:
+            return
+
+        # Normalize: Tuya often returns tenths of a degree (e.g., 225 = 22.5 C)
+        normalized = None
+        if isinstance(raw_temp, (int, float)) and not isinstance(raw_temp, bool):
+            if raw_temp != raw_temp:  # NaN
+                return
+            if raw_temp == float("inf") or raw_temp == float("-inf"):
+                return
+            if isinstance(raw_temp, int) and raw_temp > 100:
+                normalized = round(float(raw_temp) / 10.0, 1)
+            else:
+                normalized = round(float(raw_temp), 1)
+
+        if normalized is None:
+            return
+
+        sensor_id = f"{dev.id}_water_temp"
+        display_name = "Water temperature"
+
+        self._telemetry.update_water_temperature(
+            sensor_id=sensor_id,
+            display_name=display_name,
+            raw_value=normalized,
+            observed_at=now_utc,
+            source="tuya",
+            communication_status="active",
+        )
+
+        # Backward-compatible shared_state keys for ML collector
+        from shared_state.shared_state import shared_state
+        shared_state["water_temp"] = normalized
+        shared_state["temp_current"] = raw_temp
 
     # -------------------------------------------------------------
     def stop(self) -> None:
