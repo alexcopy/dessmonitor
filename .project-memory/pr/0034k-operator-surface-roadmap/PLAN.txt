@@ -1,0 +1,658 @@
+PLAN COMPLETE
+
+TITLE
+PR 0034k — Canonical Operator Surface Roadmap Refresh
+
+REPOSITORY AND BRANCH EVIDENCE
+- Repository: alexcopy/dessmonitor
+- Branch: pr-0034k-operator-surface-roadmap
+- HEAD: 2a5d9aa (Preserve sensors through the control snapshot pipeline (#54))
+- Working tree: clean (verified by git status --short)
+
+CURRENT FACTUAL STATE
+The following facts are confirmed against current master (HEAD 2a5d9aa):
+
+1. Authentication and protected routes exist:
+   - app/web_auth.py: argon2 password verification, session management, CSRF.
+   - app/web_routes.py: login, logout, index, healthz routes with mandatory auth.
+   - app/web_host.py: create_app() with SessionMiddleware, SecurityHeadersMiddleware,
+     ControlStateAuthMiddleware protecting /control/state.
+   - Session cookie: dessmonitor_session, HttpOnly, SameSite=Lax.
+
+2. Embedded web host runs inside the Python process:
+   - app/web_runtime_integration.py: start_runtime_read_only_web_host() uses embedded
+     Uvicorn with signal-handler suppression. Configurable via WEB_HOST_ENABLED env var.
+   - run.py: instantiates web host before startup reset, providing real runtime_state,
+     devices_provider, sensors_provider, reset status providers.
+
+3. Live read-only dashboard exists:
+   - app/web/static/dashboard.js: short polling with AbortController, visibility handling,
+     connection-state machine (connecting/online/stale/degraded/offline), renderSnapshot(),
+     renderSensors(). Uses fetch() GET /control/state with same-origin credentials.
+   - app/web/static/dashboard.css: Bulma-based responsive layout, dark mode,
+     stale-row opacity, connection-state badges, reduced-motion support.
+   - app/web/templates/index.html: Bulma navbar, summary cards (total/ON/OFF/UNKNOWN loads),
+     startup reset badge, connection-state tags, Current Loads table (9 columns),
+     Sensors table (6 columns), "No data available" unavailable state.
+
+4. Canonical ON/OFF/UNKNOWN observations:
+   - app/devices/device_observation.py: DeviceObservationState, ObservationValue,
+     compute_freshness, FRESH_MAX_AGE_SECONDS (180), STALE_MAX_AGE_SECONDS (360).
+   - app/devices/relay_channel_device.py: update_observation_from_tuya() only accepts
+     bool, int 1/0, accepted strings. Malformed values silently preserve prior state.
+
+5. device_type-authoritative load/sensor separation:
+   - app/devices/relay_channel_device.py: CANONICAL_TYPE_MAP, normalize_device_type(),
+     SENSOR_CANONICAL_TYPES={"thermo"}, LOAD_CANONICAL_TYPES={"switch","pump","multi_switch"}.
+     classify_projection_kind() uses ONLY normalized device_type. No name-based classification.
+   - app/web_runtime_integration.py: build_runtime_read_model() filters loads by
+     classify_projection_kind() before including in loads array.
+
+6. Canonical TelemetryRegistry sensor path:
+   - app/service/telemetry_registry.py: TelemetryRegistry with register_sensor_descriptor(),
+     update_water_temperature(), get_all_readings(), get_all_readings_dict().
+   - run.py: Registers configured SENSOR-classified device descriptors before polling.
+   - app/tuya/status_updater_async.py: _update_sensor_telemetry() normalizes using scale 0.1,
+     updates registry and shared_state["water_temp"].
+
+7. Working Sensors projection with water temperature:
+   - App/control/control_state_snapshot.py: SensorReadSnapshot dataclass (frozen, 14 fields).
+   - App/web_control_state_provider.py: _parse_sensors() reads runtime_state["sensors"].
+   - App/control/runtime_snapshot_adapter.py: sensors propagated through
+     RuntimeControlSnapshotAdapterInput → ControlStateSnapshotInput → ControlStateSnapshot.
+   - Dashboard renderSensors() renders Sensor, Description, Value, Observed, Freshness, Status.
+
+8. Signed DESS API URLs logged with token/sign/salt/device parameters:
+   - app/api.py line 235: self.logger.info(f"[API] Выполняем запрос: {url}") — contains token, sign, salt.
+   - app/api.py line 238: print("The request URL >>>", url) — stdout, contains credentials.
+   - app/api.py line 343: self.logger.info(f"[WEB] Выполняем запрос: {url}") — contains token, sign, salt.
+   - The signed URL includes: sign, salt, token, pn (serial), devcode, devaddr, sn.
+   - This is a security concern requiring PR0035.
+
+9. Inverter data flows through shared_state but is NOT projected into the typed ControlStateSnapshot:
+   - service/inverter_monitor.py writes to shared_state (battery_voltage, battery_soc,
+     pv_total_power, output_power, etc.) but these are not carried through the snapshot pipeline.
+   - MLDataCollector and TimescaleDB collector read shared_state independently.
+   - No typed InverterReadSnapshot exists.
+
+10. Bulma 1.0.4 is locally served, pinned by SHA-256 in check-web-dashboard.sh.
+    - No CDN, no remote assets. Plain JavaScript (no framework).
+
+11. TelemetryRegistry now correctly propagates description through get_all_readings()
+    (confirmed: description=reading.description line present after PR0034j).
+
+12. RuntimeLoadState includes description, device_type, mapping_status, startup_reset_result,
+    enabled, communication_status. All propagated through to LoadControlSnapshot.
+
+ROADMAP DRIFT
+The current ROADMAP.md (on the HEAD branch) contains the following specific
+points that no longer match master:
+
+1. "Current State: The authenticated operator UI and live dashboard are absent
+   or incomplete." — FALSE. The authenticated dashboard with live polling,
+   connection states, load and sensor tables, canonical observations, and
+   sensor telemetry is fully implemented and running.
+
+2. "Current Milestones" begin with PR 0034 (live read-only dashboard shell)
+   which is COMPLETE. There is no explicit acknowledgment that PR0034a through
+   PR0034j are complete, and no milestone between "incomplete dashboard shell"
+   and "PR0035: Manual Command Queue UI" exists.
+
+3. PR 0035 in the current roadmap is titled "Authenticated Manual Command Queue
+   API and UI" — but the actual next security concern is signed DESS URL logging.
+
+4. No milestone describes inverter observability, heartbeat freshness, typed
+   inverter snapshot, or Route-backed tabs system.
+
+5. The roadmap groups PR 0036 and PR 0037 too broadly — "Typed Inverter
+   Observability" and "Complete Read-Only Operator Dashboard" as single
+   milestones without clearly bounded sub-PRs.
+
+6. No explicit health-first Overview priority exists in the roadmap text.
+
+7. No explicit route-backed tabs navigation direction exists.
+
+8. Measured system output power, estimated managed-device load, and derived
+   unattributed consumption are not explicitly distinguished.
+
+9. The roadmap's PR 0035 (manual commands) is sequenced before basic system
+   health observability, inverter freshness, and route-backed tab navigation.
+
+10. No description of the TimescaleDB ingestion/query/chart split.
+
+11. Bulma plus plain JavaScript as the approved frontend stack is not stated.
+
+12. "no authenticated operator UI" string does not appear literally, but the
+    roadmap's "Current State" header describes the dashboard as absent.
+
+OPERATOR PRODUCT PRIORITY
+Confirmed from production operation and operator feedback:
+
+1. The authenticated home page is primarily a system-health surface.
+2. Device inventory is secondary to system health.
+3. Primary navigation uses route-backed visual tabs.
+4. Battery, inverter, load, PV, water temperature and source freshness
+   must dominate the Overview.
+5. Active devices should be visible before OFF/unavailable devices.
+6. Diagnostics must not dominate the main operator screen.
+
+TARGET INFORMATION ARCHITECTURE
+Six route-backed tabs with a health-first Overview:
+
+Overview
+  - system/runtime health indicators
+  - last real response per source with age
+  - inverter freshness badge
+  - device observation freshness
+  - sensor freshness
+  - battery voltage, state of charge, charge/discharge current
+  - output power, output load percentage
+  - PV total power
+  - AC input state
+  - water temperature
+  - concise actionable warnings (not raw logs)
+  - NOT: complete device inventory
+
+Energy
+  - inverter working mode
+  - battery voltage, SOC, charge/discharge current
+  - PV1 and PV2 voltage/power
+  - output voltage, output active/apparent power
+  - AC input voltage/frequency, AC output load percentage
+  - measured output power vs estimated managed load vs derived consumption
+
+Devices
+  - tab navigation: Active / Problems / All
+  - active devices shown before OFF/unavailable
+  - device name, description, state, load watts, freshness
+  - daily runtime, daily energy
+  - canonical ON/OFF/UNKNOWN per device
+
+Sensors
+  - existing SensorReadSnapshot columns
+  - water temperature, ambient temperature, humidity
+  - freshness badges
+  - N/A for missing values
+
+System
+  - startup reset status and gate state
+  - polling quarantined parent count
+  - runtime uptime
+  - structured warning feed
+
+History
+  - TimescaleDB-backed charts (future PR0038-PR0049)
+  - retention and downsampling policy
+
+PROPOSED FIFTEEN-PR SEQUENCE
+PR0035 — Redact Signed DESS Request Diagnostics
+Root cause: app/api.py logs and prints signed URLs containing token, sign, salt,
+company-key, pn/sn/device parameters to stdout (line 238) and info logger
+(lines 235, 343). These credentials would be exposed in log aggregation and
+container stdout.
+Outcome: All signed DESS URLs are redacted before logging/printing. Only
+safe diagnostic tokens (e.g., "action=queryDeviceLastData") remain legible.
+Dependencies: None (independent security fix).
+Gate: None.
+Main files: app/api.py
+Out of scope: Tuya credential handling. ML collector logging.
+Acceptance: grep for sign= and token= in log output returns zero matches
+  under normal logging levels. App functions correctly (no regression).
+Security: Prevents DESS API credential leakage through logs and stdout.
+
+PR0036 — Runtime Heartbeat and Source Freshness Contract
+Root cause: The runtime_state dict in build_runtime_read_model has no
+freshness metadata — callers cannot tell when each data source last produced
+a valid response (device observation, sensor telemetry, inverter API).
+Outcome: runtime_state gains snapshot_created_at (existing), runtime_heartbeat_at,
+devices_refreshed_at, inverter_refreshed_at. Sources declare their freshness
+independently. No source declares freshness from another source's response.
+Dependencies: None (independent contract layer).
+Gate: None.
+Main files: app/web_runtime_integration.py, run.py (adds timestamp capture),
+  ControlStateSnapshot may gain source_freshness fields.
+Out of scope: Inverter read model. Sensor read model. Device status changes.
+Acceptance: runtime_state dict contains four distinct timestamps. A test
+  can set each to a different value and verify all four survive to the
+  endpoint snapshot.
+Security: No new exposure. Timestamps are safe ISO strings.
+
+PR0037 — Typed Inverter Observability Snapshot
+Root cause: Inverter metrics (battery_voltage, battery_soc, output_power,
+pv_total_power, working_mode, etc.) exist only in shared_state. No typed
+snapshot carries them through the control pipeline to the dashboard.
+Outcome: InverterReadSnapshot frozen dataclass with safe fields (battery
+voltage/SOC/currents, PV voltages/powers, output voltage/power/apparent,
+AC input, load %, working mode, inverter observed_at). Written by
+InverterMonitor into runtime_state["inverter"]. Read by the snapshot adapter.
+Dependencies: PR0036 (freshness timestamps inform inverter freshness).
+Gate: PR0036 complete.
+Main files: app/control/control_state_snapshot.py (InverterReadSnapshot),
+  service/inverter_monitor.py (writes typed dict downstream),
+  app/web_runtime_integration.py (passes inverter into runtime_state),
+  app/control/runtime_snapshot_adapter.py (_parse_inverter helper),
+  app/web_control_state_provider.py (reads runtime_state["inverter"]).
+Out of scope: Dashboard rendering. Route-backed tabs. History/charts.
+Acceptance: runtime_state["inverter"] with typed dict → ControlStateSnapshot
+  contains inverter field with correct values. Missing inverter data produces
+  defaults, not errors. Inverter field survives JSON serialization.
+Security: No Tuya IDs or property codes. Only safe numeric/string metrics.
+
+PR0038 — Canonical Inverter and Heartbeat Web Pipeline
+Root cause: Inverter metrics and freshness have typed contracts (PR0036+0037)
+but no web pipeline carries them to the dashboard. The dashboard cannot display
+inverter state or source freshness.
+Outcome: The complete pipeline from InverterMonitor → runtime_state →
+ parse → snapshot → endpoint → dashboard is wired and tested.
+Dependencies: PR0036, PR0037.
+Gate: PR0037 complete.
+Main files: All files from PR0036+0037 plus run.py wiring, dashboard rendering
+  changes to display inverter summary and freshness badges in the existing
+  single-page layout (before route-backed tabs are added).
+Out of scope: Route-backed tabs. Device-level changes. Sensor changes.
+Acceptance: Dashboard renders inverter summary with battery voltage, SOC,
+  output power, working mode, and source freshness badges.
+Security: No new exposure.
+
+PR0039 — Route-Backed Bulma Tabs Shell
+Root cause: The single-page layout mixes system summary, device table, and
+sensor table on one scroll surface. Operators need route-backed tab navigation
+to focus on one domain at a time without losing scroll position.
+Outcome: Six route-backed tabs: Overview, Energy, Devices, Sensors, System,
+History. Each tab is a GET route returning a Jinja template fragment or full
+page with the same navbar. Active tab is highlighted. Tab switch does not
+reload the full page — uses fetch() and DOM replacement. JavaScript handles
+polling lifecycle per visible tab. URL path changes with tab selection.
+Dependencies: PR0038 (inverter and freshness pipeline must first be proven).
+Gate: PR0038 complete.
+Main files: app/web_routes.py (new GET routes for tabs), index.html
+  (becomes tab shell with navbar and content container),
+  app/web/static/dashboard.js (tab switching, per-tab polling control).
+Out of scope: Full content for every tab. Energy detail page. Device detail.
+  System diagnostics. History charts.
+Acceptance: Six tabs render in navbar. Clicking a tab changes the URL path
+  and replaces the content area without full page reload. Active tab is
+  highlighted. Polling continues across tab switches.
+Security: All routes are authenticated. No write methods.
+
+PR0040 — System Health Overview (primary tab content)
+Root cause: The Overview tab exists as a route shell (PR0039) but the content
+is still the old single-page layout. It has not been redesigned as a health-first
+summary.
+Outcome: Overview tab shows: runtime heartbeat, inverter freshness,
+device observation freshness per device, sensor freshness, battery voltage/SOC,
+charge/discharge current, output power and load %, PV total power, AC input
+state, water temperature, concise actionable warnings. Active-first device
+subset shown. No full device inventory.
+Dependencies: PR0038 (inverter data available), PR0039 (tab shell ready).
+Gate: PR0039 complete.
+Main files: app/web/templates/index.html (Overview section), dashboard.js
+  (polling/adapter for Overview), dashboard.css (health cards layout).
+Out of scope: Energy detail tab. Devices tab. History tab. Charts.
+Acceptance: Overview displays inverter state, source freshness, counts,
+  active loads, and warnings. Full inventory is not in Overview.
+Security: No new exposure.
+
+PR0041 — Energy Detail Tab
+Root cause: The Energy domain (inverter working mode, battery, PV, AC, output
+power detail, measured vs estimated vs derived consumption) has no dedicated
+page with Bulma cards and levels.
+Outcome: Energy tab shows full inverter detail: working mode badge, battery
+voltage/SOC/charge-dis-charge currents, PV1/PV2 voltage and power, output
+voltage/active power/apparent power, AC input voltage/frequency, AC output
+load %. Measured output power, estimated managed-device load, and derived
+unattributed consumption are explicitly distinguished by labels and visual
+hierarchy.
+Dependencies: PR0037+0038 (inverter pipeline), PR0039 (tab shell).
+Gate: PR0039 complete.
+Main files: app/web/templates/energy.html (new), dashboard.js (energy tab
+  rendering), dashboard.css (energy-specific cards).
+Out of scope: Historical charts. Sensor health. Device commands.
+Acceptance: Energy tab renders all inverter fields with correct units.
+  Three power types (measured, managed, derived) visibly separated.
+Security: No new exposure.
+
+PR0042 — Active / Problems / All Devices Tab
+Root cause: The current device table renders all devices regardless of state.
+Operators need an active-first view and a problems view.
+Outcome: Devices tab with three sub-views: Active (confirmed ON first,
+sorted by freshness), Problems (stale/unhealthy/UNKNOWN devices),
+All (complete sorted table). Active devices visible before OFF/unavailable.
+Dependencies: PR0039 (tab shell).
+Gate: PR0039 complete.
+Main files: app/web/templates/devices.html (new), dashboard.js (device
+  filtering/sorting), existing load fields used as-is.
+Out of scope: Device commands. Device history. Configuration changes.
+Acceptance: Active tab shows only confirmed-ON devices sorted by freshness.
+  Problems tab shows stale/unhealthy/UNKNOWN devices. All tab matches
+  current load table. Counts shown per view.
+Security: No new exposure. No write methods.
+
+PR0043 — Sensor Health Tab
+Root cause: Sensors are currently rendered below the device table on one page.
+With tab navigation, Sensors get their own full page.
+Outcome: Sensors tab renders the existing SensorReadSnapshot table in a
+dedicated view. Adds ambient temperature and humidity if available across
+the snapshot pipeline.
+Dependencies: PR0039 (tab shell), existing sensor pipeline (PR0034h+0034j).
+Gate: PR0039 complete.
+Main files: app/web/templates/sensors.html (new), dashboard.js (sensor tab
+  rendering).
+Out of scope: Sensor configuration. Sensor history. Device state.
+Acceptance: Sensors tab renders all registered sensor descriptors with
+  freshness badges, N/A for unavailable values.
+Security: No new exposure.
+
+PR0044 — System Diagnostics and Structured Warnings
+Root cause: Startup reset status, polling quarantine counts, and warnings
+are rendered inline below summary cards. No dedicated system tab for
+structured diagnostics.
+Outcome: System tab shows startup reset status and gate, per-device reset
+results, polling quarantine and backoff state, runtime uptime, source
+freshness summary, and structured warning feed (not raw logs).
+Dependencies: PR0039 (tab shell), PR0036 (freshness contracts).
+Gate: PR0038 complete (inverter pipeline stable).
+Main files: app/web/templates/system.html (new), runtime_state gains
+  warning_events field (list of safe structured warnings), dashboard.js
+  (system tab rendering), dashboard.css.
+Out of scope: Log files. Raw log display. Alerting. Notification.
+Acceptance: System tab displays structured runtime health. No raw logs
+  or exception text exposed.
+Security: No log content or exception text reaches the frontend.
+
+PR0045 — Canonical Telemetry Consumers
+Root cause: MLDataCollector and DeviceStatusLogger still read
+shared_state["water_temp"] directly instead of TelemetryRegistry.
+DeviceStatusLogger still uses the legacy ANALOG_TYPES set and name-based
+classification instead of normalize_device_type and classify_projection_kind.
+Outcome: All telemetry consumers read from the canonical TelemetryRegistry
+and use device_type-based classification. MLDataCollector reads
+telemetry_registry.get_all_readings(). DeviceStatusLogger uses
+classify_projection_kind(). ANALOG_TYPES removed from
+device_status_logger.py.
+Dependencies: TelemetryRegistry pipeline (PR0034j complete).
+Gate: PR0034j complete.
+Main files: app/ml/ml_data_collector.py, app/monitoring/device_status_logger.py.
+Out of scope: shared_state removal. Inverter data migration.
+Acceptance: MLDataCollector produces identical data reading from
+  TelemetryRegistry vs shared_state. DeviceStatusLogger correctly classifies
+  thermo devices using canonical types instead of ANALOG_TYPES.
+Security: No new exposure.
+
+PR0046 — Async Sensor Fallback Hardening
+Root cause: The individual-sensor-fallback path in status_updater_async.py
+uses run_coroutine_threadsafe().result() with a timeout — this blocks the
+polling thread when the fallback RPC hangs. Additionally, the fallback is
+triggered unconditionally for any batch with missing telemetry, creating
+chatty extra RPCs.
+Outcome: Fallback uses a bounded semaphore, runs fully async within the
+existing polling coroutine, and only fires when a sensor parent has returned
+empty status for N consecutive cycles (configurable threshold).
+Dependencies: PR0034h (fallback exists).
+Gate: PR0034h complete.
+Main files: app/tuya/status_updater_async.py.
+Out of scope: permission-denied isolation, quarantine, retry backoff.
+Acceptance: Fallback is async, non-blocking, and rate-limited. Existing
+  isolation behavior unchanged.
+Security: No new exposure.
+
+PR0047 — Device Runtime and Daily Energy Metrics
+Root cause: Device daily runtime and energy are computed in-device (tick()
+on RelayChannelDevice) but not exposed through the typed snapshot. The
+dashboard cannot display per-device runtime or daily energy.
+Outcome: RuntimeLoadState and LoadControlSnapshot gain today_run_seconds and
+today_kwh fields. Dashboard Devices tab renders daily runtime and energy.
+Dependencies: PR0042 (Devices tab exists).
+Gate: PR0039 complete.
+Main files: app/control/runtime_snapshot_adapter.py, control_state_snapshot.py,
+  web_runtime_integration.py, dashboard.js.
+Out of scope: Historical energy. TimescaleDB energy tracking.
+Acceptance: Dashboard shows per-device daily runtime and kWh. Values update
+  each polling cycle. Unavailable devices show null.
+Security: No new exposure.
+
+PR0048 — TimescaleDB History Foundation and Read API
+Root cause: TimescaleDataCollector writes data but there is no read API,
+no query contract, and no bounded ingestion boundary. The current roadmap
+groups ingestion, API, and all charts as one milestone.
+Outcome: TimescaleDB ingestion is bounded: only inverter metrics and device
+states with explicit schema. A read-only query API is added under
+/control/history with query parameters: metric_name, from_ts, to_ts,
+aggregation (raw/avg/min/max), resolution. Auth-protected. Paginated.
+Dependencies: PR0039 (tab shell expected to host charts).
+Gate: PR0038 complete (stable live read semantics).
+Main files: app/web_host.py (new query route), app/control/history_query.py
+  (query contract types and safe SQL generation), run.py (wiring).
+  Existing TimescaleDataCollector is not modified.
+Out of scope: Historical chart rendering in the browser. Downsampling
+  implementation. Retention policy configuration.
+Acceptance: GET /control/history?metric=battery_voltage returns a typed
+  JSON array of {timestamp, value} within the requested window. Empty
+  window returns empty array. Malformed parameters return 400.
+Security: Read-only, auth-protected. SQL injection prevented by typed
+  parameterized queries. No schema exposure.
+
+PR0049 — Historical Charts, Retention and Downsampling
+Root cause: TimescaleDB has data but no browser charts, no retention policy,
+and no downsampling.
+Outcome: History tab renders time-series charts using Canvas or SVG (not a
+third-party charting library). Chart types: battery voltage, state of charge,
+output power, PV production, temperatures, device daily energy. Retention
+policy configurable via environment variable. Downsampling for queries
+spanning >7 days.
+Dependencies: PR0048 (TimescaleDB query API exists).
+Gate: PR0048 complete.
+Main files: app/web/static/history.js (new), history tab template, dashboard.js
+  (history tab integration). TimescaleDataCollector may gain retention config.
+Out of scope: Advanced chart types. Export. Comparison overlays.
+Acceptance: History tab renders at least battery_voltage chart for a 24h window.
+  Data older than retention window is not returned. Downsampling reduces
+  points for >7d queries.
+Security: No new exposure.
+
+SEQUENCING GATES
+The fifteen PRs have the following dependency chain:
+
+PR0035 (redact diagnostics) — no gate, independent.
+PR0036 (freshness contract) — no gate, independent.
+PR0037 (inverter snapshot) — depends on PR0036.
+PR0038 (inverter web pipeline) — depends on PR0036+0037.
+PR0039 (tabs shell) — depends on PR0038.
+PR0040 (Overview) — depends on PR0038+0039.
+PR0041 (Energy tab) — depends on PR0039.
+PR0042 (Devices tab) — depends on PR0039.
+PR0043 (Sensors tab) — depends on PR0039.
+PR0044 (System tab) — depends on PR0038+0039.
+PR0045 (canonical consumers) — depends on PR0034j+0034h (already complete).
+PR0046 (fallback hardening) — depends on PR0034h (already complete).
+PR0047 (device runtime/energy) — depends on PR0042.
+PR0048 (TimescaleDB read API) — depends on PR0038.
+PR0049 (history charts) — depends on PR0048.
+
+PR0039 through PR0044 may be implemented in any order after their respective
+gates are met.
+
+PR0045 and PR0046 are independent of the tab/Overview sequence.
+
+PR0047 depends on PR0042 (Devices tab).
+
+PR0048+PR0049 are independent of PR0039-PR0044 but depend on stable live
+read semantics (PR0038).
+
+PRESERVED DEFERRED WORK
+The following existing roadmap milestones are preserved after PR0049:
+
+Manual Command Queue API and UI (current PR0035, now deferred):
+  - Authenticated command intent endpoint.
+  - CSRF protection.
+  - Operator identity in command metadata.
+  - Manual control queue integration.
+  - Queue status display.
+  - No direct device execution.
+
+Safety-Gated Controlled Manual Execution:
+  - Command proposal/arbitration integration.
+  - Safety gate evaluation.
+  - Execution eligibility evaluation.
+  - Controlled executor boundary.
+  - Pond life-support protections.
+
+Audited Runtime Configuration Overrides:
+  - Temporary operator overrides with TTL.
+  - Original vs overridden values.
+  - Safety-invariant priority.
+  - Automatic fallback to declarative baseline.
+
+ML Advisory Display:
+  - Read ML data as advisory overlay.
+  - No control authority.
+
+ML Control:
+  - Requires independent safety approval per ADR-0003.
+  - Deferred beyond all fifteen PRs and the three execution blocks above.
+
+STRICT SCOPE
+PR 0034k governance scope:
+1. Updated ROADMAP.md accurately describing current master state.
+2. Exactly fifteen implementation PRs (PR0035-PR0049) bounded and sequenced.
+3. Health-first Overview priority encoded.
+4. Six route-backed tabs architecture encoded.
+5. Bulma + plain JavaScript as approved stack.
+6. Measured vs estimated vs derived consumption distinction encoded.
+7. Manual execution, ML control, and configuration overrides preserved as
+   deferred work after the fifteen-PR sequence.
+8. scripts/check-operator-surface-roadmap.sh focused validator.
+
+OUT OF SCOPE
+- Any implementation of the proposed PRs.
+- Modification of run.py, application Python modules, HTML, JS, CSS,
+  requirements, Docker files, GitHub Actions, K8s manifests, devices.yaml.
+- Introduction of React, Vue, Angular, Svelte, HTMX, Alpine.js, Node, npm,
+  Vite, Webpack, or any second frontend container.
+- WebSockets, Server-Sent Events.
+- Manual device controls, write APIs, ML execution.
+- Direct browser-to-Tuya behavior.
+
+EXPECTED IMPLEMENTATION FILES
+- ROADMAP.md (the single changed runtime file)
+- scripts/check-operator-surface-roadmap.sh (new focused validator)
+
+TEST-FIRST STRATEGY
+Before modifying ROADMAP.md, write scripts/check-operator-surface-roadmap.sh
+with 15+ numbered assertions that FAIL on the current ROADMAP.md.
+
+The validator must be a deterministic standalone script (no network, no Tuya,
+no production config, no browser automation).
+
+Minimum assertions:
+
+[1]  ROADMAP.md identifies the authenticated dashboard and sensor pipeline as
+     completed current state.
+[2]  Exactly fifteen implementation PRs PR0035 through PR0049 exist.
+[3]  No PR number in PR0035-PR0049 is missing or duplicated.
+[4]  All fifteen PRs occur in dependency order (PR0035 before PR0036, etc.).
+[5]  Health-first Overview priority is explicit.
+[6]  Six route-backed tabs and their areas (Overview, Energy, Devices, Sensors,
+     System, History) are explicit.
+[7]  Bulma plus plain JavaScript remain the approved frontend stack.
+[8]  No new frontend framework is introduced.
+[9]  Signed DESS URL redaction (PR0035) is the first runtime implementation
+     milestone.
+[10] Heartbeat and inverter contracts precede UI consumption (PR0036+0037
+     before PR0038).
+[11] Manual hardware execution (command queue, safety gate, executor) is
+     deferred beyond PR0049.
+[12] ML control remains deferred.
+[13] TimescaleDB history follows stable live-read semantics.
+[14] Measured output power, estimated managed load, and derived unattributed
+     consumption are explicitly distinguished.
+[15] Existing safety invariants (no write API, no bypass, authenticated
+     routes) remain present.
+
+The validator must:
+- Parse ROADMAP.md's Current State section and assert it describes the
+  complete dashboard/inverter/sensor pipeline, not "absent or incomplete".
+- Count PR numbers in the implementation sequence.
+- Assert order.
+- Assert the archived/deferred sections preserve manual execution and ML
+  control milestones.
+
+FOCUSED VALIDATOR DESIGN
+scripts/check-operator-surface-roadmap.sh must:
+
+1. Read ROADMAP.md.
+2. Use Python (not grep-only) for semantic checks:
+   - Parse PR0035-PR0049 entries from the roadmap body.
+   - Verify they exist, are unique, and are in increasing order.
+   - Fail if any PR number in that range is absent or duplicated.
+3. Assert the "Current State" section mentions authenticated dashboard,
+   SensorReadSnapshot, and route-backed navigation or tabs.
+4. Assert the word "health" appears in the Overview/PR0040 description.
+5. Assert the word "Bulma" appears as the CSS framework.
+6. Assert that "React", "Vue", "Angular", "Svelte", "HTMX", "Alpine.js",
+   "npm", "Node" do NOT appear as the frontend stack.
+7. Assert that "Manual Command Queue", "Safety-Gated", and "ML control"
+   appear in the "Deferred" or "Future" section after PR0049.
+8. Assert that the sequence positions signed URL redaction before UI work.
+9. Provide a clear PASS/FAIL summary with numbered results.
+10. Exit non-zero on any failure.
+
+END-TO-END ACCEPTANCE
+The governance PR is acceptable when:
+
+1. ROADMAP.md correctly states that the authenticated dashboard, canonical
+   sensor pipeline, and sensor/inverter/load snapshots are complete.
+2. Exactly fifteen bounded PRs (PR0035-PR0049) appear in the implementation
+   sequence.
+3. Each PR has a root cause, outcome, dependencies, main files, out-of-scope,
+   and acceptance criteria.
+4. The health-first Overview priority is explicit and unambiguous.
+5. Six route-backed tabs (Overview, Energy, Devices, Sensors, System, History)
+   are the approved navigation direction.
+6. Bulma + plain JavaScript is stated as the approved stack, no new framework
+   is introduced.
+7. Measured vs estimated vs derived consumption is explicitly distinguished.
+8. Manual queue, safety-gated execution, and configuration overrides are
+   preserved as deferred work after PR0049.
+9. ML advisory and ML control are deferred.
+10. check-operator-surface-roadmap.sh passes.
+11. check-repo-safety.sh passes.
+12. check-project-memory.sh passes.
+13. git diff --check shows no whitespace errors.
+14. Only ROADMAP.md and the validator script are changed.
+15. No runtime behavior changes.
+
+SECURITY BOUNDARIES
+- ROADMAP.md contains no credentials, Tuya IDs, or operational configuration.
+- The designed PR sequence encodes security-first prioritization (PR0035
+  redacts signed URLs before any UI work).
+- Manual execution is deferred beyond the read-only observability sequence.
+- Existing authenticated read-only routes, CSRF, session management, and
+  safety invariants are preserved and stated in the roadmap.
+- ML control requires independent ADR-0003 safety approval — stated.
+
+ROLLBACK
+1. git revert of ROADMAP.md changes.
+2. Remove scripts/check-operator-surface-roadmap.sh.
+3. No stored data, database, or configuration to migrate.
+
+VALIDATION COMMANDS
+bash scripts/check-operator-surface-roadmap.sh
+bash scripts/check-repo-safety.sh
+bash scripts/check-project-memory.sh
+git diff --check
+git diff --name-only
+git diff --stat
+
+RISKS AND WARNINGS
+- PR0035 (signed URL redaction) is the highest-priority security concern.
+  It should not be delayed.
+- PR0045 (canonical telemetry consumers) and PR0046 (fallback hardening)
+  can proceed in parallel with the tab/Overview sequence since they have
+  no dependency on PR0039.
+- PR0048 (TimescaleDB read API) and PR0049 (charts) are the most complex
+  milestones. Their design should be revisited when they become active.
+- The preserved deferred work (manual commands, execution, overrides) is
+  substantial. A dedicated governance re-assessment may be needed before
+  that work begins.
+- ADR-0003 (ML safety) is not modified by this PR.
