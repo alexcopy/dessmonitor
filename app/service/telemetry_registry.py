@@ -161,6 +161,7 @@ class TelemetryRegistry:
                 "sensor_id": r.sensor_id,
                 "display_name": r.display_name,
                 "description": r.description,
+                "device_type": "thermo",
                 "metric": r.metric.value,
                 "value": r.value,
                 "unit": r.unit,

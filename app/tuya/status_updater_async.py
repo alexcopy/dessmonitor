@@ -87,9 +87,7 @@ class TuyaStatusUpdaterAsync:
         for dev in devices:
             if not dev.enabled:
                 continue
-            proj = classify_projection_kind(
-                dev.device_type, getattr(dev, "extra", None)
-            )
+            proj = classify_projection_kind(dev.device_type)
             pid = dev.tuya_device_id
             if not pid:
                 continue
@@ -350,9 +348,7 @@ class TuyaStatusUpdaterAsync:
             for dev in parent_to_devices[tuya_id]:
                 if not dev.enabled:
                     continue
-                proj = classify_projection_kind(
-                    dev.device_type, getattr(dev, "extra", None)
-                )
+                proj = classify_projection_kind(dev.device_type)
                 if proj == DeviceProjectionKind.SENSOR:
                     # Check for telemetry property presence
                     has_temp = (
@@ -373,9 +369,7 @@ class TuyaStatusUpdaterAsync:
             for dev in parent_to_devices[tuya_id]:
                 if not dev.enabled:
                     continue
-                proj = classify_projection_kind(
-                    dev.device_type, getattr(dev, "extra", None)
-                )
+                proj = classify_projection_kind(dev.device_type)
                 if proj == DeviceProjectionKind.SENSOR:
                     continue  # already handled above
 
