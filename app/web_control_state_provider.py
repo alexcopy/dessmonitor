@@ -23,6 +23,8 @@ from typing import Any, Callable
 from app.control.runtime_snapshot_adapter import (
     RuntimeControlSnapshotAdapterInput,
     RuntimeLoadState,
+    SensorReadSnapshot,
+    _parse_sensors,
     build_runtime_control_snapshot,
 )
 
@@ -77,6 +79,11 @@ def build_control_state_snapshot_from_runtime_state(
     raw_loads = runtime_state.get("loads") or runtime_state.get("load_states")
     loads: list[RuntimeLoadState] = _parse_loads(raw_loads)
 
+    # --- parse sensors (best-effort) ---
+    sensors: tuple[SensorReadSnapshot, ...] = _parse_sensors(
+        runtime_state.get("sensors")
+    )
+
     # --- direct pipeline objects (pass through) ---
     policy_decision = runtime_state.get("policy_decision")
     command_proposal = runtime_state.get("command_proposal")
@@ -94,6 +101,7 @@ def build_control_state_snapshot_from_runtime_state(
         created_at=created_at,
         runtime_state=runtime_state,
         loads=tuple(loads),
+        sensors=sensors,
         policy_decision=policy_decision,
         command_proposal=command_proposal,
         safety_gate_result=safety_gate_result,
@@ -201,6 +209,8 @@ def _parse_loads(
                 rl = RuntimeLoadState(
                     load_id=str(item.get("load_id", "")),
                     display_name=str(item.get("display_name", "")),
+                    description=str(item.get("description", "")),
+                    device_type=str(item.get("device_type", "")),
                     configured_load_watts=float(item.get("configured_load_watts", 0)),
                     currently_on=currently_on,
                     controllable=bool(item.get("controllable", True)),
@@ -212,6 +222,10 @@ def _parse_loads(
                     observed_at=item.get("observed_at"),
                     observation_source=item.get("observation_source"),
                     freshness=item.get("freshness"),
+                    mapping_status=item.get("mapping_status"),
+                    startup_reset_result=item.get("startup_reset_result"),
+                    enabled=bool(item.get("enabled", True)),
+                    communication_status=item.get("communication_status"),
                 )
                 result.append(rl)
             except (TypeError, ValueError):

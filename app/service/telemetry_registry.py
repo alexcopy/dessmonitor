@@ -143,6 +143,7 @@ class TelemetryRegistry:
             result.append(SensorTelemetryReading(
                 sensor_id=reading.sensor_id,
                 display_name=reading.display_name,
+                description=reading.description,
                 metric=reading.metric,
                 value=reading.value,
                 unit=reading.unit,
