@@ -1,0 +1,611 @@
+PLAN COMPLETE
+
+TITLE
+PR 0034j — Carry Sensor Telemetry Through the Complete Runtime Snapshot
+
+CONTEXT
+Production sensors now report temperature around 20.9°C through the ML and
+inverter-summary compatibility path (Path B: shared_state["water_temp"]).
+The authenticated dashboard at GET /control/state still displays "No sensors
+available" because the typed snapshot pipeline (Path A) drops sensors before
+serialization.
+
+This PR does NOT change Tuya polling behavior, status routing, or telemetry
+collection. It fixes only the snapshot contract — the typed data path from
+TelemetryRegistry through ControlStateSnapshot to the dashboard.
+
+PRODUCTION EVIDENCE
+- Path B: shared_state["water_temp"] ≈ 20.9 → MLDataCollector and inverter
+  summary logs show correct temperature.
+- Path A: TelemetryRegistry populated → runtime_state["sensors"] populated →
+  sensors lost in build_control_state_snapshot_from_runtime_state because no
+  code reads runtime_state["sensors"].
+- Dashboard: snapshot.sensors is undefined → renderSensors() shows empty row.
+- Load descriptions: _device_to_load_dict creates "description" key; _parse_loads
+  ignores it when converting dict to RuntimeLoadState.
+
+VERIFIED ROOT CAUSE
+Each statement confirmed against current repository code (HEAD 033fa22):
+
+1. CONFIRMED. run.py line: telemetry_registry = TelemetryRegistry()
+
+2. CONFIRMED. run.py iterates devices after construction, classifies by
+   device_type, and calls register_sensor_descriptor for SENSOR-classified
+   devices. This runs before Tuya polling or web host startup.
+
+3. CONFIRMED. run.py passes as sensors_provider:
+   telemetry_registry.get_all_readings_dict
+
+4. CONFIRMED. In create_runtime_state_provider:
+     sensors = sensors_provider() if sensors_provider else None
+     return build_runtime_read_model(devs, ..., sensors=sensors)
+
+5. CONFIRMED. build_runtime_read_model:
+     if sensors is not None: result["sensors"] = sensors
+   So runtime_state dict always has "sensors" when sensors_provider returns data.
+
+6. CONFIRMED. build_control_state_snapshot_from_runtime_state parses
+   runtime_state.get("loads") / runtime_state.get("load_states"). It does NOT
+   read runtime_state.get("sensors") anywhere. The sensors dict is present in
+   the input mapping but is never extracted.
+
+7. CONFIRMED. RuntimeControlSnapshotAdapterInput has: snapshot_id, created_at,
+   runtime_state, loads, policy_decision, command_proposal, safety_gate_result,
+   execution_eligibility, manual_queue_snapshot, energy_budget, battery_window,
+   mode, notes. No sensors field.
+
+8. CONFIRMED. ControlStateSnapshotInput has: snapshot_id, created_at, loads,
+   policy_decision, command_proposal, safety_gate_result, execution_eligibility,
+   manual_queue_snapshot, energy_budget, battery_window, mode, notes.
+   No sensors field.
+
+9. CONFIRMED. ControlStateSnapshot has: snapshot_id, created_at, status, loads,
+   pipeline, mode, energy_budget, battery_window, notes, warnings.
+   No sensors field.
+
+10. CONFIRMED. dashboard.js renderSensors() reads snapshot.sensors.
+    Since ControlStateSnapshot serializes to JSON without a sensors key,
+    snapshot.sensors is undefined, renderSensors shows "No sensors available".
+
+11. CONFIRMED. _device_to_load_dict() produces dicts with: load_id, display_name,
+    description, device_type, configured_load_watts, currently_on, controllable,
+    is_life_support, roles, status, notes, observed_state, observed_at,
+    observation_source, freshness, mapping_status, startup_reset_result, enabled,
+    communication_status.
+
+    _parse_loads() in web_control_state_provider.py converts dict → RuntimeLoadState
+    using only: load_id, display_name, configured_load_watts, currently_on,
+    controllable, is_life_support, roles, status, notes, observed_state,
+    observed_at, observation_source, freshness.
+
+    DROPPED: description, device_type, mapping_status, startup_reset_result,
+    enabled, communication_status.
+
+    RuntimeLoadState → _to_load_candidate() → LoadCandidate lacks these fields.
+    LoadCandidate → _convert_load() → LoadControlSnapshot also lacks them.
+    The dashboard column for Description exists in the HTML/JS but its data
+    never arrives.
+
+12. CONFIRMED. TelemetryRegistry.get_all_readings() reconstructs:
+        SensorTelemetryReading(
+            sensor_id=..., display_name=..., metric=..., value=...,
+            unit=..., observed_at=..., source=..., freshness=...,
+            status=..., communication_status=...,
+        )
+    description=reading.description is MISSING. The description from the stored
+    reading is dropped on every freshness recomputation.
+
+CURRENT DATA FLOW
+TelemetryRegistry → get_all_readings_dict → create_runtime_state_provider
+→ runtime_state["sensors"]     ← sensors present here
+  → build_control_state_snapshot_from_runtime_state
+    → raw_loads parsed        ← sensors NOT parsed
+    → RuntimeControlSnapshotAdapterInput
+      → build_runtime_control_snapshot
+        → ControlStateSnapshotInput
+          → build_control_state_snapshot
+            → ControlStateSnapshot
+              → WebUiControlStateResponse
+                → GET /control/state JSON
+                  → dashboard.js renderSensors(data.snapshot)
+                    → snapshot.sensors is undefined → "No sensors available"
+
+EXACT DATA LOSS POINTS
+1. build_control_state_snapshot_from_runtime_state — never reads
+   runtime_state["sensors"]. Sensors are present in the input dict but
+   are silently discarded.
+
+2. RuntimeControlSnapshotAdapterInput — has no typed sensors list field.
+
+3. ControlStateSnapshotInput — has no typed sensors list field.
+
+4. ControlStateSnapshot — has no typed sensors list field.
+
+5. ControlStateSnapshot → JSON serialization — FastAPI dataclass serialization
+   only emits fields declared in the dataclass; sensors is absent from output.
+
+6. _parse_loads() — drops description, device_type, mapping_status,
+   startup_reset_result, enabled, communication_status from load dicts.
+
+7. TelemetryRegistry.get_all_readings() — drops description when recomputing
+   SensorTelemetryReading.
+
+TARGET DATA FLOW
+TelemetryRegistry → get_all_readings_dict → create_runtime_state_provider
+→ runtime_state["sensors"]
+  → build_control_state_snapshot_from_runtime_state
+    → _parse_sensors(raw_sensors)                    ← NEW
+    → RuntimeControlSnapshotAdapterInput(sensors=…)  ← NEW field
+      → build_runtime_control_snapshot
+        → ControlStateSnapshotInput(sensors=…)       ← NEW field
+          → build_control_state_snapshot
+            → ControlStateSnapshot(sensors=…)        ← NEW field
+              → WebUiControlStateResponse
+                → FastAPI serializes dataclass → JSON "sensors"
+                  → dashboard.js renderSensors(data.snapshot)
+                    → snapshot.sensors populated → table rows rendered
+
+SCOPE
+PR 0034j contains only:
+1. Typed SensorReadSnapshot dataclass to carry sensor data across the typed
+   snapshot boundary.
+2. _parse_sensors() helper analogous to _parse_loads().
+3. sensors field on RuntimeControlSnapshotAdapterInput.
+4. sensors field on ControlStateSnapshotInput.
+5. sensors field on ControlStateSnapshot.
+6. _convert_sensor() helper analogous to _convert_load().
+7. Call to _parse_sensors() in build_control_state_snapshot_from_runtime_state.
+8. Propagation of sensors through build_runtime_control_snapshot.
+9. Missing load metadata fields added to RuntimeLoadState (description,
+   device_type, mapping_status, startup_reset_result, enabled,
+   communication_status).
+10. Corresponding dict parsing in _parse_loads().
+11. description restored in TelemetryRegistry.get_all_readings().
+12. Failing regression tests before implementation; passing tests after.
+13. check-canonical-sensor-snapshot-pipeline.sh validation script.
+
+OUT OF SCOPE
+- Tuya batch polling behavior.
+- Individual status fallback.
+- Permission-denied isolation.
+- Telemetry DP property discovery.
+- Production YAML configuration.
+- DeviceStatusLogger migration.
+- MLDataCollector migration.
+- Inverter API behavior.
+- Runtime shared_state removal.
+- Command execution.
+- Startup reset logic.
+- Device grouping or powered_by relationships.
+- Manual control.
+- Write APIs.
+- GitOps or deployment changes.
+
+Documented as deferred PR 0034k concerns where code evidence supports the
+dependency.
+
+DOMAIN TYPES
+
+SensorReadSnapshot
+Module: app/control/control_state_snapshot.py (alongside LoadControlSnapshot)
+
+Rationale: A new sensor type is required because SensorTelemetryReading
+lives in app/devices/sensor_telemetry.py (domain model) and contains an
+observed_at datetime (internal type). At the /control/state web boundary,
+observed_at must be an ISO string or None. The new type also adds device_type
+(canonical string) and drops internal fields never exposed through the API.
+This avoids coupling the control snapshot layer to the device telemetry model.
+
+Required safe fields:
+  sensor_id: str = ""
+  display_name: str = ""
+  description: str = ""
+  device_type: str = ""
+  metric: str = ""
+  value: float | None = None
+  unit: str = "celsius"
+  observed_at: str | None = None
+  source: str = ""
+  freshness: str = ""
+  status: str = ""
+  communication_status: str = ""
+
+Contracts:
+- value is float or null.
+- observed_at is ISO string or null at the web boundary.
+- description defaults to "".
+- device_type is canonical and controlled (normalized by normalize_device_type).
+- No Tuya parent ID.
+- No DP property code.
+- No raw status payload.
+- No credentials.
+- No runtime exception text.
+- Frozen dataclass (mutable for FastAPI serialization? Confirm — existing
+  LoadControlSnapshot is frozen and FastAPI serializes it correctly via the
+  router returning WebUiControlStateResponse which contains it as a nested
+  dataclass. FastAPI + Pydantic v2 auto-serializes frozen dataclasses.)
+
+SENSOR SNAPSHOT CONTRACT
+Layer            | Representation          | observed_at type
+TelemetryRegistry| SensorTelemetryReading  | datetime | None
+get_all_readings_dict | dict             | ISO string | None
+runtime_state["sensors"] | list[dict]  | ISO string | None
+_parse_sensors    | SensorReadSnapshot     | str | None
+ControlStateSnapshot | SensorReadSnapshot  | str | None
+WebUiControlStateResponse | nested        | str | None
+GET /control/state JSON | "sensors" array | ISO string | null
+dashboard.js      | snapshot.sensors       | string | null → rendered as timestamp
+
+LOAD METADATA CONTRACT
+
+RuntimeLoadState (app/control/runtime_snapshot_adapter.py):
+Add these fields with sensible defaults:
+  description: str = ""
+  device_type: str = ""
+  mapping_status: str | None = None
+  startup_reset_result: str | None = None
+  enabled: bool = True
+  communication_status: str | None = None
+
+_load_to_dict() in _parse_loads() must read these keys from the dict and
+pass them to RuntimeLoadState constructor.
+
+LoadCandidate (app/control/policy_models.py):
+No changes. LoadCandidate is the control engine's view of loads and should
+not own display-only metadata. The new fields stop at RuntimeLoadState and
+are mapped directly to LoadControlSnapshot.
+
+LoadControlSnapshot (app/control/control_state_snapshot.py):
+Add these fields:
+  description: str = ""
+  device_type: str = ""
+  mapping_status: str | None = None
+  startup_reset_result: str | None = None
+  enabled: bool = True
+  communication_status: str | None = None
+
+_convert_load() must read these from LoadCandidate (or RuntimeLoadState via
+the adapter) and pass them to LoadControlSnapshot.
+
+Note: Since LoadCandidate does not own these fields, the adapter
+(build_runtime_control_snapshot / _to_load_candidate) must carry them
+separately. The cleanest approach: add a load_metadata mapping in the
+adapter input or pass the extra fields through a separate typed list.
+Preferred: extend RuntimeLoadState so the fields are typed all the way
+through, then map into LoadControlSnapshot while LoadCandidate stays clean.
+
+Implementation approach in build_runtime_control_snapshot:
+- Keep LoadCandidate as is (control-only).
+- In _convert_load → LoadControlSnapshot, use a parallel metadata lookup
+  keyed by load_id, or pass the additional fields through the adapter input.
+- Simplest: add a `load_metadata: dict[str, Any]` to
+  RuntimeControlSnapshotAdapterInput, or extend RuntimeLoadState and have
+  _to_load_candidate strip the display-only fields before creating LoadCandidate.
+- Decision: extend RuntimeLoadState with all fields, then have
+  _to_load_candidate ignore them, and have build_control_state_snapshot
+  pass them directly to _convert_load via the snapshot input.
+
+TELEMETRY REGISTRY CHANGES
+File: app/service/telemetry_registry.py
+
+get_all_readings() — add description=reading.description to the reconstructed
+SensorTelemetryReading:
+  return SensorTelemetryReading(
+      ...existing fields...,
+      description=reading.description,   # ADDED
+      communication_status=reading.communication_status,
+  )
+
+RUNTIME READ MODEL CHANGES
+File: app/web_runtime_integration.py
+
+No changes needed. _device_to_load_dict() already emits description,
+device_type, mapping_status, startup_reset_result, enabled,
+communication_status. Sensors are already placed under runtime_state["sensors"]
+by build_runtime_read_model(). The loss occurs downstream.
+
+RUNTIME ADAPTER CHANGES
+File: app/control/runtime_snapshot_adapter.py
+
+1. Add _parse_sensors() helper: takes raw list[dict] | None, returns
+   tuple[SensorReadSnapshot, ...]. Safely converts each dict, skipping
+   invalid entries silently. Uses safe defaults for missing keys.
+
+2. Add _convert_sensor() helper: takes a SensorReadSnapshot dict (from
+   _parse_sensors output), returns SensorReadSnapshot.
+
+3. Extend RuntimeControlSnapshotAdapterInput with:
+   sensors: tuple[SensorReadSnapshot, ...] = field(default_factory=tuple)
+
+4. In build_runtime_control_snapshot:
+   - Call _parse_sensors(runtime_state.get("sensors")).
+   - Pass parsed sensors into ControlStateSnapshotInput.sensors.
+   - Include sensors in non-emptiness check for status determination
+     (a snapshot with sensors but no loads should be OK, not UNKNOWN).
+
+CONTROL SNAPSHOT CHANGES
+File: app/control/control_state_snapshot.py
+
+1. Extend ControlStateSnapshotInput with:
+   sensors: tuple[SensorReadSnapshot, ...] = field(default_factory=tuple)
+
+2. Extend ControlStateSnapshot with:
+   sensors: tuple[SensorReadSnapshot, ...] = field(default_factory=tuple)
+
+3. In build_control_state_snapshot():
+   - Propagate snapshot_input.sensors to ControlStateSnapshot.sensors
+     (analogous to load propagation).
+   - Include sensors presence in the "has meaningful input" check for
+     status determination (if loads is empty but sensors exists, the
+     snapshot is not UNKNOWN).
+
+4. Add _convert_sensor() helper: converts SensorReadSnapshot → stored as-is
+   (already the correct type). No transformation needed since all fields are
+   web-safe strings or scalars.
+
+WEB CONTRACT CHANGES
+File: app/control/web_ui_read_contract.py
+
+No changes. WebUiControlStateResponse already wraps ControlStateSnapshot
+generically. When ControlStateSnapshot.sensors is present, FastAPI
+serialization will include it automatically.
+
+ENDPOINT SERIALIZATION
+File: app/control/web_ui_read_endpoint.py
+
+No changes. The route returns result.response which is a
+WebUiControlStateResponse. FastAPI automatically serializes nested dataclasses
+(including LoadControlSnapshot and the new SensorReadSnapshot) using Pydantic
+model_validate() under the hood, which handles frozen dataclasses correctly.
+
+No second endpoint is required. GET /control/state remains the single
+read-only authenticated endpoint.
+
+DASHBOARD CONTRACT
+File: app/web/static/dashboard.js
+
+No changes required. The existing renderSensors() already reads
+snapshot.sensors, renders Description column, and handles null values.
+After this PR, snapshot.sensors will be correctly populated upstream.
+
+Verify at implementation time:
+- configured sensor with null value → renders N/A (already works).
+- valid value 20.9 → renders "20.9 °C" (already works via existing logic).
+- description → renders under Description column (added in PR 0034h/hotfix).
+- no API-derived value uses innerHTML (textContent used throughout).
+- six-column Sensors contract (Sensor, Description, Value, Observed, Freshness,
+  Status) — confirmed in index.html.
+- empty-state colspan: currently 6 columns for "No sensors available" row.
+  This is correct because Sensors table has 6 column headers PLUS the colSpan
+  is computed dynamically from the header row.
+
+TEST-FIRST STRATEGY
+Write a focused failing test script BEFORE any implementation changes.
+
+File: scripts/check-canonical-sensor-snapshot-pipeline.sh
+
+The script must test the complete chain through deterministic fake objects
+(no network, no Tuya, no production config). It must fail on the current code
+and pass after implementation.
+
+Test A — sensor propagation (CURRENT EXPECTED: FAIL):
+Input: runtime_state dict containing "sensors" with one sensor entry
+(20.9°C, description "Water Thermometer", device_type "thermo").
+Call: build_control_state_snapshot_from_runtime_state(runtime_state)
+Assert: result.snapshot is not None
+Assert: result.snapshot.sensors is a tuple with length 1 (CURRENTLY FAILS —
+  AttributeError or empty because no sensors field exists)
+Assert: result.snapshot.sensors[0].value == 20.9
+Assert: result.snapshot.sensors[0].description == "Water Thermometer"
+Assert: result.snapshot.sensors[0].device_type == "thermo"
+
+Test B — configured descriptor before reading:
+Input: TelemetryRegistry with registered descriptor (value=None, freshness=unavailable)
+Assert: descriptor appears in get_all_readings_dict()
+Feed through the complete chain via build_runtime_read_model → provider → adapter
+Assert: snapshot contains sensor with value=None, freshness="unavailable"
+Assert: sensor survives to WebUiControlStateResponse
+
+Test C — load metadata preservation:
+Input: runtime_state with load containing description, device_type,
+  mapping_status, startup_reset_result, enabled, communication_status
+Assert: all fields present in the final ControlStateSnapshot loads[0]
+
+Test D — description in get_all_readings():
+Input: TelemetryRegistry with descriptor containing description="Water Thermometer"
+Call: get_all_readings()
+Assert: reading.description == "Water Thermometer"
+(CURRENTLY FAILS: description is None/empty because get_all_readings drops it)
+
+END-TO-END ACCEPTANCE
+All of the following must work with deterministic fakes only:
+
+1. Fake configured thermo → descriptor registered via register_sensor_descriptor
+   → get_all_readings_dict returns dict with value=None, description="Water Thermometer"
+   → runtime_state["sensors"] → build_control_state_snapshot_from_runtime_state
+   → snapshot.sensors[0].value is None, snapshot.sensors[0].description == "Water Thermometer"
+   → WebUiControlStateResponse JSON serialization includes "sensors" array
+   → dashboard.js renderSensors sees populated sensors → renders N/A row
+
+2. Fake telemetry normalized to 20.9 in TelemetryRegistry → update_water_temperature
+   → get_all_readings_dict → runtime_state["sensors"]
+   → snapshot.sensors[0].value == 20.9
+   → API response JSON: "value": 20.9
+   → dashboard renders "20.9 °C"
+
+3. No live Tuya, network, operational configuration, or browser automation.
+
+FILES EXPECTED TO CHANGE
+- app/control/control_state_snapshot.py       — SensorReadSnapshot type; sensors
+                                                field on ControlStateSnapshotInput
+                                                and ControlStateSnapshot;
+                                                _convert_sensor helper; status
+                                                check adjustment.
+- app/control/runtime_snapshot_adapter.py     — _parse_sensors helper; sensors
+                                                field on adapter input;
+                                                propagation through
+                                                build_runtime_control_snapshot.
+- app/control/policy_models.py                — NO changes (LoadCandidate stays
+                                                control-only).
+- app/service/telemetry_registry.py           — Add description=reading.description
+                                                in get_all_readings().
+- app/web_control_state_provider.py           — _parse_loads: parse description,
+                                                device_type, mapping_status,
+                                                startup_reset_result, enabled,
+                                                communication_status from dict.
+- scripts/check-canonical-sensor-snapshot-pipeline.sh — NEW file. Focused
+                                                end-to-end pipeline validation.
+
+FILES EXPECTED NOT TO CHANGE
+- run.py — Sensor bootstrap already correct. No runtime wiring changes needed.
+- app/device_initializer.py — No change.
+- app/devices/* — No change. Domain models unchanged.
+- app/tuya/* — No change. Polling behavior unchanged.
+- app/web_runtime_integration.py — Already emits correct dicts. No change.
+- app/web_host.py — No change.
+- app/control/web_ui_read_contract.py — No change (generic wrapper).
+- app/control/web_ui_read_endpoint.py — No change (route unchanged).
+- app/web/static/dashboard.js — No change (rendering already correct).
+- app/web/templates/index.html — No change.
+- app/monitoring/device_status_logger.py — Out of scope.
+- app/ml/ml_data_collector.py — Out of scope.
+
+IMPLEMENTATION ORDER
+1. WRITE FAILING TESTS FIRST: check-canonical-sensor-snapshot-pipeline.sh
+   — Tests A, B, C, D all expected to fail on current code.
+
+2. TelemetryRegistry.get_all_readings description fix (small, isolated).
+
+3. SensorReadSnapshot dataclass in control_state_snapshot.py.
+
+4. _parse_sensors() in runtime_snapshot_adapter.py.
+
+5. runtime_state["sensors"] consumption in
+   build_control_state_snapshot_from_runtime_state (web_control_state_provider).
+
+6. sensors field on RuntimeControlSnapshotAdapterInput.
+
+7. sensors propagation in build_runtime_control_snapshot.
+
+8. sensors field on ControlStateSnapshotInput and ControlStateSnapshot.
+
+9. _convert_sensor() and propagation in build_control_state_snapshot().
+   — At this point Test A should pass.
+
+10. _parse_loads() extended for description, device_type, mapping_status,
+    startup_reset_result, enabled, communication_status.
+    — At this point Test C should pass.
+
+11. RuntimeLoadState extended with same fields.
+
+12. LoadControlSnapshot extended with same fields.
+    — Test B should pass.
+
+13. Run check-canonical-sensor-snapshot-pipeline.sh — all tests pass.
+
+14. Run full regression suite.
+
+15. Code review.
+
+MIGRATION AND COMPATIBILITY
+- Older callers without sensors in runtime_state dict: _parse_sensors returns
+  empty tuple. No crash. Sensor section shows "No sensors available" as before.
+- Older callers without new load metadata keys: _parse_loads uses .get() with
+  defaults. description="" maps to em dash in dashboard. device_type="unknown".
+- No migration of stored data needed (TelemetryRegistry is in-memory, rebuilt
+  on restart).
+- No YAML or config changes needed.
+- Dashboard backward-compatible: empty sensors tuple → "No sensors available".
+
+SECURITY BOUNDARIES
+- SensorReadSnapshot exposes only safe fields: sensor_id, display_name,
+  description, device_type, metric, value, unit, observed_at (ISO string),
+  source (controlled), freshness, status, communication_status.
+- NEVER exposed: tuya_device_id, control_key, state_key, property codes
+  (temp_current), raw status lists, credentials, tokens, signed URLs,
+  exceptions, operational configuration.
+- Description and display_name are operator-controlled text. They are rendered
+  via textContent (not innerHTML) in dashboard.js — already safe.
+- _parse_sensors and _parse_loads use try/except with safe defaults for
+  all fields. No exception text leaks.
+- No new write paths. No new endpoints. No new public routes.
+
+REGRESSION RISKS
+- Adding sensor field to frozen dataclasses may break callers that rely on
+  positional argument unpacking. Mitigation: all new fields have defaults and
+  are keyword-only at the boundary; existing callers using keyword arguments
+  are unaffected.
+- Adding fields to RuntimeLoadState may break existing tuple of field references.
+  Mitigation: RuntimeLoadState uses keyword construction in _parse_loads;
+  existing callers constructing RuntimeLoadState directly with positional args
+  are rare. Audit before implementation.
+- FastAPI serialization of new nested dataclass (SensorReadSnapshot) has been
+  tested previously with LoadControlSnapshot and works. No risk.
+- Empty-sensor edge cases: empty tuple → dashboard shows "No sensors available"
+  (existing behavior). One missing field → safe default. All fails covered.
+
+ROLLBACK
+1. Revert file changes per FILES EXPECTED TO CHANGE.
+2. Remove scripts/check-canonical-sensor-snapshot-pipeline.sh.
+3. No stored data to migrate.
+4. No YAML or config changes to revert.
+5. No database migrations.
+
+VALIDATION COMMANDS
+bash scripts/check-tuya-device-property-mapping.sh
+bash scripts/check-canonical-device-observation.sh
+bash scripts/check-project-memory.sh
+bash scripts/check-web-dashboard.sh
+bash scripts/check-web-authentication.sh
+bash scripts/check-runtime-read-only-web-host.sh
+bash scripts/check-canonical-sensor-snapshot-pipeline.sh   # NEW — focused chain test
+python3 -m compileall -q app run.py
+
+git diff --check
+git status --short
+git diff --name-only
+git diff --stat
+git diff --cached --name-only
+
+Confirm:
+- No staged changes for non-PLAN.txt files until implementation.
+- No production config modified.
+- No sensitive values.
+- Only PLAN.txt created before implementation.
+
+DEFERRED PR 0034k
+Concerns explicitly deferred from this scope:
+- Tuya individual status fallback retry behavior (polling reliability).
+- DeviceStatusLogger cleanup (still uses ANALOG_TYPES and name-based
+  classification — should use classify_projection_kind and
+  normalize_device_type).
+- MLDataCollector shared_state dependency (still reads shared_state["water_temp"]
+  instead of TelemetryRegistry).
+- RelayTuyaController.update_devices_status() obsolete secondary polling loop.
+- Inverter API credential management.
+- Production YAML device grouping or powered_by relationships.
+- Removal of SENSOR_DEVICE_TYPES / ANALOG_TYPES duplication in
+  device_status_logger.py.
+
+WARNINGS
+- PR 0034h added description to _device_to_load_dict() output and to
+  TelemetryRegistry.register_sensor_descriptor(). Both are correct.
+- PR 0034h added description column to dashboard HTML and JS. No additional
+  dashboard changes needed for this PR.
+- _parse_loads currently drops device_type, mapping_status, etc. This was
+  identified as a gap in PR 0034g which focused on classification separation
+  but did not extend the typed snapshot pipeline.
+- TelemetryRegistry.get_all_readings() drops description. This was introduced
+  in PR 0034h when description was added to the stored model but the
+  get_all_readings() reconstruction was not updated.
+
+BLOCKERS
+None.
+
+NEXT REQUIRED ACTION
+1. Review PLAN.txt.
+2. Merge PLAN.txt to master under PR 0034j.
+3. Write failing tests in scripts/check-canonical-sensor-snapshot-pipeline.sh.
+4. Implement changes per IMPLEMENTATION ORDER.
+5. Run full regression suite.
+6. Code review and merge.

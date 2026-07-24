@@ -1,0 +1,352 @@
+PLAN REVIEW COMPLETE
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+BLOCKERS
+None
+
+WARNINGS
+1. The plan describes two alternative implementation approaches for carrying
+   load metadata through the adapter (load_metadata dict vs. extended
+   RuntimeLoadState with parallel tracking). The final choice must be resolved
+   during implementation to avoid mid-PR ambiguity. Either approach is acceptable
+   as long as LoadCandidate remains unchanged and additional metadata fields
+   reach LoadControlSnapshot.
+2. The plan's _convert_sensor() helper is described as a pass-through because
+   SensorReadSnapshot is already web-safe. This is consistent with the typed
+   boundary design but risks being dead code if no transformation is needed;
+   verify at implementation time whether it should be kept for consistency with
+   _convert_load() or removed.
+3. The plan's validation section includes
+   bash scripts/check-runtime-read-only-web-host.sh in the regression suite,
+   which is a general validation script not specific to this PR. This is
+   acceptable as a regression safeguard but should not gate the PR.
+
+ROOT CAUSE REVIEW
+Independently confirmed against current code (HEAD 033fa22):
+
+1. CONFIRMED. Sensor descriptors are registered in run.py before web host
+   startup. TelemetryRegistry.register_sensor_descriptor() is called during
+   device iteration, upstream of start_runtime_read_only_web_host().
+
+2. CONFIRMED. sensors_provider=telemetry_registry.get_all_readings_dict is
+   passed into start_runtime_read_only_web_host().
+
+3. CONFIRMED. create_runtime_state_provider() calls sensors_provider() and passes
+   the result to build_runtime_read_model(devs, sensors=sensors).
+
+4. CONFIRMED. build_runtime_read_model() sets result["sensors"] = sensors when
+   sensors is not None. The runtime_state dict always contains "sensors" when
+   sensors_provider returns data.
+
+5. CONFIRMED. build_control_state_snapshot_from_runtime_state() in
+   web_control_state_provider.py reads runtime_state.get("loads") and
+   runtime_state.get("load_states") but does NOT read runtime_state.get("sensors")
+   anywhere. The sensors dict is present in the input mapping but silently discarded.
+
+6. CONFIRMED. RuntimeControlSnapshotAdapterInput has no sensors field.
+   Confirmed at source line: no sensors field in dataclass definition.
+
+7. CONFIRMED. ControlStateSnapshotInput has no sensors field. Confirmed at source.
+
+8. CONFIRMED. ControlStateSnapshot has no sensors field. Confirmed at source.
+
+9. CONFIRMED. dashboard.js renderSensors() reads snapshot.sensors. Since
+   ControlStateSnapshot serializes to JSON without a sensors key,
+   snapshot.sensors is undefined and "No sensors available" is displayed.
+
+10. CONFIRMED. _device_to_load_dict() emits description, device_type,
+    mapping_status, startup_reset_result, enabled, communication_status.
+    _parse_loads() reads only: load_id, display_name, configured_load_watts,
+    currently_on, controllable, is_life_support, roles, status, notes,
+    observed_state, observed_at, observation_source, freshness. It drops:
+    description, device_type, mapping_status, startup_reset_result, enabled,
+    communication_status.
+
+11. CONFIRMED. TelemetryRegistry.get_all_readings() reconstructs
+    SensorTelemetryReading but does NOT include
+    description=reading.description. The description from the stored reading
+    is dropped on every freshness recomputation.
+
+ROOT CAUSE: Sensors are present in runtime_state after TelemetryRegistry
+processing but silently discarded in the control snapshot pipeline because
+build_control_state_snapshot_from_runtime_state never reads
+runtime_state["sensors"], and no downstream types carry a sensors field. The
+plan correctly identifies seven exact data-loss points.
+
+SCOPE REVIEW
+PR 0034j scope is correctly limited to:
+- Typed SensorReadSnapshot dataclass
+- _parse_sensors() helper
+- sensors field on RuntimeControlSnapshotAdapterInput
+- sensors field on ControlStateSnapshotInput
+- sensors field on ControlStateSnapshot
+- _convert_sensor() helper (pass-through)
+- Propagation through all adapter and snapshot layers
+- Load metadata recovery (description, device_type, mapping_status,
+  startup_reset_result, enabled, communication_status) through RuntimeLoadState
+  and LoadControlSnapshot
+- TelemetryRegistry.get_all_readings() description fix
+- Failing regression tests before implementation
+- check-canonical-sensor-snapshot-pipeline.sh validation script
+
+Unrelated concerns correctly deferred to PR 0034k:
+- Tuya batch polling behavior
+- Individual status fallback
+- Permission-denied isolation
+- Telemetry DP property discovery
+- Production YAML configuration
+- DeviceStatusLogger migration
+- MLDataCollector migration
+- Inverter API behavior
+- Runtime shared_state removal
+- Command execution
+- Startup reset logic
+- Device grouping or powered_by relationships
+- Manual control
+- Write APIs
+- GitOps or deployment changes
+
+VERDICT: Scope is correctly bounded. No unauthorized inclusions.
+
+DOMAIN MODEL REVIEW
+
+SensorReadSnapshot (planned location: app/control/control_state_snapshot.py)
+fields as specified in plan:
+- sensor_id: str = ""                      — CONFIRMED as safe
+- display_name: str = ""                   — CONFIRMED as safe
+- description: str = ""                    — CONFIRMED as safe default
+- device_type: str = ""                    — CONFIRMED as canonical/controlled
+- metric: str = ""                         — CONFIRMED as controlled
+- value: float | None = None               — CONFIRMED as nullable
+- unit: str = "celsius"                    — CONFIRMED as controlled default
+- observed_at: str | None = None           — CONFIRMED as nullable ISO string at web boundary
+- source: str = ""                         — CONFIRMED as controlled
+- freshness: str = ""                      — CONFIRMED as controlled
+- status: str = ""                         — CONFIRMED as controlled
+- communication_status: str = ""           — CONFIRMED as controlled
+
+Contracts verified:
+- value is float or null                    — CONFIRMED
+- observed_at is ISO string or null at web boundary — CONFIRMED
+- description defaults to ""                — CONFIRMED
+- device_type is canonical and controlled    — CONFIRMED
+- No Tuya parent ID                         — CONFIRMED excluded
+- No DP property code                       — CONFIRMED excluded
+- No raw status payload                     — CONFIRMED excluded
+- No credentials                            — CONFIRMED excluded
+- No runtime exception text                 — CONFIRMED excluded
+
+Plan does NOT use LoadCandidate as sensor model. CONFIRMED.
+Plan does NOT pass unvalidated dicts through every layer. CONFIRMED (typed dataclass).
+
+SENSOR SNAPSHOT CONTRACT REVIEW
+Layer-appropriate observed_at types specified:
+- TelemetryRegistry: datetime | None
+- get_all_readings_dict: ISO string | None
+- runtime_state["sensors"]: ISO string | None
+- _parse_sensors -> SensorReadSnapshot: str | None
+- ControlStateSnapshot: str | None
+- WebUiControlStateResponse: str | None
+- GET /control/state JSON: ISO string | null
+- dashboard.js: string | null -> formatted timestamp
+
+Conversion boundaries correctly identified. Each layer handles its own
+representation without leaking internal types.
+
+LOAD METADATA REVIEW
+Plan correctly identifies that _parse_loads() drops:
+- description: str (CONFIRMED: _device_to_load_dict emits "description",
+  _parse_loads does not read it)
+- device_type: str (CONFIRMED: same pattern)
+- mapping_status: str | None (CONFIRMED: same)
+- startup_reset_result: str | None (CONFIRMED: same)
+- enabled: bool (CONFIRMED: same)
+- communication_status: str | None (CONFIRMED: same)
+
+Plan adds these fields to:
+- RuntimeLoadState (app/control/runtime_snapshot_adapter.py) — CONFIRMED
+- LoadControlSnapshot (app/control/control_state_snapshot.py) — CONFIRMED
+- _parse_loads dict parsing — CONFIRMED
+- _convert_load metadata pass-through — CONFIRMED
+
+Plan explicitly preserves:
+- LoadCandidate unchanged — CONFIRMED
+- ON/OFF/UNKNOWN semantics — CONFIRMED ("Reject changes that alter...")
+- Command capability — CONFIRMED
+- Startup reset behavior — CONFIRMED
+
+TELEMETRY REGISTRY REVIEW
+Plan correctly identifies the description-loss bug in
+TelemetryRegistry.get_all_readings().
+
+Current code (confirmed): get_all_readings() reconstructs
+SensorTelemetryReading without description=reading.description.
+The stored SensorTelemetryReading has a description field, but the
+reconstruction in get_all_readings() drops it.
+
+Planned fix: add description=reading.description to the reconstruction.
+
+Additionally:
+- descriptor description survives get_all_readings() after fix — CONFIRMED
+- valid reading description survives — CONFIRMED
+- null value descriptor remains present — CONFIRMED (value=None stored)
+- freshness recomputation does not remove metadata — CONFIRMED (all other
+  fields including communication_status are already preserved)
+
+RUNTIME PIPELINE REVIEW
+Pipeline from TelemetryRegistry to endpoint after fix:
+1. TelemetryRegistry -> get_all_readings_dict (HAS description, device_type="thermo")
+2. create_runtime_state_provider -> runtime_state["sensors"] (NO CHANGE needed)
+3. build_control_state_snapshot_from_runtime_state -> _parse_sensors(runtime_state.get("sensors")) (NEW)
+4. _parse_sensors -> SensorReadSnapshot tuple (NEW)
+5. RuntimeControlSnapshotAdapterInput(sensors=...) (NEW field)
+6. build_runtime_control_snapshot -> ControlStateSnapshotInput (NEW field)
+7. build_control_state_snapshot -> ControlStateSnapshot(sensors=...) (NEW field)
+8. FastAPI serialization -> JSON "sensors" array (AUTOMATIC)
+9. dashboard.js -> renderSensors(data.snapshot) (NO CHANGE needed)
+
+All seven original data-loss points are addressed in order.
+
+CONTROL SNAPSHOT REVIEW
+Changes to ControlStateSnapshot:
+- Status determination: the plan notes that sensors presence should be
+  considered in the "has meaningful input" check for status. If sensors exist
+  but loads are empty, the snapshot should not be UNKNOWN. This is a necessary
+  adjustment — CONFIRMED as correct.
+
+All existing frozen dataclass contracts preserved (new fields have defaults).
+
+API CONTRACT REVIEW
+- GET /control/state remains the only control-state route — CONFIRMED
+- Authentication remains mandatory — CONFIRMED (ControlStateAuthMiddleware unchanged)
+- Response remains read-only — CONFIRMED
+- Nested SensorReadSnapshot dataclass serializes deterministically via FastAPI —
+  CONFIRMED (same mechanism as LoadControlSnapshot)
+- No raw internal configuration exposed — CONFIRMED
+- No endpoint reads shared_state directly — CONFIRMED
+- No second endpoint required — CONFIRMED
+
+DASHBOARD CONTRACT REVIEW
+- snapshot.sensors consumed directly by renderSensors() — CONFIRMED
+- Six header cells match six body cells (Sensor, Description, Value,
+  Observed, Freshness, Status) — CONFIRMED in index.html and dashboard.js
+- Empty-state colspan computed dynamically from header row — CONFIRMED
+- textContent used throughout for all API values — CONFIRMED
+- description and value rendered under correct headers — CONFIRMED
+- null value becomes "N/A", never "0 °C" — CONFIRMED
+  (dashboard.js: `if (rawValue === null || rawValue === undefined) { tdValue.textContent = "N/A"; }`)
+
+The plan correctly requires no changes to dashboard.js or index.html — the
+existing rendering code already handles the sensor contract correctly once
+snapshot.sensors is populated upstream.
+
+SECURITY REVIEW
+All forbidden exposures explicitly enumerated and absent from plan:
+- tuya_device_id — NOT exposed in SensorReadSnapshot; absent from plan
+- control_key — NOT exposed; absent from plan
+- state_key — NOT exposed; absent from plan
+- candidate DP properties — NOT exposed; absent from plan
+- raw Tuya payloads — NOT exposed; absent from plan
+- credentials — NOT exposed; absent from plan
+- tokens — NOT exposed; absent from plan
+- signed URLs — NOT exposed; absent from plan
+- exception strings — NOT exposed; _parse_sensors uses try/except with
+  safe defaults, no exception text leaks
+- operational YAML — NOT exposed; absent from plan
+
+Description and display_name treated as untrusted text — CONFIRMED
+(rendered via textContent in dashboard.js)
+
+No new write paths — CONFIRMED
+No new endpoints — CONFIRMED
+No new public routes — CONFIRMED
+
+VALIDATION REVIEW
+Plan requires:
+- scripts/check-canonical-sensor-snapshot-pipeline.sh (NEW) — focused
+  behavioral validator using real Python objects through the pipeline
+- bash scripts/check-tuya-device-property-mapping.sh — CONFIRMED existing
+- bash scripts/check-canonical-device-observation.sh — CONFIRMED existing
+- bash scripts/check-project-memory.sh — CONFIRMED existing
+- bash scripts/check-web-dashboard.sh — CONFIRMED existing
+- bash scripts/check-web-authentication.sh — CONFIRMED existing
+- python3 -m compileall -q app run.py — CONFIRMED specified
+
+The new pipeline test script uses deterministic fake objects (no network, no
+Tuya, no production config) — CONFIRMED in plan. This is a behavioral
+validator, not a grep-only check. ACCEPTABLE.
+
+IMPLEMENTATION ORDER REVIEW
+Order specified in plan:
+1. WRITE FAILING TESTS FIRST (Tests A-D all expected to fail on current code)
+2. TelemetryRegistry.get_all_readings description fix (small, isolated)
+3. SensorReadSnapshot dataclass
+4. _parse_sensors() helper
+5. runtime_state["sensors"] consumption
+6. sensors field on RuntimeControlSnapshotAdapterInput
+7. sensors propagation in build_runtime_control_snapshot
+8. sensors field on ControlStateSnapshotInput and ControlStateSnapshot
+9. _convert_sensor() and propagation
+10. _parse_loads() extended for load metadata
+11. RuntimeLoadState extended
+12. LoadControlSnapshot extended
+13. Run all pipeline tests — all pass
+14. Run full regression suite
+15. Code review
+
+Typed models and failing tests precede endpoint/dashboard acceptance — CONFIRMED
+Every intermediate conversion layer accounted for — CONFIRMED
+Minimizes partially migrated states — CONFIRMED (each step leaves a testable state)
+
+DEFERRED PR 0034k REVIEW
+Plan documents a clear deferred section for separately verified concerns:
+- Tuya individual status fallback retry behavior (polling reliability)
+- DeviceStatusLogger cleanup (still uses ANALOG_TYPES and name-based
+  classification — should use classify_projection_kind and
+  normalize_device_type)
+- MLDataCollector shared_state dependency (still reads shared_state["water_temp"]
+  instead of TelemetryRegistry)
+- RelayTuyaController.update_devices_status() obsolete secondary polling loop
+- Inverter API credential management
+- Production YAML device grouping or powered_by relationships
+- Removal of SENSOR_DEVICE_TYPES / ANALOG_TYPES duplication in
+  device_status_logger.py
+
+Each concern is grounded in code evidence. No silent omission of known issues.
+No implementation of deferred items inside PR 0034j scope.
+
+REQUIRED PLAN CORRECTIONS
+None. The plan is complete, correct, and covers all required dimensions.
+
+FINAL SUMMARY
+PLAN REVIEW COMPLETE
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+The plan correctly identifies the actual sensor data-loss layer
+(build_control_state_snapshot_from_runtime_state silently discarding
+runtime_state["sensors"]) and the load-description loss layer
+(_parse_loads dropping metadata fields, get_all_readings dropping description).
+It defines a complete typed SensorReadSnapshot contract with all required
+fields (sensor_id, display_name, description, device_type, metric, value,
+unit, observed_at, source, freshness, status, communication_status) and
+preserves nullable value and observed_at semantics. The plan covers every
+conversion boundary with explicit conversion functions, requires failing
+current-state characterization tests before any model changes, requires a
+complete end-to-end deterministic test, keeps all unrelated refactors (Tuya
+polling, logger, ML, fallback) properly deferred to PR 0034k, and preserves
+authentication, read-only behavior, and security boundaries. The
+implementation order minimizes partially migrated states. No forbidden scope,
+no exposed secrets, no raw Tuya internals, and no dashboard redesign.
+
+ARTIFACT PATH
+.project-memory/pr/0034j-canonical-sensor-snapshot-pipeline/reviews/PLAN_REVIEW.txt
