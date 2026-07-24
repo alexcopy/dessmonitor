@@ -173,7 +173,6 @@ def build_runtime_read_model(
                 )
                 proj = classify_projection_kind(
                     getattr(device, "device_type", ""),
-                    getattr(device, "extra", None),
                 )
                 if proj != DeviceProjectionKind.LOAD:
                     continue
@@ -268,10 +267,13 @@ def _device_to_load_dict(
         status_str = "unhealthy"
 
     description = _safe_str(getattr(device, "desc", ""))
+    from app.devices.relay_channel_device import normalize_device_type
+    canonical_dt = normalize_device_type(getattr(device, "device_type", ""))
     return {
         "load_id": load_id,
         "display_name": display_name,
         "description": description,
+        "device_type": canonical_dt,
         "configured_load_watts": configured_load_watts,
         "currently_on": currently_on,
         "controllable": controllable,

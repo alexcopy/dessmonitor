@@ -256,6 +256,19 @@
         }
     }
 
+    /* Canonical device type labels */
+    var DEVICE_TYPE_LABELS = {
+        "multi_switch": "Multi-switch",
+        "switch": "Switch",
+        "pump": "Pump",
+        "thermo": "Thermometer",
+        "unknown": "Unknown"
+    };
+
+    function getDeviceTypeLabel(dt) {
+        return DEVICE_TYPE_LABELS[dt] || dt || "Unknown";
+    }
+
     /* -----------------------------------------------------------------------
      * Rendering
      * -----------------------------------------------------------------------
@@ -308,7 +321,9 @@
             dom.loadsTableBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 7;
+            var loadsHeaderRow = document.querySelector("#loads-table-body").parentElement.querySelector("thead tr");
+            var loadsColCount = loadsHeaderRow ? loadsHeaderRow.children.length : 9;
+            emptyCell.colSpan = loadsColCount;
             emptyCell.className = "has-text-centered has-text-grey";
             emptyCell.textContent = "No loads available";
             emptyRow.appendChild(emptyCell);
@@ -359,12 +374,6 @@
             /* Device Name cell */
             var tdName = document.createElement("td");
             tdName.textContent = displayName;
-
-            /* Description cell */
-            var tdDesc = document.createElement("td");
-            var rawDesc = load.description || "";
-            tdDesc.textContent = rawDesc || "\u2014";
-            tr.appendChild(tdDesc);
             if (isLifeSupport) {
                 tdName.appendChild(document.createTextNode(" "));
                 var lsTag = document.createElement("span");
@@ -381,6 +390,12 @@
                 tdName.appendChild(staleIndicator);
             }
             tr.appendChild(tdName);
+
+            /* Description cell */
+            var tdDesc = document.createElement("td");
+            var rawDesc = load.description || "";
+            tdDesc.textContent = rawDesc || "\u2014";
+            tr.appendChild(tdDesc);
 
             /* State cell (ON/OFF/UNKNOWN badge) */
             var tdState = document.createElement("td");
@@ -474,7 +489,9 @@
             dom.sensorsTableBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 6;
+            var sensorsHeaderRow = document.querySelector("#sensors-table-body").parentElement.querySelector("thead tr");
+            var sensorsColCount = sensorsHeaderRow ? sensorsHeaderRow.children.length : 6;
+            emptyCell.colSpan = sensorsColCount;
             emptyCell.className = "has-text-centered has-text-grey";
             emptyCell.textContent = "No sensors available";
             emptyRow.appendChild(emptyCell);

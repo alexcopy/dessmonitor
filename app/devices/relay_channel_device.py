@@ -32,44 +32,56 @@ class DeviceProjectionKind:
     INVALID = "invalid"
 
 
-# Sensor device types — devices classified as sensors appear in Sensors only.
-SENSOR_DEVICE_TYPES = {
-    "thermo", "thermometer", "watertemp", "water_thermo",
-    "termo", "termo_sensor", "temp_sensor", "sensor",
+# Canonical device type aliases — device_type is the authoritative field.
+# These mappings normalize repository-grounded compatibility aliases to
+# canonical types.  No other field (name, desc, roles, control_key, etc.)
+# affects classification.
+
+CANONICAL_TYPE_MAP: dict[str, str] = {
+    "thermo": "thermo",
+    "thermometer": "thermo",
+    "watertemp": "thermo",
+    "water_thermo": "thermo",
+    "termo": "thermo",
+    "termo_sensor": "thermo",
+    "temp_sensor": "thermo",
+    "sensor": "thermo",
+    "switch": "switch",
+    "relay": "switch",
+    "pump": "pump",
+    "multi_switch": "multi_switch",
 }
 
+# Sensor canonical types — devices classified as sensors appear in Sensors only.
+SENSOR_CANONICAL_TYPES = {"thermo"}
 
-def classify_projection_kind(device_type: str, extra: dict | None = None) -> str:
+# Load canonical types — devices classified as loads appear in Current Loads.
+LOAD_CANONICAL_TYPES = {"switch", "pump", "multi_switch"}
+
+
+def normalize_device_type(raw: str) -> str:
+    """Normalize a device_type string to its canonical form.
+
+    Trims whitespace, lowercases, and resolves compatibility aliases.
+    Unknown types return "unknown".
+    """
+    dt = raw.strip().lower() if raw else ""
+    return CANONICAL_TYPE_MAP.get(dt, "unknown")
+
+
+def classify_projection_kind(device_type: str) -> str:
     """Classify a device into its primary projection kind.
 
-    Uses normalized device_type and explicit roles from configuration.
-    Does NOT use device name or display_name.
+    Uses ONLY normalized device_type.  No other field affects classification.
 
     Returns:
         "load", "sensor", or "invalid".
     """
-    dt = device_type.strip().lower() if device_type else ""
-
-    # Check explicit roles from extra dict
-    if extra and isinstance(extra, dict):
-        explicit_roles = extra.get("roles")
-        if isinstance(explicit_roles, (list, tuple)):
-            for role in explicit_roles:
-                r = str(role).strip().lower()
-                if r in SENSOR_DEVICE_TYPES:
-                    return DeviceProjectionKind.SENSOR
-
-    # Classify by device_type
-    if dt in SENSOR_DEVICE_TYPES:
+    canonical = normalize_device_type(device_type)
+    if canonical in SENSOR_CANONICAL_TYPES:
         return DeviceProjectionKind.SENSOR
-
-    if dt in ("pump", "switch", "relay", "multi_switch"):
+    if canonical in LOAD_CANONICAL_TYPES:
         return DeviceProjectionKind.LOAD
-
-    # Unknown device type — conservative: classify as load
-    if dt and dt not in ("", "unknown"):
-        return DeviceProjectionKind.LOAD
-
     return DeviceProjectionKind.INVALID
 
 @dataclass
@@ -109,6 +121,12 @@ class RelayChannelDevice:
     today_wh: float = 0.0
     enabled: bool = True
     communication_status: str = "unknown"
+
+    @property
+    def canonical_device_type(self) -> str:
+        """Return the normalized canonical device type."""
+        return normalize_device_type(self.device_type)
+
     def __post_init__(self):
         #  ← если в YAML ещё лежит api_key / api_sw
         if not self.control_key and self.api_key:
