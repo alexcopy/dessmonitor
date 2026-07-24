@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from app.control.command_arbitration import (
     CommandProposal,
@@ -77,6 +78,8 @@ class LoadControlSnapshot:
     """
     load_id: str = ""
     display_name: str = ""
+    description: str = ""
+    device_type: str = ""
     configured_load_watts: float = 0.0
     currently_on: bool | None = False
     controllable: bool = True
@@ -88,6 +91,10 @@ class LoadControlSnapshot:
     observed_at: str | None = None
     observation_source: str | None = None
     freshness: str | None = None
+    mapping_status: str | None = None
+    startup_reset_result: str | None = None
+    enabled: bool = True
+    communication_status: str | None = None
 
 
 # ===================================================================
@@ -130,7 +137,34 @@ class ControlModeSnapshot:
 
 
 # ===================================================================
-# Type 4: ControlStateSnapshotInput
+# Type 6: SensorReadSnapshot
+# ===================================================================
+
+
+@dataclass(frozen=True)
+class SensorReadSnapshot:
+    """A single sensor's telemetry snapshot for the web UI.
+
+    Pure data — no hardware calls, no side effects.
+    All fields are web-safe strings or scalars.
+    observed_at is an ISO string or None at this boundary.
+    """
+    sensor_id: str = ""
+    display_name: str = ""
+    description: str = ""
+    device_type: str = ""
+    metric: str = ""
+    value: float | None = None
+    unit: str = "celsius"
+    observed_at: str | None = None
+    source: str = ""
+    freshness: str = ""
+    status: str = ""
+    communication_status: str = ""
+
+
+# ===================================================================
+# Type 7: ControlStateSnapshotInput (extended)
 # ===================================================================
 
 
@@ -145,6 +179,8 @@ class ControlStateSnapshotInput:
     snapshot_id: str = ""
     created_at: str = ""
     loads: tuple[LoadCandidate, ...] = field(default_factory=tuple)
+    sensors: tuple[SensorReadSnapshot, ...] = field(default_factory=tuple)
+    load_metadata: tuple[RuntimeLoadState, ...] = field(default_factory=tuple)
     policy_decision: PolicyDecisionResult | None = None
     command_proposal: CommandProposal | None = None
     safety_gate_result: CommandSafetyGateResult | None = None
@@ -171,6 +207,7 @@ class ControlStateSnapshot:
     created_at: str = ""
     status: ControlStateSnapshotStatus = ControlStateSnapshotStatus.UNKNOWN
     loads: tuple[LoadControlSnapshot, ...] = field(default_factory=tuple)
+    sensors: tuple[SensorReadSnapshot, ...] = field(default_factory=tuple)
     pipeline: ControlPipelineSnapshot | None = None
     mode: ControlModeSnapshot | None = None
     energy_budget: EnergyBudget | None = None
@@ -183,8 +220,15 @@ class ControlStateSnapshot:
 # Helper: convert a LoadCandidate to LoadControlSnapshot
 # ---------------------------------------------------------------------------
 
-def _convert_load(load: LoadCandidate) -> LoadControlSnapshot:
-    """Convert a LoadCandidate into a read-only LoadControlSnapshot."""
+def _convert_load(load: LoadCandidate, load_meta: dict[str, Any] | None = None) -> LoadControlSnapshot:
+    """Convert a LoadCandidate into a read-only LoadControlSnapshot.
+
+    Args:
+        load: The LoadCandidate from the control layer.
+        load_meta: Optional dict with display-only metadata (description,
+            device_type, mapping_status, startup_reset_result, enabled,
+            communication_status) keyed by load_id.
+    """
     # Determine status string
     if load.currently_on is True:
         load_status = "active"
@@ -196,9 +240,13 @@ def _convert_load(load: LoadCandidate) -> LoadControlSnapshot:
     else:
         load_status = "unknown"
 
+    meta = (load_meta or {}).get(load.load_id, {}) if load_meta else {}
+
     return LoadControlSnapshot(
         load_id=load.load_id,
         display_name=load.display_name,
+        description=meta.get("description", ""),
+        device_type=meta.get("device_type", ""),
         configured_load_watts=load.configured_load_watts,
         currently_on=load.currently_on,
         controllable=load.controllable,
@@ -210,6 +258,10 @@ def _convert_load(load: LoadCandidate) -> LoadControlSnapshot:
         observed_at=load.observed_at,
         observation_source=load.observation_source,
         freshness=load.freshness,
+        mapping_status=meta.get("mapping_status"),
+        startup_reset_result=meta.get("startup_reset_result"),
+        enabled=meta.get("enabled", True),
+        communication_status=meta.get("communication_status"),
     )
 
 
@@ -287,7 +339,11 @@ def build_control_state_snapshot(
         warnings.append("review-required")
     elif not all([has_policy, has_proposal, has_safety, has_eligibility]):
         # Some pieces are missing
-        if any([has_policy, has_proposal, has_safety, has_eligibility, snapshot_input.loads]):
+        has_any_input = any([
+            has_policy, has_proposal, has_safety, has_eligibility,
+            snapshot_input.loads, snapshot_input.sensors,
+        ])
+        if has_any_input:
             status = ControlStateSnapshotStatus.DEGRADED
         else:
             status = ControlStateSnapshotStatus.UNKNOWN
@@ -295,8 +351,22 @@ def build_control_state_snapshot(
         # All pieces present and not blocked/review
         status = ControlStateSnapshotStatus.OK
 
-    # Convert loads
-    load_snapshots = tuple(_convert_load(load) for load in snapshot_input.loads)
+    # Build load metadata lookup from RuntimeLoadState objects
+    load_meta: dict[str, dict[str, Any]] = {}
+    for rls in snapshot_input.load_metadata:
+        load_meta[rls.load_id] = {
+            "description": rls.description,
+            "device_type": rls.device_type,
+            "mapping_status": rls.mapping_status,
+            "startup_reset_result": rls.startup_reset_result,
+            "enabled": rls.enabled,
+            "communication_status": rls.communication_status,
+        }
+
+    # Convert loads with metadata
+    load_snapshots = tuple(
+        _convert_load(load, load_meta) for load in snapshot_input.loads
+    )
 
     # Build pipeline snapshot (unchanged — just package)
     pipeline = ControlPipelineSnapshot(
@@ -334,6 +404,7 @@ def build_control_state_snapshot(
         created_at=snapshot_input.created_at,
         status=status,
         loads=load_snapshots,
+        sensors=snapshot_input.sensors,
         pipeline=pipeline,
         mode=mode,
         energy_budget=snapshot_input.energy_budget,

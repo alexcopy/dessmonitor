@@ -1,0 +1,156 @@
+CODER COMPLETE
+yes
+
+INCIDENT
+Production sensors report temperature around 20.9 C through the ML and
+inverter-summary compatibility path. The authenticated dashboard displays
+"No sensors available" because the typed snapshot pipeline drops sensors
+before serialization.
+
+VERIFIED ROOT CAUSE
+Seven exact data-loss points confirmed:
+1. build_control_state_snapshot_from_runtime_state never reads
+   runtime_state["sensors"].
+2. RuntimeControlSnapshotAdapterInput has no typed sensors list field.
+3. ControlStateSnapshotInput has no typed sensors list field.
+4. ControlStateSnapshot has no sensors field.
+5. FastAPI serialization only emits declared dataclass fields.
+6. _parse_loads() drops description, device_type, mapping_status,
+   startup_reset_result, enabled, communication_status from load dicts.
+7. TelemetryRegistry.get_all_readings() drops description when recomputing
+   SensorTelemetryReading.
+
+CHARACTERIZATION TESTS
+Before implementation, the test script confirmed all 7 data-loss points.
+After implementation, all 58 checks pass.
+
+FILES CREATED
+scripts/check-canonical-sensor-snapshot-pipeline.sh
+  Focused end-to-end validator (58 checks) using real Python objects through
+  the complete pipeline: TelemetryRegistry -> runtime_state -> adapter ->
+  snapshot -> endpoint response. No network, no Tuya, no production config.
+
+FILES MODIFIED
+app/control/control_state_snapshot.py
+  - Added SensorReadSnapshot frozen dataclass with 12 safe fields.
+  - Added sensors field to ControlStateSnapshotInput.
+  - Added load_metadata field to ControlStateSnapshotInput (carries
+    RuntimeLoadState objects for metadata preservation).
+  - Added sensors field to ControlStateSnapshot.
+  - Extended LoadControlSnapshot with: description, device_type,
+    mapping_status, startup_reset_result, enabled, communication_status.
+  - Updated _convert_load() to accept load_metadata dict and populate
+    new fields.
+  - Updated build_control_state_snapshot() to propagate sensors and
+    load_metadata, and consider sensors in status determination.
+
+app/control/runtime_snapshot_adapter.py
+  - Added _parse_sensors() helper converting dicts to SensorReadSnapshot.
+  - Added sensors field to RuntimeControlSnapshotAdapterInput.
+  - Extended RuntimeLoadState with: description, device_type, enabled,
+    communication_status.
+  - Updated build_runtime_control_snapshot() to parse sensors from
+    runtime_state and propagate them through the pipeline.
+
+app/service/telemetry_registry.py
+  - Fixed get_all_readings() to include description=reading.description
+    in the reconstructed SensorTelemetryReading.
+
+app/web_control_state_provider.py
+  - Updated build_control_state_snapshot_from_runtime_state() to parse
+    sensors from runtime_state and pass them to the adapter input.
+  - Extended _parse_loads() to read description, device_type, mapping_status,
+    startup_reset_result, enabled, communication_status from load dicts.
+
+SENSOR PIPELINE IMPLEMENTATION
+Complete typed path:
+  TelemetryRegistry -> get_all_readings_dict -> runtime_state["sensors"]
+  -> _parse_sensors() -> SensorReadSnapshot tuple
+  -> RuntimeControlSnapshotAdapterInput.sensors
+  -> ControlStateSnapshotInput.sensors
+  -> ControlStateSnapshot.sensors
+  -> FastAPI serialization -> JSON "sensors" array
+  -> dashboard.js renderSensors(data.snapshot)
+
+LOAD METADATA IMPLEMENTATION
+Complete typed path:
+  _device_to_load_dict() -> runtime_state["loads"]
+  -> _parse_loads() -> RuntimeLoadState (with metadata)
+  -> RuntimeControlSnapshotAdapterInput.loads
+  -> ControlStateSnapshotInput.load_metadata
+  -> _convert_load() -> LoadControlSnapshot (with metadata)
+  -> FastAPI serialization -> JSON "loads" array
+
+TELEMETRY REGISTRY IMPLEMENTATION
+get_all_readings() now includes description=reading.description in the
+reconstructed SensorTelemetryReading. Descriptor descriptions survive
+freshness recomputation.
+
+END-TO-END RESULTS
+- Configured descriptor with value=None: renders N/A, freshness=unavailable.
+- Valid telemetry 20.9: renders 20.9 C, freshness=fresh.
+- Load description "Dush Heater in House": preserved through pipeline.
+- Load device_type "switch": preserved.
+- Load mapping_status "valid": preserved.
+- Load startup_reset_result "confirmed_off": preserved.
+- Load enabled=True: preserved.
+- Load communication_status "active": preserved.
+- Snapshot with sensors but no loads: status is not UNKNOWN.
+- No raw Tuya IDs or property codes exposed.
+
+VALIDATION RESULTS
+1. check-canonical-sensor-snapshot-pipeline.sh: PASS (58/58)
+2. check-tuya-device-property-mapping.sh: PASS (52/52)
+3. check-canonical-device-observation.sh: PASS (44/44)
+4. check-web-dashboard.sh: PASS (36/36)
+5. check-web-authentication.sh: PASS (41/41)
+6. compileall app run.py: PASS (exit 0)
+7. git diff --check: PASS (no whitespace errors)
+8. git status --short: 4 modified, 1 untracked (all PR-related)
+9. git diff --name-only: 4 files (all PR-related)
+10. git diff --stat: 4 files changed, 161 insertions(+), 7 deletions(-)
+11. git diff --cached --name-only: empty (staging area clean)
+
+REGRESSION RESULTS
+All PR 0034c/0034d/0034e/0034f/0034g/0034h checks pass.
+No regression in mapping, observation, dashboard, authentication, or
+project-memory validation.
+
+SECURITY CONFIRMATION
+- SensorReadSnapshot exposes only safe fields.
+- No tuya_device_id, control_key, state_key, property codes, raw payloads,
+  credentials, tokens, signed URLs, or exception text.
+- Description and display_name rendered via textContent (safe).
+- No new write paths, endpoints, or public routes.
+- No live Tuya, network, Kubernetes, production, or hardware access.
+
+DEFERRED SCOPE CONFIRMATION
+The following concerns are correctly deferred to PR 0034k:
+- Tuya batch polling behavior.
+- Individual status fallback.
+- Permission-denied isolation.
+- Telemetry DP property discovery.
+- Production YAML configuration.
+- DeviceStatusLogger migration.
+- MLDataCollector migration.
+- Inverter API behavior.
+- Runtime shared_state removal.
+- Command execution.
+- Startup reset logic.
+- Device grouping or powered_by relationships.
+- Manual control.
+- Write APIs.
+- GitOps or deployment changes.
+
+REPORT PATH
+.project-memory/pr/0034j-canonical-sensor-snapshot-pipeline/CODER_REPORT.txt
+
+BLOCKERS
+None.
+
+WARNINGS
+None.
+
+NEXT REQUIRED ACTION
+Review and approve the implementation. After approval, commit and push to the
+pr-0034j-canonical-sensor-snapshot-pipeline branch.

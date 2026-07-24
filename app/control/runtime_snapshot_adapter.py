@@ -34,6 +34,7 @@ from app.control.control_state_snapshot import (
     ControlModeSnapshot,
     ControlStateSnapshot,
     ControlStateSnapshotInput,
+    SensorReadSnapshot,
     build_control_state_snapshot,
 )
 from app.control.execution_eligibility import (
@@ -79,6 +80,8 @@ class RuntimeLoadState:
     """
     load_id: str = ""
     display_name: str = ""
+    description: str = ""
+    device_type: str = ""
     configured_load_watts: float = 0.0
     currently_on: bool | None = False
     controllable: bool = True
@@ -92,6 +95,8 @@ class RuntimeLoadState:
     freshness: str | None = None
     mapping_status: str | None = None
     startup_reset_result: str | None = None
+    enabled: bool = True
+    communication_status: str | None = None
 
 
 # ===================================================================
@@ -129,6 +134,7 @@ class RuntimeControlSnapshotAdapterInput:
     created_at: str = ""
     runtime_state: dict[str, object] = field(default_factory=dict)
     loads: tuple[RuntimeLoadState, ...] = field(default_factory=tuple)
+    sensors: tuple[SensorReadSnapshot, ...] = field(default_factory=tuple)
     policy_decision: PolicyDecisionResult | None = None
     command_proposal: CommandProposal | None = None
     safety_gate_result: CommandSafetyGateResult | None = None
@@ -271,6 +277,59 @@ def _safe_float(value: object | None) -> float | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Helper: parse sensors from runtime_state dict
+# ---------------------------------------------------------------------------
+
+
+def _parse_sensors(
+    raw: object | None,
+) -> tuple[SensorReadSnapshot, ...]:
+    """Parse a list of sensor dicts into SensorReadSnapshot tuple.
+
+    Best-effort: dicts are converted, invalid entries use safe defaults.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        return ()
+
+    result: list[SensorReadSnapshot] = []
+    for item in raw:
+        if isinstance(item, SensorReadSnapshot):
+            result.append(item)
+        elif isinstance(item, dict):
+            try:
+                raw_val = item.get("value")
+                value: float | None = None
+                if raw_val is not None:
+                    if isinstance(raw_val, bool):
+                        value = None
+                    elif isinstance(raw_val, (int, float)):
+                        if raw_val == raw_val and raw_val != float("inf") and raw_val != float("-inf"):
+                            value = float(raw_val)
+
+                sr = SensorReadSnapshot(
+                    sensor_id=str(item.get("sensor_id", "")),
+                    display_name=str(item.get("display_name", "")),
+                    description=str(item.get("description", "")),
+                    device_type=str(item.get("device_type", "")),
+                    metric=str(item.get("metric", "")),
+                    value=value,
+                    unit=str(item.get("unit", "celsius")),
+                    observed_at=str(item["observed_at"]) if item.get("observed_at") is not None else None,
+                    source=str(item.get("source", "")),
+                    freshness=str(item.get("freshness", "")),
+                    status=str(item.get("status", "")),
+                    communication_status=str(item.get("communication_status", "")),
+                )
+                result.append(sr)
+            except (TypeError, ValueError):
+                continue
+
+    return tuple(result)
+
+
 # ===================================================================
 # build_runtime_control_snapshot — pure adapter function
 # ===================================================================
@@ -326,6 +385,7 @@ def build_runtime_control_snapshot(
 
     rt = adapter_input.runtime_state
     explicit_loads = adapter_input.loads
+    explicit_sensors = adapter_input.sensors
     explicit_mode = adapter_input.mode
     explicit_budget = adapter_input.energy_budget
     explicit_battery = adapter_input.battery_window
@@ -333,6 +393,7 @@ def build_runtime_control_snapshot(
     # ----- runtime_state checks -----
     has_rt = rt is not None and len(rt) > 0
     has_loads = len(explicit_loads) > 0
+    has_sensors = len(explicit_sensors) > 0
 
     if not has_rt:
         warnings.append("missing-runtime-state")
@@ -388,11 +449,18 @@ def build_runtime_control_snapshot(
     # ----- convert loads -----
     load_candidates = tuple(_to_load_candidate(rl) for rl in explicit_loads)
 
+    # ----- sensors (already parsed by caller or from runtime_state) -----
+    sensors = explicit_sensors
+    if not sensors and has_rt:
+        sensors = _parse_sensors(rt.get("sensors"))
+
     # ----- build snapshot input and snapshot -----
     sni = ControlStateSnapshotInput(
         snapshot_id=adapter_input.snapshot_id,
         created_at=adapter_input.created_at,
         loads=load_candidates,
+        sensors=sensors,
+        load_metadata=explicit_loads,
         policy_decision=adapter_input.policy_decision,
         command_proposal=adapter_input.command_proposal,
         safety_gate_result=adapter_input.safety_gate_result,
@@ -407,7 +475,7 @@ def build_runtime_control_snapshot(
     snap = build_control_state_snapshot(sni)
 
     # ----- determine status -----
-    if snap.status.name == "UNKNOWN" and not has_loads and not has_rt:
+    if snap.status.name == "UNKNOWN" and not has_loads and not has_sensors and not has_rt:
         status = RuntimeSnapshotAdapterStatus.UNKNOWN
     elif snap.status.name in ("DEGRADED", "UNKNOWN"):
         status = RuntimeSnapshotAdapterStatus.DEGRADED
