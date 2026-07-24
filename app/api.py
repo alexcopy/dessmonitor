@@ -201,6 +201,38 @@ class DessAPI:
             raw = f"{salt}{self.secret}{self.token}{param_str}"
         return self._sha1_hex(raw), salt
 
+    @staticmethod
+    def _redact_url(url: str) -> str:
+        """Return a diagnostics-safe representation of a signed DESS URL.
+
+        The scheme, host, path, action, and i18n parameters remain visible.
+        All credential, device-identifying, and app-identifying parameters
+        are replaced with "REDACTED".
+
+        The actual URL passed to urllib.request.urlopen is never changed.
+        """
+        REDACTED = "REDACTED"
+        SENSITIVE_QUERY_PARAMS = frozenset({
+            "sign", "salt", "token", "usr", "company-key",
+            "pn", "sn", "devcode", "devaddr",
+            "_app_client_", "_app_id_", "_app_version_", "source",
+        })
+        try:
+            parsed = urllib.parse.urlparse(url)
+            query_params = urllib.parse.parse_qs(
+                parsed.query, keep_blank_values=True
+            )
+            safe_params = {}
+            for key, values in query_params.items():
+                if key in SENSITIVE_QUERY_PARAMS:
+                    safe_params[key] = REDACTED
+                else:
+                    safe_params[key] = values[0] if values else ""
+            safe_query = urllib.parse.urlencode(safe_params, doseq=False)
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{safe_query}"
+        except Exception:
+            return "[REDACTED URL]"
+
     # ──────────────────────────────────────────────────────────
     # HTTP запрос
     # ──────────────────────────────────────────────────────────
@@ -232,10 +264,9 @@ class DessAPI:
             f"&{query_str}"
         )
 
-        self.logger.info(f"[API] Выполняем запрос: {url}")
+        self.logger.info(f"[API] Выполняем запрос: {self._redact_url(url)}")
 
         try:
-            print("The request URL >>>", url, "\n>>> ", end="", flush=True)
             with urllib.request.urlopen(url, timeout=120) as resp:
                 raw_data = resp.read()
             data = json.loads(raw_data.decode("utf-8"))
@@ -340,7 +371,7 @@ class DessAPI:
             f"https://web.dessmonitor.com/public/"
             f"?sign={sign}&salt={salt}&token={self.token}&{action_str}"
         )
-        self.logger.info(f"[WEB] Выполняем запрос: {url}")
+        self.logger.info(f"[WEB] Выполняем запрос: {self._redact_url(url)}")
 
         try:
             with urllib.request.urlopen(url, timeout=20) as resp:

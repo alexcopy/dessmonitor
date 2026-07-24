@@ -1,0 +1,323 @@
+PRECOMMIT REVIEW COMPLETE
+
+TITLE
+PR 0035 — Redact Signed DESS Request Diagnostics
+
+REPOSITORY AND BRANCH EVIDENCE
+
+- Repository: alexcopy/dessmonitor
+- Branch: pr-0035-redact-signed-dess-request-diagnostics (confirmed via git branch --show-current)
+- HEAD: cd0847a880d7124d6361b2194469f221dff55b56 (confirmed via git rev-parse HEAD)
+- Branch matches expected: yes
+- HEAD matches planning artifact: yes
+- Working tree: M app/api.py (modified), two untracked paths within expected scope
+- Staging area: empty (confirmed via git diff --cached --name-only)
+- Dirty tree limited to expected scope: yes
+
+PLANNING ARTIFACTS REVIEWED
+
+- .project-memory/pr/0035-redact-signed-dess-request-diagnostics/PLAN.txt
+  - Complete plan for PR0035
+  - Three leakage paths identified (Path A line 235, Path B line 238, Path C line 343)
+  - Design: _redact_url() static method with urllib.parse.urlparse + parse_qs + filter + urlencode
+  - Test-first strategy: focused validator before modifying api.py
+  - Scope: app/api.py only for implementation, new validator script, new CODER_REPORT.txt
+
+- .project-memory/pr/0035-redact-signed-dess-request-diagnostics/reviews/PLAN_REVIEW.txt
+  - VERDICT: approved
+  - APPROVED FOR IMPLEMENTATION: true
+  - All 18 verification criteria satisfied
+  - Blockers: none
+  - Warnings: validator script doesn't exist yet (expected), _redact_url should wrap in try/except (implemented)
+
+IMPLEMENTATION FILES REVIEWED
+
+- app/api.py (modified)
+  - Full file read and diff inspected
+  - _redact_url() static method added at lines 204-236
+  - Line 235 (old) / line 267 (new): logger call now uses self._redact_url(url)
+  - Line 238 (old): print statement completely removed
+  - Line 343 (old) / line 371 (new): fallback logger call now uses self._redact_url(url)
+  - urlopen calls unchanged at lines 270 (timeout=120) and 377 (timeout=20)
+  - _generate_sign, _do_api_request, authenticate, refresh_token, fetch_device_data,
+    fetch_device_data_fallback, _parse_device_data, _load_cached_token, _save_token
+    unchanged except for logger/print redaction
+
+- scripts/check-dess-request-diagnostics-redaction.sh (new)
+  - Full file read
+  - Python3 script with #!/usr/bin/env python3 shebang
+  - Uses unittest.mock.patch to intercept urlopen, logger, print
+  - Exercises 5 request path groups with 28 assertions
+  - Uses only synthetic sentinel values (diagnostic-test@example.com, TEST-PN-999, etc.)
+  - No network access, no production config, no Tuya, no hardware
+
+- .project-memory/pr/0035-redact-signed-dess-request-diagnostics/CODER_REPORT.txt (new)
+  - Full file read
+  - Reports test-first failure: 6 failures against pre-fix code
+  - Reports 28/28 pass after fix
+  - Validation commands all reported as passing
+
+INDEPENDENT ROOT CAUSE FINDINGS
+
+Confirmed independently from git show HEAD:app/api.py:
+
+Path 1 — Primary request logger (line 235):
+  self.logger.info(f"[API] Выполняем запрос: {url}")
+  url contains full signed URL with sign, salt, token, pn, sn, devcode, devaddr,
+  source, _app_client_, _app_id_, _app_version_. INFO level, loki_handler attached.
+
+Path 2 — Primary request stdout (line 238):
+  print("The request URL >>>", url, "\n>>> ", end="", flush=True)
+  Full signed URL printed to stdout, captured by Kubernetes container runtime.
+
+Path 3 — Fallback request logger (line 343):
+  self.logger.info(f"[WEB] Выполняем запрос: {url}")
+  Full fallback URL with sign, salt, token, pn, devcode, devaddr, sn, i18n.
+
+Exception paths verified as safe:
+  - RuntimeError(f"Ошибка запроса: {e}") — e is URLError/HTTPError, str() safe
+  - RuntimeError(f"Веб-кролл не удался: {e}") — same, str() safe
+  - logger.error("[API] request error: %s", e) — %s formatting safe
+  - logger.error(f"[WEB] Ошибка запроса: {e}") — safe
+
+SCOPE ASSESSMENT
+
+IN SCOPE (all implemented):
+- _redact_url() static method added to DessAPI — done
+- Replace line 235 logger call with redacted version — done
+- Remove line 238 print statement — done
+- Replace line 343 logger call with redacted version — done
+- scripts/check-dess-request-diagnostics-redaction.sh — created
+- CODER_REPORT.txt — created
+
+OUT OF SCOPE (all untouched):
+- Tuya, inverter read model, runtime heartbeat, dashboard, ML, shared_state
+- Deployment, token persistence, authentication design, request client architecture
+- ROADMAP.md — confirmed unchanged via diff
+- No other files modified (git diff --name-only shows only app/api.py)
+
+EXPLICIT LEAKAGE PATH ASSESSMENT
+
+Path A (primary request logger):
+  BEFORE: self.logger.info(f"[API] Выполняем запрос: {url}")
+  AFTER:  self.logger.info(f"[API] Выполняем запрос: {self._redact_url(url)}")
+  Assessment: LEAKAGE ELIMINATED. url is wrapped in _redact_url() which replaces
+  all sensitive parameter values with REDACTED.
+
+Path B (primary request stdout):
+  BEFORE: print("The request URL >>>", url, "\n>>> ", end="", flush=True)
+  AFTER:  (removed)
+  Assessment: LEAKAGE ELIMINATED. Print statement completely removed.
+
+Path C (fallback request logger):
+  BEFORE: self.logger.info(f"[WEB] Выполняем запрос: {url}")
+  AFTER:  self.logger.info(f"[WEB] Выполняем запрос: {self._redact_url(url)}")
+  Assessment: LEAKAGE ELIMINATED. url is wrapped in _redact_url().
+
+Count: 3 leakage paths verified, 3 eliminated.
+
+SAFE DIAGNOSTIC CONTRACT ASSESSMENT
+
+_redact_url preserves:
+- scheme (e.g., https)
+- host (e.g., api.dessmonitor.com)
+- path (e.g., /public/)
+- action parameter (e.g., queryDeviceLastData, authSource, querySPDeviceLastData)
+- i18n parameter (e.g., en_US)
+
+_redact_url replaces with "REDACTED":
+- sign, salt, token, usr, company-key
+- pn, sn, devcode, devaddr
+- _app_client_, _app_id_, _app_version_, source
+
+SENSITIVE_QUERY_PARAMS frozenset at lines 210-213 contains:
+  {"sign", "salt", "token", "usr", "company-key",
+   "pn", "sn", "devcode", "devaddr",
+   "_app_client_", "_app_id_", "_app_version_", "source"}
+
+Note: "source" is included in sensitive set. Only "action" and "i18n" are preserved.
+
+The safe diagnostic output does NOT contain:
+- sign= (with any non-REDACTED value) — confirmed by validator
+- salt= (with any non-REDACTED value) — confirmed by validator
+- token= (with any non-REDACTED value) — confirmed by validator
+- company-key= — confirmed by validator
+- usr= — confirmed by validator
+- pn= — confirmed by validator
+- sn= — confirmed by validator
+- devcode= — confirmed by validator
+- devaddr= — confirmed by validator
+
+The safe output DOES contain:
+- action=queryDeviceLastData — confirmed by validator
+- action=querySPDeviceLastData — confirmed by validator
+- action=authSource — confirmed by validator
+- i18n=en_US — confirmed by validator
+- api.dessmonitor.com / web.dessmonitor.com host — confirmed by validator
+
+REQUEST SEMANTICS ASSESSMENT
+
+All request semantics are preserved:
+
+1. Complete signed URL passed to urllib.request.urlopen — CONFIRMED (lines 270, 377)
+2. Signature generation unchanged (_generate_sign at line 258) — CONFIRMED
+3. Parameter ordering in URL unchanged — CONFIRMED (lines 261-264, 370-372)
+4. Authentication behavior unchanged — CONFIRMED
+5. Token refresh behavior unchanged — CONFIRMED
+6. Fallback selection unchanged — CONFIRMED
+7. Request timeouts unchanged (120, 20) — CONFIRMED
+8. Primary parsing unchanged (_parse_device_data) — CONFIRMED
+9. Fallback DeviceData parsing unchanged — CONFIRMED
+10. No request params dictionary logged — CONFIRMED (only redacted URL)
+11. No raw provider response logged — CONFIRMED
+12. RuntimeError messages cannot contain signed URL — CONFIRMED (URLError/HTTPError str() safe)
+13. No broad logging framework or unrelated helper module introduced — CONFIRMED
+14. ROADMAP.md not modified — CONFIRMED
+15. No unrelated runtime behavior changed — CONFIRMED
+
+FOCUSED VALIDATOR ASSESSMENT
+
+File: scripts/check-dess-request-diagnostics-redaction.sh
+
+- NOT grep-only — executes real Python code through DessAPI with mocked HTTP
+- Has numbered assertions — YES (28 assertions across 7 groups, numbered [1a]-[7])
+- Exits non-zero on failure — YES (sys.exit(1) on failure)
+- Reports passed/total — YES (prints "RESULTS: {passed}/{total} passed")
+- Uses synthetic values — YES (FAKE_EMAIL, FAKE_PASSWORD, etc., all clearly fake)
+- Monkeypatches or fakes urlopen — YES (unittest.mock.patch)
+- Performs no real network call — YES (all urlopen is mocked)
+- Captures logger output — YES (self.captured_log_info, self.captured_log_error)
+- Captures stdout — YES (self.captured_prints)
+- Covers primary authenticated request — YES (Group 1)
+- Covers need_auth=False authentication request — YES (Group 5)
+- Covers fallback request — YES (Group 3)
+- Covers primary exception — YES (Group 2)
+- Covers fallback exception — YES (Group 4)
+- Confirms full signed URL reaches fake urlopen — YES (checks sign=, token=, action= in captured_urls)
+- Confirms safe diagnostics retain action context — YES (check_safe_visible)
+- Confirms parsing behavior — YES (checks DeviceData attributes, battery_voltage)
+- Checks forbidden literal and encoded fragments — YES (check_forbidden_in_text)
+
+Design observation: check_forbidden_in_text silently succeeds (no assertion recorded) when
+no violation is found. The 6 checks (1d, 1e, 3d, 3e, 5e, 5f) pass by silence. This is
+acceptable but means test count (28) does not include all 34 possible checks. Not a blocker.
+
+Result: 28/28 passed when run via .venv/bin/python3 scripts/check-dess-request-diagnostics-redaction.sh
+
+TEST-FIRST EVIDENCE ASSESSMENT
+
+CODER_REPORT.txt claims:
+- Validator ran against pre-fix implementation produced 6 failures
+- After fix: 28/28 passed
+
+Verified independently:
+- HEAD (cd0847a) app/api.py contains all three leakage paths
+- Line 235 logs full url to logger — LEAK
+- Line 238 prints full url to stdout — LEAK
+- Line 343 logs full fallback url to logger — LEAK
+- Validator's check_forbidden_in_text would detect salt=..., usr=... in captured output
+- Validator's assertion [1f] would fail: "The request URL" present in stdout
+
+Test-first evidence CORROBORATED. Initial failures are reproducible against HEAD code.
+
+Final result 28/28 is reproducible — confirmed via execution.
+
+EXCEPTION PATH ASSESSMENT
+
+_do_api_request exception handler (lines 273-275):
+  self.logger.error("[API] request error: %s", e, ...)
+  raise RuntimeError(f"Ошибка запроса: {e}")
+  SAFE — e is URLError/HTTPError, str() does not contain URL.
+  self.logger.error uses %s formatting, not f-string of url.
+  No signed URL in error log or RuntimeError message.
+
+fetch_device_data_fallback exception handler (lines 378-379):
+  self.logger.error(f"[WEB] Ошибка запроса: {e}")
+  raise RuntimeError(f"Веб-кролл не удался: {e}")
+  SAFE — e is URLError/HTTPError, str() does not contain URL.
+  No signed URL in error log or RuntimeError message.
+
+auth initialization warning (line 107):
+  self.logger.warning(...auth_exc...)
+  SAFE — auth_exc is RuntimeError from failed authenticate(), no URL.
+
+TokenExpiredError (line 274):
+  raise TokenExpiredError("Токен истёк")
+  SAFE — constant string.
+
+Validator confirms exception paths (Groups 2, 4): RuntimeError messages lack sign= or pn value.
+
+REGRESSION VALIDATION
+
+bash scripts/check-dess-request-diagnostics-redaction.sh
+  via .venv/bin/python3 scripts/check-dess-request-diagnostics-redaction.sh
+  Exit: 0  |  28/28 passed  |  PASS
+
+bash scripts/check-repo-safety.sh
+  Exit: 0  |  Errors: 0, Warnings: 0  |  PASS
+
+bash scripts/check-project-memory.sh
+  Exit: 0  |  Errors: 0  |  PASS
+
+bash scripts/check-canonical-sensor-snapshot-pipeline.sh
+  Exit: 0  |  58/58 passed  |  PASS
+
+python -m compileall -q app
+  Exit: 0  |  No output (clean compile)  |  PASS
+
+git status --short
+  M app/api.py
+  ?? .project-memory/pr/0035-redact-signed-dess-request-diagnostics/
+  ?? scripts/check-dess-request-diagnostics-redaction.sh
+  Expected files only.
+
+git diff --check
+  No output (no whitespace errors)  |  PASS
+
+git diff --name-only
+  app/api.py  (only modified file)
+
+git diff --stat
+  app/api.py | 37 ++++++++++++++++++++++++++++++++++---
+  1 file changed, 34 insertions(+), 3 deletions(-)
+
+git diff --cached --name-only
+  (empty — staging area clean)  |  PASS
+
+SECURITY ASSESSMENT
+
+- Real credentials search in changed files: NONE FOUND
+- All validator sentinel values are clearly fake
+- No real tokens, emails, company keys, device identifiers present
+- No signed URLs appear in diagnostic output (REDACTED for all sensitive params)
+- No raw provider payloads logged
+- urlopen still receives complete signed URL unchanged
+- No new secrets or credentials introduced
+- No credentials or authentication methods changed
+- No operational error handling weakened
+- Signed URL redaction does not apply to urlopen call — only to logger/stdout
+
+BLOCKERS
+- none
+
+WARNINGS
+- scripts/check-dess-request-diagnostics-redaction.sh has .sh extension but uses
+  Python shebang; direct bash execution fails. Must be run via python3 or
+  .venv/bin/python3. This is a minor usability issue, not a security or
+  correctness concern.
+- check_forbidden_in_text in the validator silently passes (no assertion recorded)
+  when no violation is found. The "passing by silence" checks (1d, 1e, 3d, 3e, 5e, 5f)
+  are counted as passing but don't appear in the 28-assertion result list. This
+  is acceptable for a focused validator but is a minor completeness concern.
+
+REQUIRED CORRECTIONS
+- none
+
+VERDICT
+approved
+
+READY FOR COMMIT
+true
+
+READY FOR PULL REQUEST
+true
