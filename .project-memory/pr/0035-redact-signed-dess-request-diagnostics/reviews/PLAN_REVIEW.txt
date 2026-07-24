@@ -1,0 +1,322 @@
+PLAN REVIEW COMPLETE
+
+TITLE
+PR 0035 — Redact Signed DESS Request Diagnostics
+
+REPOSITORY AND BRANCH EVIDENCE
+- Repository: alexcopy/dessmonitor (confirmed via git remote)
+- Branch: pr-0035-redact-signed-dess-request-diagnostics (confirmed via git branch --show-current)
+- HEAD: cd0847a880d7124d6361b2194469f221dff55b56 (confirmed via git rev-parse HEAD)
+- Working tree: clean, only untracked .project-memory/pr/0035-redact-signed-dess-request-diagnostics/
+  (confirmed via git status --short)
+- Staging area: empty (confirmed via git diff --cached --name-only)
+- Last commit: "docs: refresh canonical operator surface roadmap (#55)"
+  (confirmed via git show --stat --oneline HEAD)
+
+FILES REVIEWED
+- .project-memory/pr/0035-redact-signed-dess-request-diagnostics/PLAN.txt (read completely)
+- ROADMAP.md (read completely — confirms PR0035 is first incomplete milestone)
+- .project-memory/CURRENT_STATE.md (read completely)
+- app/api.py (read completely — all leakage paths confirmed)
+- app/logger.py (read completely — loki_handler path confirmed)
+- scripts/check-repo-safety.sh (read completely — existing safety check)
+- scripts/check-project-memory.sh (read completely — existing governance check)
+
+INDEPENDENT ROOT CAUSE FINDINGS
+
+Each finding independently confirmed against HEAD cd0847a:
+
+1. CONFIRMED. Path A — Primary request logger at app/api.py line 235:
+     self.logger.info(f"[API] Выполняем запрос: {url}")
+   The `url` variable at this point contains the complete signed URL with sign,
+   salt, token, pn, devcode, devaddr, sn, source, _app_client_, _app_id_,
+   _app_version_. This is an f-string format, so the full URL is interpolated
+   into the log message at INFO level.
+
+2. CONFIRMED. Path B — Primary request stdout at app/api.py line 238:
+     print("The request URL >>>", url, "\n>>> ", end="", flush=True)
+   Same complete signed URL printed to stdout, flushed immediately. Container
+   stdout is captured by Kubernetes log aggregation.
+
+3. CONFIRMED. Path C — Fallback request logger at app/api.py line 343:
+     self.logger.info(f"[WEB] Выполняем запрос: {url}")
+   The fallback URL constructed at lines 337-341 includes sign, salt, token, pn,
+   devcode, devaddr, sn, i18n. Same f-string full-URL exposure at INFO level.
+
+4. CONFIRMED. The logger used by DessAPI receives a loki_handler (app/logger.py).
+   Line: lh = loki_handler(); if lh not in self.logger.handlers: self.logger.addHandler(lh)
+   This means signed URLs flow to logs/loki.log in logfmt format, making them
+   ship-able to Loki/Promtail/Grafana.
+
+5. CONFIRMED. The _generate_sign method creates a sign parameter and salt parameter
+   using the SHA-1 hash concatenating salt + secret + token + param_str. These are
+   authentication credentials that prove request authenticity.
+
+6. CONFIRMED. The authentication path flows through _do_api_request with
+   need_auth=False. The params dict at line 264 includes usr (email) and
+   company-key (organization identifier). These also appear in the logged URL.
+
+7. CONFIRMED. Exception text analysis is accurate:
+   - _do_api_request exception handler (line 253):
+       raise RuntimeError(f"Ошибка запроса: {e}")
+     where e is a urllib.error.URLError or HTTPError. In Python's standard
+     library, HTTPError.__str__ returns "HTTP Error {code}: {reason}" — does
+     NOT include the request URL. The URL is available as HTTPError.url attribute
+     but is not part of the string representation.
+   - fetch_device_data_fallback exception handler (line 351):
+       raise RuntimeError(f"Веб-кролл не удался: {e}")
+     Same analysis — exception str() does not carry the URL.
+   - auth initialization warning (line 108):
+       self.logger.warning(f"[API] Не удалось аутентифицироваться при
+       инициализации: {auth_exc}.")
+     auth_exc would be a generic RuntimeError from failed authenticate(), not the URL.
+   - TokenExpiredError at line 245: constant string "token expired" — safe.
+
+8. CONFIRMED. The complete signed URL is required unchanged for urlopen:
+   - Line 239: with urllib.request.urlopen(url, timeout=120) as resp
+   - Line 346: with urllib.request.urlopen(url, timeout=20) as resp
+   The URL must carry all credential parameters for the DESS API to authenticate
+   the request. The PLAN preserves the URL passed to urlopen unchanged.
+
+9. CONFIRMED. PR0035 is the first incomplete canonical roadmap milestone.
+   ROADMAP.md (post-PR0034k) defines the fifteen-PR sequence starting with
+   PR0035. The PR0035 entry has Gate: None, establishing it as an independent
+   security fix before any UI or observability work.
+
+LEAKAGE PATH ASSESSMENT
+
+The PLAN identifies exactly three explicit leakage paths. Independently verified:
+
+Path A (line 235) — Primary API request logger:
+  File: app/api.py, _do_api_request()
+  Code: self.logger.info(f"[API] Выполняем запрос: {url}")
+  Severity: HIGH — INFO level, loki_handler attached, flows to log aggregation
+  Content: Full signed URL with sign, salt, token, pn, sn, devcode, devaddr,
+           source, _app_client_, _app_id_, _app_version_
+  When triggered: Every _do_api_request call (primary fetch, auth, token refresh)
+
+Path B (line 238) — Primary request stdout:
+  File: app/api.py, _do_api_request()
+  Code: print("The request URL >>>", url, "\n>>> ", end="", flush=True)
+  Severity: HIGH — stdout captured by container runtime (Kubernetes)
+  Content: Same full signed URL as Path A
+  When triggered: Every _do_api_request call.
+
+Path C (line 343) — Fallback web request logger:
+  File: app/api.py, fetch_device_data_fallback()
+  Code: self.logger.info(f"[WEB] Выполняем запрос: {url}")
+  Severity: HIGH — INFO level, loki_handler attached
+  Content: Full fallback signed URL with sign, salt, token, pn, devcode,
+           devaddr, sn, i18n
+  When triggered: Every fallback call (when primary fetch raises exception and
+                  fetch_device_data_fallback is invoked).
+
+Exception paths verified as safe:
+  - RuntimeError(f"Ошибка запроса: {e}") — e is URLError/HTTPError,
+    str(e) does not include the URL
+  - RuntimeError(f"Веб-кролл не удался: {e}") — same, str(e) safe
+  - self.logger.error("[API] request error: %s", e) — %s formatting, str(e) safe
+  - self.logger.error(f"[WEB] Ошибка запроса: {e}") — f-string of e, str(e) safe
+  - RuntimeError(f"Веб-кролл не удался: {payload.get('desc')}") — API error
+    description, not the URL
+
+SCOPE ASSESSMENT
+
+PR 0035 scope is correctly narrow:
+
+IN SCOPE:
+- Add _redact_url() static method to DessAPI
+- Replace line 235 logger call with redacted URL version
+- Remove line 238 print statement entirely
+- Replace line 343 logger call with redacted URL version
+- scripts/check-dess-request-diagnostics-redaction.sh focused validator
+
+OUT OF SCOPE (correctly excluded):
+- Tuya credential handling
+- Token storage redesign
+- Credential rotation procedure
+- Changing DESS authentication, token refresh, or fallback selection logic
+- Changing request signing or parameter ordering in the URL sent to urlopen
+- Retry policy changes
+- Network client replacement
+- Inverter read model, dashboard work, runtime heartbeat, ML consumers
+- ROADMAP.md changes
+- Adding a logging framework or broad security utility module
+
+Expected modified files:
+- app/api.py (only file; add _redact_url, replace 3 call sites)
+- scripts/check-dess-request-diagnostics-redaction.sh (new validator)
+
+Verdict: Scope is correctly bounded. Only app/api.py is modified for
+implementation. No unrelated work.
+
+SAFE DIAGNOSTIC CONTRACT ASSESSMENT
+
+After implementation:
+  - Scheme and host remain visible
+    (e.g., "https://api.dessmonitor.com/public/?")
+  - Action parameter remains visible
+    (e.g., "action=queryDeviceLastData")
+  - i18n parameter remains visible (value "en_US" is non-sensitive)
+  - All credential and device-identifying parameters replaced with "REDACTED":
+    sign, salt, token, usr, company-key, pn, sn, devcode, devaddr,
+    _app_client_, _app_id_, _app_version_, source
+  - No stdout print of any URL
+  - The actual URL passed to urlopen is unchanged
+
+The redaction approach uses urllib.parse.urlparse + parse_qs + key filtering +
+urlencode (Option C). This is correct because:
+  - It handles URL encoding properly
+  - It uses standard library only
+  - It preserves action and i18n parameters
+  - It replaces all sensitive param values with the sentinel
+  - Parameter ordering may change (parse_qs returns dict) but this is
+    irrelevant for diagnostic logging
+
+TEST-FIRST ASSESSMENT
+
+The PLAN requires scripts/check-dess-request-diagnostics-redaction.sh written
+BEFORE modifying app/api.py.
+
+Required validator paths:
+  a. Primary authenticated request (queryDeviceLastData)
+  b. Authentication request with need_auth=False (authSource)
+  c. Fallback request (querySPDeviceLastData)
+  d. Primary request exception path (URLError)
+  e. Fallback request exception path
+
+All five paths must be exercised with synthetic fake values only:
+  fake_email = "diagnostic-test@example.com"
+  fake_password = "test-password-for-redaction-check"
+  fake_company_key = "test-company"
+  fake_pn = "TEST-PN-999"
+  fake_sn = "TEST-SN-999"
+  fake_devcode = "TEST-DEVCODE"
+  fake_devaddr = "TEST-DEVADDR"
+
+Validation must assert:
+  - sign, salt, token, company-key, usr, pn, sn, devcode, devaddr values
+    NOT present in captured log output or stdout
+  - action=queryDeviceLastData IS visible in log output
+  - i18n=en_US IS visible in log output
+  - The fake HTTP client (monkeypatched urlopen) received the COMPLETE signed
+    URL with all real credential values
+  - Exception paths do not leak the synthetic signed URL
+
+FOCUSED VALIDATOR ASSESSMENT
+
+The validator design is deterministic and behavioral:
+  - Uses unittest.mock.patch to intercept urlopen, logger.info, logger.error,
+    print
+  - Creates DessAPI with FakeConfig containing synthetic sentinel values
+  - Exercises all five request paths
+  - Captures logger output, stdout, and the URL passed to urlopen
+  - Asserts forbidden fragments absent from captured diagnostics
+  - Asserts safe fragments present
+  - Asserts actual request URL intact
+  - Prints numbered results
+  - Exits 0/1
+  - No network, no production config, no Tuya, no hardware
+
+This is NOT a grep-only validator — it executes real Python objects through
+the diagnostic paths with mocked HTTP. ACCEPTABLE.
+
+REGRESSION ASSESSMENT
+
+REGISTERED AS SAFE:
+- URL passed to urlopen is not modified — zero regression risk for DESS API
+  calls
+- DessAPI constructor, authenticate, refresh_token, should_refresh_token,
+  fetch_device_data logic, _parse_device_data, DeviceData model, summary(),
+  _load_cached_token, _save_token are not modified
+- InverterMonitor and run.py are not modified
+- TokenExpiredError class and token refresh/retry logic unchanged
+- All existing validation scripts unaffected
+- compileall check included
+
+UNREGISTERED POTENTIAL CONCERN:
+- The plan uses Option C (urllib.parse.urlparse + parse_qs + urlencode) for
+  redaction. If parse_qs fails on a malformed URL, the redaction should not
+  block the HTTP request. The implementation should wrap _redact_url in
+  try/except with a safe fallback string. This is a minor implementation
+  detail, not a blocker.
+
+SECURITY ASSESSMENT
+
+- Signed URL is still passed to urlopen in full — authentication and request
+  signing unchanged. PASS.
+- Token, sign, salt, company-key, usr, pn, sn, devcode, devaddr no longer
+  appear in logs or stdout. PASS.
+- Action name and API host remain visible for operational diagnostics. PASS.
+- Standard Python urllib does not include the full URL in exception __str__
+  for URLError/HTTPError — the error path is safe. PASS.
+- _redact_url uses standard library (urllib.parse) only — no third-party
+  dependencies. PASS.
+- No new secrets or credentials introduced by the fix. PASS.
+- No real credentials appear in validator fixtures. PASS.
+- The PLAN does not propose partial masking (e.g., leaving sign partially
+  visible). All sensitive params are replaced with "REDACTED". PASS.
+- No credentials or authentication methods are changed. PASS.
+- No operational error handling is weakened (exceptions still raised and
+  logged, just without the URL). PASS.
+
+BLOCKERS
+None. All 18 required verification criteria are satisfied.
+
+WARNINGS
+- scripts/check-dess-request-diagnostics-redaction.sh does not yet exist
+  (it will be created during test-first implementation). This is expected
+  and does not block the review.
+- The PLAN does not explicitly address the edge case where _redact_url()
+  itself might raise an exception on a malformed URL. Implementation should
+  wrap the redaction in try/except with a safe fallback string to ensure
+  logging failure never blocks the HTTP request. This is a minor
+  implementation note, not a blocker.
+- The PLAN correctly notes that parse_qs changes parameter ordering. This
+  is irrelevant for diagnostic logging and does not affect behavior.
+
+REQUIRED CORRECTIONS
+None. The PLAN is narrow, testable, security-complete, and safe for
+implementation.
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+PLAN REVIEW ARTIFACT WRITTEN: yes
+
+VERDICT: approved
+
+APPROVED FOR IMPLEMENTATION: true
+
+BRANCH VERIFIED: pr-0035-redact-signed-dess-request-diagnostics
+
+HEAD VERIFIED: cd0847a880d7124d6361b2194469f221dff55b56
+
+ROOT CAUSE CONFIRMED: true
+
+LEAKAGE PATHS VERIFIED: 3
+
+BLOCKERS:
+- none
+
+WARNINGS:
+- scripts/check-dess-request-diagnostics-redaction.sh does not yet exist
+  (will be created during test-first implementation). Expected.
+- The plan does not explicitly address the edge case where _redact_url()
+  itself might raise on a malformed URL. Implementation should wrap
+  redaction in try/except with a safe fallback string to ensure logging
+  failure never blocks the HTTP request.
+- Parameter ordering may change in diagnostic output due to parse_qs dict
+  behavior. Irrelevant for diagnostics — not a blocker.
+
+REQUIRED CORRECTIONS:
+- none
+
+FILES CREATED:
+- .project-memory/pr/0035-redact-signed-dess-request-diagnostics/reviews/PLAN_REVIEW.txt
+
+FILES MODIFIED:
+- none
