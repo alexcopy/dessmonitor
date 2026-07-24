@@ -1,0 +1,192 @@
+PRECOMMIT REVIEW COMPLETE
+yes
+
+TITLE
+PR 0034k — Canonical Operator Surface Roadmap Refresh
+
+REPOSITORY AND BRANCH EVIDENCE
+- Repository: alexcopy/dessmonitor
+- Branch: pr-0034k-operator-surface-roadmap
+- HEAD: f2d6d36a5fac4cddee1dce0352c9f469bf5dc4ec (planning commit)
+- Working tree: ROADMAP.md modified, 2 untracked (CODER_REPORT.txt, check-operator-surface-roadmap.sh)
+- Staging area: empty (git diff --cached --name-only: no output)
+- git diff --check: PASS (no whitespace errors)
+
+PLANNING ARTIFACTS REVIEWED
+- .project-memory/pr/0034k-operator-surface-roadmap/PLAN.txt — read completely
+- .project-memory/pr/0034k-operator-surface-roadmap/reviews/PLAN_REVIEW.txt — read completely
+- PLAN_REVIEW verdict: approved. APPROVED FOR IMPLEMENTATION: true.
+
+IMPLEMENTATION FILES REVIEWED
+- ROADMAP.md — read completely (modified, 394 insertions, 150 deletions)
+- scripts/check-operator-surface-roadmap.sh — read completely (new file, 25 checks)
+- .project-memory/pr/0034k-operator-surface-roadmap/CODER_REPORT.txt — read completely
+
+INDEPENDENT ROOT CAUSE FINDINGS
+Independently confirmed ROADMAP.md was stale relative to current master (HEAD f2d6d36):
+- "Current State" described dashboard as absent ("No authenticated operator UI exists") — FALSE.
+  The authenticated dashboard with live polling, sensor pipeline, load/sensor separation is fully implemented.
+- PR0035 was "Runtime Heartbeat and Inverter Observability Contract" — not the actual security priority.
+- No completed PR0034a-0034j milestones were acknowledged.
+- Route-backed tabs and health-first Overview were absent.
+- Bulma + plain JavaScript as approved stack was not encoded.
+- Measured vs estimated vs derived consumption was not distinguished.
+All 12 drift points from PLAN.txt are independently confirmed.
+
+SCOPE ASSESSMENT
+Implementation scope is exactly:
+- ROADMAP.md (governance-only update)
+- scripts/check-operator-surface-roadmap.sh (focused validator)
+- .project-memory/pr/0034k-operator-surface-roadmap/CODER_REPORT.txt (coder report)
+
+No runtime file changed. No HTML, JS, CSS, Python, YAML, Docker, or K8s file changed.
+No PLAN.txt or PLAN_REVIEW.txt was modified. Staging area empty. PASS.
+
+ROADMAP CURRENT-STATE ASSESSMENT
+ROADMAP.md "Current State" now accurately describes:
+- Authentication (Argon2, session management, CSRF, login throttling)
+- Embedded web host (FastAPI/Uvicorn, WEB_HOST_ENABLED)
+- Live read-only dashboard (short polling, Bulma 1.0.4, plain JS, connection states, 9-column loads, 6-column sensors)
+- Canonical device observations (ON/OFF/UNKNOWN, freshness thresholds)
+- device_type-authoritative load/sensor separation (CANONICAL_TYPE_MAP, normalize_device_type, classify_projection_kind)
+- Canonical sensor snapshot pipeline (SensorReadSnapshot, TelemetryRegistry, ControlStateSnapshot)
+- Load metadata preservation (RuntimeLoadState, LoadControlSnapshot)
+- Inverter metrics in shared_state (not yet in typed snapshot)
+- Signed DESS URL credential exposure (app/api.py lines 235, 238, 343)
+- Sensor fallback reliability concern (run_coroutine_threadsafe)
+- Telemetry consumers still using legacy paths (MLDataCollector, DeviceStatusLogger)
+PASS.
+
+FIFTEEN-PR SEQUENCE ASSESSMENT
+Exactly fifteen PRs PR0035-PR0049 in range. Verified by structural parsing:
+PR0035 — Redact Signed DESS Request Diagnostics
+PR0036 — Runtime Heartbeat and Source Freshness Contract
+PR0037 — Typed Inverter Observability Snapshot
+PR0038 — Canonical Inverter and Heartbeat Web Pipeline
+PR0039 — Route-Backed Bulma Tabs Shell
+PR0040 — System Health Overview
+PR0041 — Energy Detail Tab
+PR0042 — Active / Problems / All Devices Tab
+PR0043 — Sensor Health Tab
+PR0044 — System Diagnostics and Structured Warnings
+PR0045 — Canonical Telemetry Consumers
+PR0046 — Async Sensor Fallback Hardening
+PR0047 — Device Runtime and Daily Energy Metrics
+PR0048 — TimescaleDB History Foundation and Read API
+PR0049 — Historical Charts, Retention and Downsampling
+
+All fifteen PRs present. No missing numbers. No duplicate numbers. Appear in numeric order. PASS.
+
+DEPENDENCY AND GATE ASSESSMENT
+Gates verified:
+- PR0035: no gate (independent security fix). PASS.
+- PR0036: no gate (independent contract layer). PASS.
+- PR0037: gate PR0036 complete. PASS.
+- PR0038: gate PR0036+0037 complete. PASS.
+- PR0039: gate PR0038 complete. PASS.
+- PR0040: gate PR0038+0039 complete. PASS.
+- PR0041: gate PR0039 complete. PASS.
+- PR0042: gate PR0039 complete. PASS.
+- PR0043: gate PR0039 complete. PASS.
+- PR0044: gate PR0038+0039 complete. PASS.
+- PR0045: gate PR0034j+0034h (already done). PASS.
+- PR0046: gate PR0034h (already done). PASS.
+- PR0047: gate PR0042 complete. PASS.
+- PR0048: gate PR0038 complete. PASS.
+- PR0049: gate PR0048 complete. PASS.
+
+Security hotfix first (PR0035). Heartbeat/inverter contracts before UI (PR0036+0037 before PR0038). Tab shell before tab content (PR0039 before PR0040-0044). TimescaleDB read API before charts (PR0048 before PR0049). PASS.
+
+OPERATOR UI DIRECTION ASSESSMENT
+- Health-first Overview priority: explicit in PR0040 description. PASS.
+- Six route-backed tabs: Overview, Energy, Devices, Sensors, System, History. PASS.
+- Active / Problems / All device sub-views. PASS.
+- Bulma + plain JavaScript preserved. PASS.
+- No new frontend framework (React, Vue, Angular, Svelte, HTMX, Alpine.js) introduced. PASS.
+- Short polling preserved. PASS.
+- Diagnostics separated from main operator surface (System tab PR0044). PASS.
+PASS.
+
+MEASURED AND ESTIMATED POWER ASSESSMENT
+PR0041 (Energy Detail Tab) explicitly distinguishes:
+- Measured output power (from inverter metrics)
+- Estimated managed-device load (from device observations)
+- Derived unattributed consumption (the difference)
+Labels and visual hierarchy are stated. PASS.
+
+DEFERRED WORK ASSESSMENT
+Items preserved after PR0049:
+- Manual Command Queue API and UI. PASS.
+- Safety-Gated Controlled Manual Execution. PASS.
+- Audited Runtime Configuration Overrides. PASS.
+- ML Advisory Display (read only, no control authority). PASS.
+- ML Control (requires ADR-0003 safety approval). PASS.
+No execution milestone is authorized early. PASS.
+
+FOCUSED VALIDATOR ASSESSMENT
+scripts/check-operator-surface-roadmap.sh:
+- 25 numbered assertions. PASS.
+- Uses Python (embedded parser), not grep-only. PASS.
+- Exits non-zero on failure. PASS.
+- Accepts optional roadmap path argument, defaults to ROADMAP.md. PASS.
+- No network, Tuya, production config, or browser automation. PASS.
+- Parses PR0035-PR0049 entries, verifies existence, uniqueness, and ordering. PASS.
+- Asserts Current State mentions authenticated dashboard and sensor snapshot. PASS.
+- Asserts health-first Overview priority. PASS.
+- Asserts Bulma as CSS framework. PASS.
+- Asserts forbidden frameworks absent. PASS.
+- Asserts manual execution and ML control deferred. PASS.
+- Asserts signed URL redaction before UI work. PASS.
+- Asserts consumption types distinguished. PASS.
+PASS.
+
+TEST-FIRST EVIDENCE ASSESSMENT
+CODER_REPORT.txt and reproducible behavior confirm test-first approach:
+- Pre-amendment roadmap (/tmp/roadmap-before-pr0034k-review.md): 15 of 25 checks FAILED (exit code 1). Key failures: no sensor snapshot, zero PR0035-PR0049 entries, no health-first Overview, missing tabs, missing Bulma, missing consumption distinction.
+- Post-amendment ROADMAP.md: 25 of 25 checks PASSED (exit code 0).
+- CODER_REPORT's test-first claims are independently reproducible. PASS.
+
+NEGATIVE VALIDATION RESULT
+bash scripts/check-operator-surface-roadmap.sh /tmp/roadmap-before-pr0034k-review.md
+Result: 15/25 failed (exit code 1). FAILED AS EXPECTED. PASS.
+
+REGRESSION VALIDATION
+- bash scripts/check-operator-surface-roadmap.sh (amended): PASS (25/25)
+- bash scripts/check-operator-surface-roadmap.sh /tmp/roadmap-before-pr0034k-review.md (pre-amendment): FAIL (15/25, expected)
+- bash scripts/check-repo-safety.sh: PASS (0 errors, 0 warnings)
+- bash scripts/check-project-memory.sh: PASS (42 PR directories, 0 errors)
+- git diff --check: PASS (no whitespace errors)
+- git diff --name-only: ROADMAP.md only
+- git diff --stat: 1 file changed, 394 insertions(+), 150 deletions(-)
+- git diff --cached --name-only: empty (staging area clean)
+- git status --short: M ROADMAP.md, ?? CODER_REPORT.txt, ?? check-operator-surface-roadmap.sh
+PASS.
+
+SECURITY AND SAFETY ASSESSMENT
+- ROADMAP.md contains no Tuya IDs, ACCESS_ID, ACCESS_KEY, real tokens, passwords, session secrets, signed URLs, sign values, salt values, company-key values, raw provider payloads, or operational configuration. Only contextual references to these terms describing the security gap, invariants, or PR objectives. PASS.
+- PR0035 (signed URL redaction) correctly placed as highest-priority milestone. PASS.
+- Manual execution deferred beyond PR0049 (not authorized early). PASS.
+- ML control deferred (requires ADR-0003 safety approval, stated in roadmap). PASS.
+- All existing safety invariants preserved (no write API, no bypass, authenticated routes, no direct web-to-hardware). PASS.
+- Authentication, CSRF, session management boundaries stated in invariants. PASS.
+- device_type-authoritative classification preserved (stated). PASS.
+- Thermo as sensor-only/non-controllable preserved (stated in Current State). PASS.
+PASS.
+
+BLOCKERS
+None.
+
+WARNINGS
+None.
+
+REQUIRED CORRECTIONS
+None.
+
+VERDICT
+approved
+
+READY FOR COMMIT
+true
+
+READY FOR PULL REQUEST
+true

@@ -1,0 +1,127 @@
+TITLE
+PR 0034k — Canonical Operator Surface Roadmap Refresh
+
+REPOSITORY AND BRANCH EVIDENCE
+- Repository: alexcopy/dessmonitor
+- Branch: pr-0034k-operator-surface-roadmap
+- HEAD: f2d6d36a5fac4cddee1dce0352c9f469bf5dc4ec
+- Working tree: clean before implementation
+
+PLANNING ARTIFACTS READ
+- .project-memory/pr/0034k-operator-surface-roadmap/PLAN.txt — read completely
+- .project-memory/pr/0034k-operator-surface-roadmap/reviews/PLAN_REVIEW.txt — read completely
+- PLAN_REVIEW verdict: approved
+- APPROVED FOR IMPLEMENTATION: true
+
+ROOT CAUSE CONFIRMATION
+ROADMAP.md was stale relative to current master. It described the authenticated
+dashboard as absent, listed PR0035 as "Runtime Heartbeat and Inverter
+Observability Contract" (not signed URL redaction), did not reflect completed
+PR0034a-0034j milestones, lacked route-backed tab architecture, lacked
+health-first Overview priority, and did not sequence security redaction before
+UI expansion. All 12 drift points from PLAN.txt are independently confirmed.
+
+FILES CHANGED
+- ROADMAP.md (modified)
+- scripts/check-operator-surface-roadmap.sh (created)
+- .project-memory/pr/0034k-operator-surface-roadmap/CODER_REPORT.txt (created)
+
+TEST-FIRST FAILING EVIDENCE
+Before implementation, the validator was run against the stale ROADMAP.md:
+  17 of 25 checks FAILED
+  Key failures: no sensor snapshot mention, zero PR0035-PR0049 entries,
+  no health-first Overview, no six tabs, no Bulma, no inverter/heartbeat
+  contracts, no measured/estimated/derived consumption distinction.
+
+ROADMAP IMPLEMENTATION
+ROADMAP.md was rewritten to:
+1. Current State accurately describes the authenticated dashboard, canonical
+   sensor pipeline, device-type-based load/sensor separation, inverter metrics
+   in shared_state, signed URL security gap, and sensor fallback concern.
+2. Current Milestones contain exactly fifteen contiguous PRs (PR0035-PR0049).
+3. Each PR has root cause, gate, outcome, main files, out of scope, acceptance,
+   and security boundary.
+4. Health-first Overview priority is explicit.
+5. Six route-backed tabs (Overview, Energy, Devices, Sensors, System, History).
+6. Bulma + plain JavaScript preserved as approved stack.
+7. Measured vs estimated vs derived consumption explicitly distinguished.
+8. Manual execution, ML control, and configuration overrides preserved as
+   deferred work after PR0049.
+9. Historical Context table updated with completed PR0034a-0034j entries.
+
+FIFTEEN-PR SEQUENCE
+PR0035 — Redact Signed DESS Request Diagnostics (no gate, independent)
+PR0036 — Runtime Heartbeat and Source Freshness Contract (no gate)
+PR0037 — Typed Inverter Observability Snapshot (gate: PR0036)
+PR0038 — Canonical Inverter and Heartbeat Web Pipeline (gate: PR0036+0037)
+PR0039 — Route-Backed Bulma Tabs Shell (gate: PR0038)
+PR0040 — System Health Overview (gate: PR0038+0039)
+PR0041 — Energy Detail Tab (gate: PR0039)
+PR0042 — Active / Problems / All Devices Tab (gate: PR0039)
+PR0043 — Sensor Health Tab (gate: PR0039)
+PR0044 — System Diagnostics and Structured Warnings (gate: PR0038+0039)
+PR0045 — Canonical Telemetry Consumers (gate: PR0034j+0034h, already done)
+PR0046 — Async Sensor Fallback Hardening (gate: PR0034h, already done)
+PR0047 — Device Runtime and Daily Energy Metrics (gate: PR0042)
+PR0048 — TimescaleDB History Foundation and Read API (gate: PR0038)
+PR0049 — Historical Charts, Retention and Downsampling (gate: PR0048)
+
+FOCUSED VALIDATOR DESIGN
+scripts/check-operator-surface-roadmap.sh:
+- Deterministic standalone script using embedded Python parser.
+- 25 numbered assertions covering Current State, PR count/order/range,
+  health-first priority, six tabs, Bulma, no new framework, heartbeat/inverter
+  ordering, manual execution deferral, ML control deferral, TimescaleDB
+  sequencing, consumption distinction, safety invariants, and individual PR
+  titles.
+- No network, Tuya, production config, or browser automation.
+- Accepts optional roadmap path argument (defaults to ROADMAP.md).
+
+FOCUSED VALIDATOR RESULTS
+Against amended ROADMAP.md: 25/25 passed (exit 0)
+
+PRE-AMENDMENT NEGATIVE VALIDATION
+Against /tmp/roadmap-before-pr0034k.md (git show HEAD:ROADMAP.md):
+  15/25 failed (exit 1)
+  Confirmed: stale roadmap fails the validator.
+
+REGRESSION VALIDATION
+- check-repo-safety.sh: PASS (0 errors, 0 warnings)
+- check-project-memory.sh: PASS (42 PR directories, 0 errors)
+- git diff --check: PASS (no whitespace errors)
+- git diff --name-only: ROADMAP.md only
+- git diff --stat: 1 file changed, 394 insertions(+), 150 deletions(-)
+- git diff --cached --name-only: empty (staging area clean)
+
+SECURITY REVIEW
+- ROADMAP.md contains no Tuya IDs, ACCESS_ID, ACCESS_KEY, tokens, passwords,
+  session secrets, signed URLs, sign values, salt values, company-key, raw
+  provider payloads, or operational configuration.
+- PR0035 (signed URL redaction) correctly placed as highest priority.
+- Manual execution deferred beyond PR0049.
+- ML control deferred (requires ADR-0003 safety approval).
+- All existing safety invariants preserved and stated.
+
+SCOPE REVIEW
+Only ROADMAP.md, scripts/check-operator-surface-roadmap.sh, and
+CODER_REPORT.txt were created or modified. No application Python files, HTML,
+JS, CSS, requirements, Docker files, GitHub Actions, K8s manifests, or
+devices.yaml were changed.
+
+DEFERRED WORK PRESERVATION
+Manual Command Queue API and UI, Safety-Gated Controlled Manual Execution,
+Audited Runtime Configuration Overrides, ML Advisory Display, and ML Control
+are all preserved as deferred work after the fifteen-PR sequence.
+
+DIFF SUMMARY
+ROADMAP.md: 394 insertions, 150 deletions
+scripts/check-operator-surface-roadmap.sh: new file (25 checks)
+
+BLOCKERS
+None.
+
+WARNINGS
+None.
+
+FINAL STATUS
+Implementation complete. All validation passes. Staging area empty.
