@@ -80,9 +80,7 @@ async def main() -> None:
         classify_projection_kind, DeviceProjectionKind,
     )
     for dev in dev_mgr.get_devices():
-        proj = classify_projection_kind(
-            dev.device_type, getattr(dev, "extra", None)
-        )
+        proj = classify_projection_kind(dev.device_type)
         if proj == DeviceProjectionKind.SENSOR:
             sensor_id = f"{dev.id}_water_temp"
             display_name = getattr(dev, "name", "Sensor") or "Sensor"
