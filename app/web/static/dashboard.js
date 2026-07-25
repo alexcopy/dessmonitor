@@ -69,21 +69,30 @@
         dom.dashboardWarnings = document.getElementById("dashboard-warnings");
         dom.warningsBody = document.getElementById("warnings-body");
         dom.snapshotTimestamp = document.getElementById("snapshot-timestamp");
-        dom.loadsTableBody = document.getElementById("loads-table-body");
+        /* Load tab bodies */
+        dom.loadsActiveBody = document.getElementById("loads-active-body");
+        dom.loadsInactiveBody = document.getElementById("loads-inactive-body");
+        dom.loadsTabActive = document.getElementById("loads-tab-active");
+        dom.loadsTabInactive = document.getElementById("loads-tab-inactive");
     dom.startupResetBadge = document.getElementById("startup-reset-badge");
     dom.startupResetInfo = document.getElementById("startup-reset-info");
     dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
     dom.sensorsTableBody = document.getElementById("sensors-table-body");
-    dom.inverterUnavailable = document.getElementById("inverter-unavailable");
-    dom.inverterCards = document.getElementById("inverter-cards");
-    dom.invBatteryVoltage = document.getElementById("inv-battery-voltage");
-    dom.invOutputPower = document.getElementById("inv-output-power");
-    dom.invPvTotalPower = document.getElementById("inv-pv-total-power");
-    dom.invOutputVoltage = document.getElementById("inv-output-voltage");
-    dom.invBatterySoc = document.getElementById("inv-battery-soc");
-    dom.invWorkingMode = document.getElementById("inv-working-mode");
-    dom.invAcInputVoltage = document.getElementById("inv-ac-input-voltage");
-    dom.invMainsStatus = document.getElementById("inv-mains-status");
+        /* Operator summary */
+        dom.sourceIndicator = document.getElementById("source-indicator");
+        dom.dsOutputPower = document.getElementById("ds-output-power");
+        dom.dsOutputVoltage = document.getElementById("ds-output-voltage");
+        dom.dsBatteryVoltage = document.getElementById("ds-battery-voltage");
+        dom.dsPvPower = document.getElementById("ds-pv-power");
+        dom.dsBatterySoc = document.getElementById("ds-battery-soc");
+        dom.dsWorkingMode = document.getElementById("ds-working-mode");
+        dom.dsPvCol = document.getElementById("ds-pv-col");
+        /* Inverter detail row */
+        dom.inverterDetailSection = document.getElementById("inverter-detail-section");
+        dom.invDetailAcVoltage = document.getElementById("inv-detail-ac-voltage");
+        dom.invDetailLoad = document.getElementById("inv-detail-load");
+        dom.invDetailChg = document.getElementById("inv-detail-chg");
+        dom.invDetailDis = document.getElementById("inv-detail-dis");
     }
 
     /* -----------------------------------------------------------------------
@@ -280,26 +289,92 @@
     }
 
     /* -----------------------------------------------------------------------
-     * Inverter rendering
+     * Source indicator derivation
      * -----------------------------------------------------------------------
      */
 
-    function renderInverter(snapshot) {
+    var INVERTER_MODES = {
+        "Battery Mode": true,
+        "PV Mode": true,
+        "Invert Mode": true,
+        "Power Saving Mode": true,
+        "Standby Mode": true,
+        "Bypass Mode": true
+    };
+
+    function getSourceState(inverter) {
+        if (!inverter || !Array.isArray(inverter) || inverter.length === 0) {
+            return "unknown";
+        }
+        var inv = inverter[0];
+        if (!inv || typeof inv !== "object") {
+            return "unknown";
+        }
+        var wm = inv.working_mode;
+        if (!wm || wm === "") {
+            return "unknown";
+        }
+        if (wm === "Line Mode") {
+            return "mains";
+        }
+        if (wm === "Fault Mode") {
+            return "fault";
+        }
+        if (INVERTER_MODES[wm]) {
+            return "inverter";
+        }
+        return "unknown";
+    }
+
+    /* -----------------------------------------------------------------------
+     * Source indicator rendering
+     * -----------------------------------------------------------------------
+     */
+
+    var SOURCE_LABELS = {
+        inverter: "\u2600 Inverter",
+        mains: "\u26A1 Mains",
+        fault: "\u26A0 Fault",
+        unknown: "\u2014 N/A"
+    };
+
+    var SOURCE_CLASSES = {
+        inverter: "tag is-medium ds-source-indicator ds-source-inverter",
+        mains: "tag is-medium ds-source-indicator ds-source-mains",
+        fault: "tag is-medium ds-source-indicator ds-source-fault",
+        unknown: "tag is-medium ds-source-indicator ds-source-unknown"
+    };
+
+    function renderSourceIndicator(snapshot) {
+        if (!snapshot || !snapshot.inverter) { return; }
+        var state = getSourceState(snapshot.inverter);
+        dom.sourceIndicator.textContent = SOURCE_LABELS[state] || "\u2014 N/A";
+        dom.sourceIndicator.className = SOURCE_CLASSES[state] || SOURCE_CLASSES.unknown;
+    }
+
+    /* -----------------------------------------------------------------------
+     * Operator summary (compact inverter metrics)
+     * -----------------------------------------------------------------------
+     */
+
+    function renderOperatorSummary(snapshot) {
         if (!snapshot) { return; }
         var inverter = snapshot.inverter;
         if (!Array.isArray(inverter) || inverter.length === 0) {
-            dom.inverterUnavailable.classList.remove("is-hidden");
-            dom.inverterCards.classList.add("is-hidden");
+            dom.dsOutputPower.textContent = "N/A";
+            dom.dsOutputVoltage.textContent = "N/A";
+            dom.dsBatteryVoltage.textContent = "N/A";
+            dom.dsPvPower.textContent = "N/A";
+            dom.dsBatterySoc.textContent = "N/A";
+            dom.dsWorkingMode.textContent = "N/A";
+            dom.dsWorkingMode.className = "tag is-light";
             return;
         }
-
-        dom.inverterUnavailable.classList.add("is-hidden");
-        dom.inverterCards.classList.remove("is-hidden");
 
         var inv = inverter[0];
         if (!inv || typeof inv !== "object") { return; }
 
-        function formatValue(val, unit) {
+        function formatCompact(val, unit) {
             if (val === null || val === undefined) {
                 return "N/A";
             }
@@ -309,14 +384,69 @@
             return String(val);
         }
 
-        dom.invBatteryVoltage.textContent = formatValue(inv.battery_voltage, "V");
-        dom.invOutputPower.textContent = formatValue(inv.output_power, "W");
-        dom.invPvTotalPower.textContent = formatValue(inv.pv_total_power, "W");
-        dom.invOutputVoltage.textContent = formatValue(inv.output_voltage, "V");
-        dom.invBatterySoc.textContent = formatValue(inv.battery_soc, "%");
-        dom.invWorkingMode.textContent = safeText(inv.working_mode);
-        dom.invAcInputVoltage.textContent = formatValue(inv.ac_input_voltage, "V");
-        dom.invMainsStatus.textContent = safeText(inv.mains_status);
+        dom.dsOutputPower.textContent = formatCompact(inv.output_power, "W");
+        dom.dsOutputVoltage.textContent = formatCompact(inv.output_voltage, "V");
+        dom.dsBatteryVoltage.textContent = formatCompact(inv.battery_voltage, "V");
+        dom.dsBatterySoc.textContent = formatCompact(inv.battery_soc, "%");
+
+        /* PV power — show if non-null, hide column otherwise */
+        if (inv.pv_total_power !== null && inv.pv_total_power !== undefined) {
+            dom.dsPvPower.textContent = formatCompact(inv.pv_total_power, "W");
+            dom.dsPvCol.classList.remove("is-hidden");
+        } else {
+            dom.dsPvPower.textContent = "N/A";
+            dom.dsPvCol.classList.add("is-hidden");
+        }
+
+        /* Working mode tag */
+        var wm = inv.working_mode || "";
+        dom.dsWorkingMode.textContent = wm || "N/A";
+        if (wm === "Line Mode") {
+            dom.dsWorkingMode.className = "tag is-warning is-light";
+        } else if (wm === "Fault Mode") {
+            dom.dsWorkingMode.className = "tag is-danger is-light";
+        } else if (wm) {
+            dom.dsWorkingMode.className = "tag is-success is-light";
+        } else {
+            dom.dsWorkingMode.className = "tag is-light";
+        }
+    }
+
+    /* -----------------------------------------------------------------------
+     * Inverter detail (compact row — remaining fields)
+     * -----------------------------------------------------------------------
+     */
+
+    function renderInverterDetail(snapshot) {
+        if (!snapshot) { return; }
+        var inverter = snapshot.inverter;
+        if (!Array.isArray(inverter) || inverter.length === 0) {
+            dom.inverterDetailSection.classList.add("is-hidden");
+            return;
+        }
+
+        var inv = inverter[0];
+        if (!inv || typeof inv !== "object") {
+            dom.inverterDetailSection.classList.add("is-hidden");
+            return;
+        }
+
+        dom.inverterDetailSection.classList.remove("is-hidden");
+
+        function formatDetail(val, unit) {
+            if (val === null || val === undefined) {
+                return "N/A";
+            }
+            if (unit) {
+                return String(val) + " " + unit;
+            }
+            return String(val);
+        }
+
+        dom.invDetailAcVoltage.textContent = formatDetail(inv.ac_input_voltage, "V");
+        dom.invDetailLoad.textContent = formatDetail(inv.ac_output_load, "%");
+        dom.invDetailChg.textContent = formatDetail(inv.battery_current_chg, "A");
+        dom.invDetailDis.textContent = formatDetail(inv.battery_current_dis, "A");
     }
 
     /* -----------------------------------------------------------------------
@@ -357,6 +487,13 @@
         dom.snapshotTimestamp.textContent = "Snapshot: " +
             formatTimestamp(snapshot.created_at);
 
+        /* Render source indicator and operator summary FIRST */
+        renderSourceIndicator(snapshot);
+        renderOperatorSummary(snapshot);
+
+        /* Startup reset badge (unchanged) */
+        renderStartupReset(snapshot);
+
         /* Warnings */
         if (data.warnings && Array.isArray(data.warnings) && data.warnings.length > 0) {
             dom.dashboardWarnings.classList.remove("is-hidden");
@@ -365,22 +502,22 @@
             dom.dashboardWarnings.classList.add("is-hidden");
         }
 
-        /* Loads table */
+        /* Loads — split into active and inactive */
         var loads = snapshot.loads;
         if (!Array.isArray(loads) || loads.length === 0) {
-            dom.loadsTableBody.textContent = "";
+            dom.loadsActiveBody.textContent = "";
+            dom.loadsInactiveBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            var loadsHeaderRow = document.querySelector("#loads-table-body").parentElement.querySelector("thead tr");
-            var loadsColCount = loadsHeaderRow ? loadsHeaderRow.children.length : 9;
-            emptyCell.colSpan = loadsColCount;
+            emptyCell.colSpan = 9;
             emptyCell.className = "has-text-centered has-text-grey";
             emptyCell.textContent = "No loads available";
             emptyRow.appendChild(emptyCell);
-            dom.loadsTableBody.appendChild(emptyRow);
+            dom.loadsActiveBody.appendChild(emptyRow);
             dom.summaryTotalLoads.textContent = "0";
             dom.summaryOnCount.textContent = "0";
             dom.summaryOffCount.textContent = "0";
+            dom.summaryUnknownCount.textContent = "0";
             return;
         }
 
@@ -389,8 +526,8 @@
         var offCount = 0;
         var unknownCount = 0;
 
-        /* Clear existing rows */
-        dom.loadsTableBody.textContent = "";
+        var activeRows = [];
+        var inactiveRows = [];
 
         for (var i = 0; i < loads.length; i++) {
             var load = loads[i];
@@ -520,7 +657,44 @@
             tdRoles.textContent = roles;
             tr.appendChild(tdRoles);
 
-            dom.loadsTableBody.appendChild(tr);
+            /* Sort into active or inactive */
+            if (currentlyOn === true) {
+                activeRows.push(tr);
+            } else {
+                inactiveRows.push(tr);
+            }
+        }
+
+        /* Render active body */
+        dom.loadsActiveBody.textContent = "";
+        if (activeRows.length === 0) {
+            var emptyRow = document.createElement("tr");
+            var emptyCell = document.createElement("td");
+            emptyCell.colSpan = 9;
+            emptyCell.className = "has-text-centered has-text-grey";
+            emptyCell.textContent = "No active loads";
+            emptyRow.appendChild(emptyCell);
+            dom.loadsActiveBody.appendChild(emptyRow);
+        } else {
+            for (var ai = 0; ai < activeRows.length; ai++) {
+                dom.loadsActiveBody.appendChild(activeRows[ai]);
+            }
+        }
+
+        /* Render inactive body */
+        dom.loadsInactiveBody.textContent = "";
+        if (inactiveRows.length === 0) {
+            var emptyRow2 = document.createElement("tr");
+            var emptyCell2 = document.createElement("td");
+            emptyCell2.colSpan = 9;
+            emptyCell2.className = "has-text-centered has-text-grey";
+            emptyCell2.textContent = "No inactive loads";
+            emptyRow2.appendChild(emptyCell2);
+            dom.loadsInactiveBody.appendChild(emptyRow2);
+        } else {
+            for (var ii = 0; ii < inactiveRows.length; ii++) {
+                dom.loadsInactiveBody.appendChild(inactiveRows[ii]);
+            }
         }
 
         dom.summaryTotalLoads.textContent = String(totalLoads);
@@ -530,8 +704,8 @@
             dom.summaryUnknownCount.textContent = String(unknownCount);
         }
 
-        /* Render inverter data */
-        renderInverter(snapshot);
+        /* Render inverter detail row */
+        renderInverterDetail(snapshot);
     }
 
     /* Sensors rendering */
@@ -853,6 +1027,25 @@
 
     function start() {
         cacheDom();
+
+        /* Load tab switching */
+        if (dom.loadsTabActive) {
+            dom.loadsTabActive.addEventListener("click", function () {
+                dom.loadsTabActive.classList.add("is-active");
+                dom.loadsTabInactive.classList.remove("is-active");
+                dom.loadsActiveBody.classList.remove("is-hidden");
+                dom.loadsInactiveBody.classList.add("is-hidden");
+            });
+        }
+        if (dom.loadsTabInactive) {
+            dom.loadsTabInactive.addEventListener("click", function () {
+                dom.loadsTabInactive.classList.add("is-active");
+                dom.loadsTabActive.classList.remove("is-active");
+                dom.loadsInactiveBody.classList.remove("is-hidden");
+                dom.loadsActiveBody.classList.add("is-hidden");
+            });
+        }
+
         document.addEventListener("visibilitychange", onVisibilityChange);
         window.addEventListener("beforeunload", onBeforeUnload);
         window.addEventListener("pagehide", onBeforeUnload);

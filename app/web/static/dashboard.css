@@ -171,6 +171,72 @@ input:focus-visible {
 }
 
 /* ---------------------------------------------------------------------------
+ * Source indicator badge
+ * ---------------------------------------------------------------------------
+ */
+
+.ds-source-indicator {
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.8rem;
+}
+
+.ds-source-inverter {
+    background-color: #48c78e;
+    color: #fff;
+    border: 1px solid #30a46c;
+}
+
+.ds-source-mains {
+    background-color: #ffe08a;
+    color: rgba(0, 0, 0, 0.7);
+    border: 1px solid #f5d04e;
+}
+
+.ds-source-fault {
+    background-color: #f14668;
+    color: #fff;
+    border: 1px solid #cc0f35;
+}
+
+.ds-source-unknown {
+    background-color: #b5b5b5;
+    color: #fff;
+    border: 1px solid #999;
+}
+
+/* ---------------------------------------------------------------------------
+ * Compact card styles (operator summary)
+ * ---------------------------------------------------------------------------
+ */
+
+.ds-compact-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.3rem 0.6rem;
+    background: #fafafa;
+    border-radius: 4px;
+    border: 1px solid #dbdbdb;
+    min-width: 4rem;
+}
+
+.ds-compact-card .heading {
+    text-transform: uppercase;
+    font-size: 0.6rem;
+    letter-spacing: 0.07em;
+    color: #7a7a7a;
+    margin-bottom: 0.1rem;
+}
+
+.ds-compact-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #363636;
+    white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
  * Dark mode overrides
  * ---------------------------------------------------------------------------
  */
@@ -194,5 +260,28 @@ input:focus-visible {
     .is-stale-data::after {
         color: #ffe08a;
         background: #3d3500;
+    }
+
+    .ds-source-mains {
+        background-color: #6b5900;
+        color: #ffe08a;
+    }
+
+    .ds-source-unknown {
+        background-color: #4a4a4a;
+        color: #ccc;
+    }
+
+    .ds-compact-card {
+        background: #2b2b2b;
+        border-color: #4a4a4a;
+    }
+
+    .ds-compact-card .heading {
+        color: #999;
+    }
+
+    .ds-compact-value {
+        color: #e0e0e0;
     }
 }
