@@ -7,11 +7,11 @@ metadata:
 
 models:
   architect_model:
-    provider: openai
-    model: deepseek-chat
-    base_url: https://api.deepseek.com
-    token_key: DEEPSEEK_API_KEY
-    max_tokens: 10000
+    provider: anthropic
+    model: deepseek-v4-flash
+    base_url: https://api.openmodel.ai
+    max_tokens: 40000
+    temperature: 0
     thinking_budget: low
 
 agents:
