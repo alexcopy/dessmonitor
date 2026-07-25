@@ -214,6 +214,8 @@
             <span id="summary-unknown-count"></span>
             <span id="snapshot-timestamp"></span>
             <span id="ds-working-mode"></span>
+            <!-- dashboard.js пишет pv_total_power сюда; patch игнорирует -->
+            <span id="mini-pv"></span>
         </div>
 
         <!-- Dashboard warnings -->
@@ -294,5 +296,208 @@
     </div>
 </main>
 
+<script>
+/* ═══════════════════════════════════════════════════════════
+   dashboard-patch.js  —  точечный патч поверх dashboard.js
+   Основан на анализе реального dashboard.js кода.
+
+   Проблема 1: mini-output-power / mini-battery-v не заполняются.
+     dashboard.js пишет в #mini-pv (pv_total_power) и не знает
+     новых id. Патч наблюдает за #ds-output-power и
+     #ds-battery-voltage и синхронизирует новые боксы.
+
+   Проблема 2: dis-color красный — исправлено в CSS.
+
+   Проблема 3: Toggle switch.
+     dashboard.js строит <tr> через createElement, не ставит
+     классы dm-row-inactive. Патч определяет неактивные строки
+     по наличию .dm-state-on и скрывает остальные.
+
+   Проблема 4: Timestamp timezone.
+     dashboard.js вызывает formatLondonTimestamp(inv.observed_at).
+     observed_at приходит как "2026-07-25T13:46:39" без суффикса —
+     new Date() парсит как local time вместо UTC.
+     Патч перехватывает #inv-timestamp и корректирует если нужно.
+   ═══════════════════════════════════════════════════════════ */
+(function () {
+    'use strict';
+
+    /* ── 1. MINI BOXES: output_power + battery_voltage ────────
+       dashboard.js:
+         dom.miniPv.textContent = formatCompact(inv.pv_total_power, "W")  → #mini-pv (скрытый)
+         dom.dsBatteryVoltage.textContent = formatCompact(inv.battery_voltage, "")  → #ds-battery-voltage
+         dom.dsOutputPower.textContent = formatCompact(inv.output_power, "")        → #ds-output-power
+       Нам нужно:
+         #mini-output-power ← значение из #ds-output-power + " W"
+         #mini-battery-v    ← значение из #ds-battery-voltage + " V"  + цветовой класс
+    ──────────────────────────────────────────────────────────── */
+    function watchElement(srcId, callback) {
+        var el = document.getElementById(srcId);
+        if (!el) return;
+        callback(el.textContent.trim());
+        new MutationObserver(function () {
+            callback(el.textContent.trim());
+        }).observe(el, { childList: true, characterData: true, subtree: true });
+    }
+
+    function setupMiniOutputPower() {
+        watchElement('ds-output-power', function (val) {
+            var dst = document.getElementById('mini-output-power');
+            if (!dst) return;
+            dst.textContent = (val && val !== 'N/A') ? val + ' W' : '—';
+        });
+    }
+
+    function setupMiniBattery() {
+        watchElement('ds-battery-voltage', function (val) {
+            /* mini-battery-v */
+            var dst = document.getElementById('mini-battery-v');
+            if (dst) {
+                dst.textContent = (val && val !== 'N/A') ? val + ' V' : '—';
+            }
+            /* battery voltage color on hero wrap */
+            var wrap = document.getElementById('ds-battery-voltage-wrap');
+            if (!wrap) return;
+            var v = parseFloat(val);
+            wrap.classList.remove('bat-green', 'bat-amber', 'bat-red');
+            var cls = isNaN(v) ? 'bat-amber'
+                    : v >= 26.5 ? 'bat-green'
+                    : v >= 25.3 ? 'bat-amber'
+                    : 'bat-red';
+            wrap.classList.add(cls);
+            /* mini bat icon color */
+            var icon = document.getElementById('mini-bat-icon');
+            if (icon) {
+                icon.classList.remove('green', 'amber', 'red');
+                icon.classList.add(cls === 'bat-green' ? 'green' : cls === 'bat-red' ? 'red' : 'amber');
+            }
+            /* mini-battery-v color follows wrap */
+            if (dst) {
+                dst.classList.remove('green', 'amber', 'red');
+                icon && dst.classList.add(cls === 'bat-green' ? 'green' : cls === 'bat-red' ? 'red' : 'amber');
+            }
+        });
+    }
+
+    /* ── 3. TOGGLE SWITCH ─────────────────────────────────────
+       dashboard.js строит строки через createElement.
+       Каждая строка с .dm-state-on — активна, остальные inactive.
+       MutationObserver на tbody перепрогоняет фильтр после
+       каждой перерисовки (dashboard.js сбрасывает tbody.textContent
+       при каждом poll).
+    ──────────────────────────────────────────────────────────── */
+    function setupToggle() {
+        var chk   = document.getElementById('loads-show-all');
+        var tbody = document.getElementById('loads-table-body');
+        if (!chk || !tbody) return;
+
+        function applyFilter() {
+            var showAll = chk.checked;
+            var rows = tbody.querySelectorAll('tr');
+            rows.forEach(function (tr) {
+                /* активная строка — содержит span.dm-state-on */
+                var isActive = !!tr.querySelector('.dm-state-on');
+                if (!isActive) {
+                    tr.classList.add('dm-row-inactive');
+                    tr.style.display = showAll ? '' : 'none';
+                } else {
+                    tr.classList.remove('dm-row-inactive');
+                    tr.style.display = '';
+                }
+            });
+        }
+
+        chk.addEventListener('change', applyFilter);
+
+        /* dashboard.js очищает tbody через .textContent = "" при каждом poll,
+           затем добавляет строки — ждём 80ms чтобы рендер завершился */
+        new MutationObserver(function () {
+            setTimeout(applyFilter, 80);
+        }).observe(tbody, { childList: true });
+    }
+
+    /* ── 4. TIMESTAMP TIMEZONE ────────────────────────────────
+       dashboard.js вызывает:
+         formatLondonTimestamp(inv.observed_at)
+         → new Date(isoString).toLocaleString("en-GB", { timeZone: "Europe/London" })
+
+       Проблема: observed_at = "2026-07-25T13:46:39" (без Z/+00:00).
+       Браузер парсит без суффикса как LOCAL time → неверный результат.
+
+       Патч: наблюдает за #inv-timestamp. Если значение выглядит как
+       уже отформатированная строка en-GB ("25/07/2026, ...") — значит
+       dashboard.js уже отработал. Если нет — конвертируем сами.
+
+       Если observed_at уже содержит "T" и не содержит "Z" — добавляем "Z".
+    ──────────────────────────────────────────────────────────── */
+    function fixTimestamp(raw) {
+        if (!raw || raw === 'N/A' || raw === '—' || raw === '-') return raw;
+        /* уже в формате en-GB: "25/07/2026, 14:46:39" — не трогаем */
+        if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) return raw;
+        try {
+            /* "2026-07-25T13:46:39" → добавляем Z для явного UTC */
+            var iso = raw.indexOf('T') !== -1 && raw.slice(-1) !== 'Z'
+                ? raw + 'Z'
+                : raw;
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return raw;
+            return d.toLocaleString('en-GB', {
+                timeZone: 'Europe/London',
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false
+            });
+        } catch (e) { return raw; }
+    }
+
+    function setupTimestampFix() {
+        var el = document.getElementById('inv-timestamp');
+        if (!el) return;
+        var busy = false;
+        function update() {
+            if (busy) return;
+            var raw = el.textContent.trim();
+            var fixed = fixTimestamp(raw);
+            if (fixed !== raw) {
+                busy = true;
+                el.textContent = fixed;
+                busy = false;
+            }
+        }
+        /* footer тоже */
+        var footer = document.getElementById('footer-inv-time');
+
+        new MutationObserver(function () {
+            update();
+            /* синхронизируем footer */
+            if (footer) {
+                var fraw = footer.textContent.trim();
+                var ffixed = fixTimestamp(fraw);
+                if (ffixed !== fraw) footer.textContent = ffixed;
+            }
+        }).observe(el, { childList: true, characterData: true, subtree: true });
+        update();
+    }
+
+    /* ── INIT ─────────────────────────────────────────────────
+       dashboard.js стартует через DOMContentLoaded → executePoll()
+       → первый ответ придёт через ~5s на poll_normal.
+       Наши наблюдатели работают реактивно — ждать не нужно,
+       MutationObserver сработает сразу при первой записи.
+    ──────────────────────────────────────────────────────────── */
+    function init() {
+        setupMiniOutputPower();
+        setupMiniBattery();
+        setupToggle();
+        setupTimestampFix();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+</script>
 </body>
 </html>
