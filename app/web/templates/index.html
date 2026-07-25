@@ -62,7 +62,54 @@
         <!-- Dashboard content -->
         <div id="dashboard-content" class="is-hidden">
 
-            <!-- Summary cards -->
+            <!-- Compact operator/inverter summary (NEW — first content section) -->
+            <div id="operator-summary" class="columns is-multiline is-vcentered mb-4">
+                <!-- Source indicator badge -->
+                <div class="column is-narrow">
+                    <span id="source-indicator" class="tag is-medium ds-source-indicator ds-source-unknown">— N/A</span>
+                </div>
+                <!-- Output power -->
+                <div class="column is-narrow">
+                    <div class="ds-compact-card">
+                        <p class="heading">Output</p>
+                        <p class="ds-compact-value" id="ds-output-power">N/A</p>
+                    </div>
+                </div>
+                <!-- Output voltage -->
+                <div class="column is-narrow">
+                    <div class="ds-compact-card">
+                        <p class="heading">Voltage</p>
+                        <p class="ds-compact-value" id="ds-output-voltage">N/A</p>
+                    </div>
+                </div>
+                <!-- Battery -->
+                <div class="column is-narrow">
+                    <div class="ds-compact-card">
+                        <p class="heading">Battery</p>
+                        <p class="ds-compact-value" id="ds-battery-voltage">N/A</p>
+                    </div>
+                </div>
+                <!-- PV total power -->
+                <div class="column is-narrow" id="ds-pv-col">
+                    <div class="ds-compact-card">
+                        <p class="heading">PV</p>
+                        <p class="ds-compact-value" id="ds-pv-power">N/A</p>
+                    </div>
+                </div>
+                <!-- Battery SOC -->
+                <div class="column is-narrow">
+                    <div class="ds-compact-card">
+                        <p class="heading">SOC</p>
+                        <p class="ds-compact-value" id="ds-battery-soc">N/A</p>
+                    </div>
+                </div>
+                <!-- Working mode label -->
+                <div class="column is-narrow">
+                    <span id="ds-working-mode" class="tag is-light">N/A</span>
+                </div>
+            </div>
+
+            <!-- Summary cards (existing — load counts) -->
             <div class="columns is-multiline mb-4" id="dashboard-summary">
                 <div class="column is-6-tablet is-3-desktop">
                     <div class="card">
@@ -117,8 +164,22 @@
             <!-- Snapshot timestamp -->
             <p id="snapshot-timestamp" class="is-size-7 has-text-grey mb-3"></p>
 
-            <!-- Loads table -->
+            <!-- Loads tabs -->
             <h2 class="title is-5">Current Loads</h2>
+            <div class="tabs is-toggle is-small mb-2" id="loads-tabs">
+                <ul>
+                    <li id="loads-tab-active" class="is-active">
+                        <a id="loads-active-tab">
+                            <span>Active</span>
+                        </a>
+                    </li>
+                    <li id="loads-tab-inactive">
+                        <a id="loads-inactive-tab">
+                            <span>Inactive / Off / Unknown</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
             <div class="table-container">
                 <table class="table is-fullwidth is-striped is-hoverable">
                     <thead>
@@ -134,9 +195,14 @@
                             <th>Roles</th>
                         </tr>
                     </thead>
-                    <tbody id="loads-table-body">
+                    <tbody id="loads-active-body">
                         <tr>
-                            <td colspan="6" class="has-text-centered has-text-grey">Loading&hellip;</td>
+                            <td colspan="9" class="has-text-centered has-text-grey">Loading&hellip;</td>
+                        </tr>
+                    </tbody>
+                    <tbody id="loads-inactive-body" class="is-hidden">
+                        <tr>
+                            <td colspan="9" class="has-text-centered has-text-grey">No inactive loads</td>
                         </tr>
                     </tbody>
                 </table>
@@ -164,76 +230,24 @@
                 </table>
             </div>
 
-            <!-- Inverter summary -->
-            <div id="inverter-summary-section" class="mt-5">
-                <h2 class="title is-5">Inverter</h2>
-                <div id="inverter-unavailable" class="notification is-light is-hidden">
-                    <p>No inverter data available.</p>
-                </div>
-                <div id="inverter-cards" class="columns is-multiline is-hidden">
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">Battery Voltage</p>
-                                <p class="title is-4" id="inv-battery-voltage">N/A</p>
-                            </div>
-                        </div>
+            <!-- Inverter detail (compact row — remaining fields not in summary) -->
+            <div id="inverter-detail-section" class="is-hidden mt-4">
+                <div class="columns is-multiline is-gapless">
+                    <div class="column is-narrow">
+                        <span class="is-size-7 has-text-grey">AC In:</span>
+                        <span class="is-size-7 ml-1" id="inv-detail-ac-voltage">N/A</span>
                     </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">Output Power</p>
-                                <p class="title is-4" id="inv-output-power">N/A</p>
-                            </div>
-                        </div>
+                    <div class="column is-narrow ml-3">
+                        <span class="is-size-7 has-text-grey">Load:</span>
+                        <span class="is-size-7 ml-1" id="inv-detail-load">N/A</span>
                     </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">PV Total Power</p>
-                                <p class="title is-4" id="inv-pv-total-power">N/A</p>
-                            </div>
-                        </div>
+                    <div class="column is-narrow ml-3">
+                        <span class="is-size-7 has-text-grey">Chg:</span>
+                        <span class="is-size-7 ml-1" id="inv-detail-chg">N/A</span>
                     </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">Output Voltage</p>
-                                <p class="title is-4" id="inv-output-voltage">N/A</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">Battery SOC</p>
-                                <p class="title is-4" id="inv-battery-soc">N/A</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">Working Mode</p>
-                                <p class="title is-5" id="inv-working-mode">N/A</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">AC Input Voltage</p>
-                                <p class="title is-4" id="inv-ac-input-voltage">N/A</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="column is-6-tablet is-3-desktop">
-                        <div class="card">
-                            <div class="card-content has-text-centered">
-                                <p class="heading">Mains Status</p>
-                                <p class="title is-5" id="inv-mains-status">N/A</p>
-                            </div>
-                        </div>
+                    <div class="column is-narrow ml-3">
+                        <span class="is-size-7 has-text-grey">Dis:</span>
+                        <span class="is-size-7 ml-1" id="inv-detail-dis">N/A</span>
                     </div>
                 </div>
             </div>
