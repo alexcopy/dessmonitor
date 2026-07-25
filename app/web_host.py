@@ -43,6 +43,7 @@ _STATIC_ALLOWLIST: frozenset[str] = frozenset({
     "vendor/bulma/1.0.4/bulma.min.css",
     "dashboard.css",
     "dashboard.js",
+    "dashboard-patch.js",
 })
 
 # ---------------------------------------------------------------------------
