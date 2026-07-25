@@ -34,6 +34,7 @@ from app.control.control_state_snapshot import (
     ControlModeSnapshot,
     ControlStateSnapshot,
     ControlStateSnapshotInput,
+    InverterReadSnapshot,
     SensorReadSnapshot,
     build_control_state_snapshot,
 )
@@ -143,6 +144,7 @@ class RuntimeControlSnapshotAdapterInput:
     energy_budget: EnergyBudget | None = None
     battery_window: BatteryOperatingWindow | None = None
     mode: RuntimeControlModeState | None = None
+    inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -330,6 +332,80 @@ def _parse_sensors(
     return tuple(result)
 
 
+# ---------------------------------------------------------------------------
+# Helper: parse inverter data from runtime_state dict
+# ---------------------------------------------------------------------------
+
+
+def _parse_inverter(
+    raw: object | None,
+) -> tuple[InverterReadSnapshot, ...]:
+    """Parse a list of inverter dicts into InverterReadSnapshot tuple.
+
+    Best-effort: dicts are converted, invalid entries use safe defaults.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        return ()
+
+    result: list[InverterReadSnapshot] = []
+    for item in raw:
+        if isinstance(item, InverterReadSnapshot):
+            result.append(item)
+        elif isinstance(item, dict):
+            try:
+                inv = InverterReadSnapshot(
+                    snapshot_id=str(item.get("snapshot_id", "")),
+                    observed_at=str(item["observed_at"]) if item.get("observed_at") is not None else None,
+                    battery_voltage=_safe_inverter_float(item.get("battery_voltage")),
+                    battery_soc=_safe_inverter_float(item.get("battery_soc")),
+                    battery_current_chg=_safe_inverter_float(item.get("battery_current_chg")),
+                    battery_current_dis=_safe_inverter_float(item.get("battery_current_dis")),
+                    pv1_voltage=_safe_inverter_float(item.get("pv1_voltage")),
+                    pv1_power=_safe_inverter_float(item.get("pv1_power")),
+                    pv2_voltage=_safe_inverter_float(item.get("pv2_voltage")),
+                    pv2_power=_safe_inverter_float(item.get("pv2_power")),
+                    pv_total_power=_safe_inverter_float(item.get("pv_total_power")),
+                    output_voltage=_safe_inverter_float(item.get("output_voltage")),
+                    output_power=_safe_inverter_float(item.get("output_power")),
+                    output_apparent_power=_safe_inverter_float(item.get("output_apparent_power")),
+                    ac_input_voltage=_safe_inverter_float(item.get("ac_input_voltage")),
+                    ac_input_frequency=_safe_inverter_float(item.get("ac_input_frequency")),
+                    ac_output_load=_safe_inverter_float(item.get("ac_output_load")),
+                    working_mode=str(item.get("working_mode", "")),
+                    mains_status=str(item.get("mains_status", "")),
+                    freshness=str(item.get("freshness", "")),
+                    status=str(item.get("status", "")),
+                    source=str(item.get("source", "dess")),
+                )
+                result.append(inv)
+            except (TypeError, ValueError):
+                continue
+
+    return tuple(result)
+
+
+def _safe_inverter_float(value: object | None) -> float | None:
+    """Safely interpret a value as float for inverter fields. Non-failing."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if value == value and value != float("inf") and value != float("-inf"):
+            return float(value)
+        return None
+    if isinstance(value, str):
+        try:
+            result = float(value.strip())
+            if result == result and result != float("inf") and result != float("-inf"):
+                return result
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 # ===================================================================
 # build_runtime_control_snapshot — pure adapter function
 # ===================================================================
@@ -454,12 +530,18 @@ def build_runtime_control_snapshot(
     if not sensors and has_rt:
         sensors = _parse_sensors(rt.get("sensors"))
 
+    # ----- inverter (use explicit if provided, else parse from runtime_state) -----
+    inverter: tuple[InverterReadSnapshot, ...] = adapter_input.inverter
+    if not inverter and has_rt:
+        inverter = _parse_inverter(rt.get("inverter"))
+
     # ----- build snapshot input and snapshot -----
     sni = ControlStateSnapshotInput(
         snapshot_id=adapter_input.snapshot_id,
         created_at=adapter_input.created_at,
         loads=load_candidates,
         sensors=sensors,
+        inverter=inverter,
         load_metadata=explicit_loads,
         policy_decision=adapter_input.policy_decision,
         command_proposal=adapter_input.command_proposal,

@@ -74,6 +74,16 @@
     dom.startupResetInfo = document.getElementById("startup-reset-info");
     dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
     dom.sensorsTableBody = document.getElementById("sensors-table-body");
+    dom.inverterUnavailable = document.getElementById("inverter-unavailable");
+    dom.inverterCards = document.getElementById("inverter-cards");
+    dom.invBatteryVoltage = document.getElementById("inv-battery-voltage");
+    dom.invOutputPower = document.getElementById("inv-output-power");
+    dom.invPvTotalPower = document.getElementById("inv-pv-total-power");
+    dom.invOutputVoltage = document.getElementById("inv-output-voltage");
+    dom.invBatterySoc = document.getElementById("inv-battery-soc");
+    dom.invWorkingMode = document.getElementById("inv-working-mode");
+    dom.invAcInputVoltage = document.getElementById("inv-ac-input-voltage");
+    dom.invMainsStatus = document.getElementById("inv-mains-status");
     }
 
     /* -----------------------------------------------------------------------
@@ -267,6 +277,46 @@
 
     function getDeviceTypeLabel(dt) {
         return DEVICE_TYPE_LABELS[dt] || dt || "Unknown";
+    }
+
+    /* -----------------------------------------------------------------------
+     * Inverter rendering
+     * -----------------------------------------------------------------------
+     */
+
+    function renderInverter(snapshot) {
+        if (!snapshot) { return; }
+        var inverter = snapshot.inverter;
+        if (!Array.isArray(inverter) || inverter.length === 0) {
+            dom.inverterUnavailable.classList.remove("is-hidden");
+            dom.inverterCards.classList.add("is-hidden");
+            return;
+        }
+
+        dom.inverterUnavailable.classList.add("is-hidden");
+        dom.inverterCards.classList.remove("is-hidden");
+
+        var inv = inverter[0];
+        if (!inv || typeof inv !== "object") { return; }
+
+        function formatValue(val, unit) {
+            if (val === null || val === undefined) {
+                return "N/A";
+            }
+            if (unit) {
+                return String(val) + " " + unit;
+            }
+            return String(val);
+        }
+
+        dom.invBatteryVoltage.textContent = formatValue(inv.battery_voltage, "V");
+        dom.invOutputPower.textContent = formatValue(inv.output_power, "W");
+        dom.invPvTotalPower.textContent = formatValue(inv.pv_total_power, "W");
+        dom.invOutputVoltage.textContent = formatValue(inv.output_voltage, "V");
+        dom.invBatterySoc.textContent = formatValue(inv.battery_soc, "%");
+        dom.invWorkingMode.textContent = safeText(inv.working_mode);
+        dom.invAcInputVoltage.textContent = formatValue(inv.ac_input_voltage, "V");
+        dom.invMainsStatus.textContent = safeText(inv.mains_status);
     }
 
     /* -----------------------------------------------------------------------
@@ -479,6 +529,9 @@
         if (dom.summaryUnknownCount) {
             dom.summaryUnknownCount.textContent = String(unknownCount);
         }
+
+        /* Render inverter data */
+        renderInverter(snapshot);
     }
 
     /* Sensors rendering */

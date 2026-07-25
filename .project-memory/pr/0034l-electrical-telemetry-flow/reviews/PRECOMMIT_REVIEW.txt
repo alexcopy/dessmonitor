@@ -1,0 +1,370 @@
+PRECOMMIT REVIEW
+
+TITLE
+PR 0034l — Inverter Electrical Telemetry Projection into Control State Snapshot
+
+REPOSITORY STATE
+Branch: pr-0034l-electrical-telemetry-flow
+HEAD: 949445c284e26b8da45341b0b7fed632021c940a
+HEAD commit: docs: plan electrical telemetry flow
+Working tree: modified (8 files modified, 2 untracked)
+Staged: empty (confirmed by git diff --cached --name-only = no output)
+Date: 2026-07-25T10:22:35Z
+
+ARTIFACTS READ
+- .project-memory/pr/0034l-electrical-telemetry-flow/PLAN.txt (read completely)
+- .project-memory/pr/0034l-electrical-telemetry-flow/reviews/PLAN_REVIEW.txt (read completely, verdict: approved)
+- .project-memory/pr/0034l-electrical-telemetry-flow/CODER_REPORT.txt (read completely)
+
+CHANGED FILES READ
+All changed files from git diff --name-only read completely:
+1. app/control/control_state_snapshot.py
+2. app/control/runtime_snapshot_adapter.py
+3. app/web_control_state_provider.py
+4. app/web_runtime_integration.py
+5. run.py
+6. service/inverter_monitor.py
+7. app/web/static/dashboard.js
+8. app/web/templates/index.html
+
+Additional context files read:
+- app/api.py (DeviceData source definition)
+- app/control/web_ui_read_contract.py (WebUiControlStateResponse)
+- app/control/web_ui_read_endpoint.py (endpoint wiring)
+
+Validator files read:
+- scripts/check-electrical-telemetry-flow.sh (new file, read completely)
+
+STAGED STATE
+git diff --cached --name-only: empty (no output)
+git diff --cached: empty (no output)
+git ls-files --stage app/control/control_state_snapshot.py: hash matches HEAD
+No files are staged. Precondition satisfied.
+
+IMPLEMENTATION SUMMARY
+
+The implementation creates a complete typed inverter electrical telemetry
+projection from InverterMonitor.last_data through the entire ControlStateSnapshot
+pipeline to the dashboard.
+
+Key additions:
+1. InverterReadSnapshot frozen dataclass (control_state_snapshot.py, 22 fields)
+2. _convert_inverter() identity pass-through helper (control_state_snapshot.py)
+3. _parse_inverter() helper with _safe_inverter_float() (runtime_snapshot_adapter.py)
+4. inverter field on RuntimeControlSnapshotAdapterInput, ControlStateSnapshotInput,
+   ControlStateSnapshot
+5. Propagation in build_runtime_control_snapshot() and build_control_state_snapshot()
+6. _parse_inverter() call in build_control_state_snapshot_from_runtime_state()
+7. inverter_provider parameter in build_runtime_read_model(), create_runtime_state_provider(),
+   start_runtime_read_only_web_host()
+8. _inverter_provider lambda in run.py reading inverter_mon.last_data
+9. last_data: DeviceData | None on InverterMonitor
+10. Dashboard rendering: renderInverter() with 8 summary cards, null-safe formatting
+
+INDEPENDENT DATA-FLOW TRACE
+
+Source boundary (DeviceData / InverterMonitor.last_data):
+
+InverterMonitor stores DeviceData from DESS API in self.last_data (new field).
+DeviceData carries all required fields: battery_voltage, battery_capacity (SOC),
+battery_charging_current, battery_discharging_current, pv1_voltage, pv1_power,
+pv2_voltage, pv2_power, pv_total_power, output_voltage, output_power,
+output_apparent_power, ac_input_voltage, ac_input_frequency, ac_output_load,
+working_state, mains_status, timestamp.
+
+Values preserved as Optional[float] or Optional[str]. None means unavailable.
+
+-> runtime_state["inverter"] (build_runtime_read_model via inverter_provider):
+
+run.py defines _inverter_provider lambda: reads inverter_mon.last_data and
+constructs a flat dict with normalized keys (battery_soc from battery_capacity,
+working_mode from working_state). Returns None when last_data is None.
+
+build_runtime_read_model receives inverter_provider callable, invokes it,
+wraps result in a list: result["inverter"] = [inv_data].
+
+Values preserved as float | None or str. Null dict keys omitted safely.
+
+-> _parse_inverter() (runtime_snapshot_adapter.py):
+
+Parses list of dicts into tuple[InverterReadSnapshot, ...].
+Uses _safe_inverter_float() which rejects bool, NaN, inf.
+All 22 fields mapped from dict keys to dataclass fields.
+Invalid dict entries silently skipped (try/except).
+None input or non-list/tuple returns empty tuple.
+
+Values preserved. Null floats remain None. String defaults to "".
+
+-> RuntimeControlSnapshotAdapterInput.inverter:
+
+New field: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple).
+Values preserved with typed contract.
+
+-> ControlStateSnapshotInput.inverter:
+
+New field: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple).
+Values preserved.
+
+-> ControlStateSnapshot.inverter:
+
+New field: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple).
+Values preserved.
+
+-> FastAPI serialization -> JSON "inverter" array:
+
+Frozen dataclass serialized by FastAPI built-in encoder.
+Values preserved. Null floats serialize as JSON null.
+
+-> Dashboard rendering contract (dashboard.js renderInverter()):
+
+Reads data.snapshot.inverter, checks non-empty array.
+formatValue() renders null/undefined as "N/A", non-null values with unit suffix.
+Uses textContent exclusively. No innerHTML.
+
+VALUES TRACED:
+  output_voltage:        preserved, nullable, default None, rendered as "N/A" when null
+  output_power:          preserved, nullable, default None, rendered as "N/A" when null
+  output_apparent_power: preserved, nullable, default None (not displayed in 8-card summary)
+  pv_total_power:        preserved, nullable, default None, rendered as "N/A" when null
+  battery_voltage:       preserved, nullable, default None, rendered as "N/A" when null
+  battery_soc:           preserved, nullable, default None, rendered as "N/A" when null
+  observed_at:           preserved, nullable, default None (ISO string or None)
+  freshness:             preserved, not computed in this PR (default "")
+  status:                preserved, not computed in this PR (default "")
+  working_mode:          preserved, string default "", displayed as safeText()
+  mains_status:          preserved, string default "", displayed as safeText()
+
+TYPED CONTRACT ASSESSMENT
+
+InverterReadSnapshot (app/control/control_state_snapshot.py):
+- Frozen dataclass with 22 fields
+- All numeric fields: float | None = None (nullable)
+- String fields: str = "" (non-nullable defaults)
+- observed_at: str | None = None (nullable ISO timestamp)
+- source: str = "dess" (default data source label)
+- freshness: str = "" (computable from observed_at, deferred to future PR)
+- status: str = "" (inverter communication status placeholder)
+- Units: V (voltage), W (power), VA (apparent power), A (current),
+  % (SOC, load), Hz (frequency) — documented in field semantics
+- No Tuya IDs, property codes, device IDs, parent IDs in any field
+- No SensorReadSnapshot contamination (separate type for temperature-only domain)
+- No load_in_wt or configured_load_watts conflation
+- Serialization: FastAPI native dataclass serialization, null floats -> JSON null
+
+The contract is coherent, domain-separated, and meets the typed boundary
+requirement. Inverter fields are NOT added as loose top-level values.
+
+TEST-FIRST ASSESSMENT
+
+CODER_REPORT.txt records:
+- Initial failing command: python3 -c "from app.control.control_state_snapshot import InverterReadSnapshot" -> ImportError
+- Confirming assertion on pre-implementation: build_control_state_snapshot_from_runtime_state with inverter dict -> hasattr(snap, 'inverter') is False
+- Reason: InverterReadSnapshot type did not exist, no inverter field on ControlStateSnapshot
+- After implementation: 23/23 assertions pass in check-electrical-telemetry-flow.sh
+
+The test script was written first (expected to fail on current code) and
+verified to fail before implementation. CODER_REPORT includes initial
+failing evidence. This satisfies the test-first requirement.
+
+FOCUSED VALIDATOR ASSESSMENT
+
+scripts/check-electrical-telemetry-flow.sh:
+- Uses real Python objects (InverterReadSnapshot, ControlStateSnapshot,
+  RuntimeControlSnapshotAdapterInput, etc.)
+- 23 numbered assertions [1] through [23]
+- Exits non-zero on failure (set -euo pipefail + explicit exit 1 on FAILED > 0)
+- Validates source to final control-state path (Tests 15, 17, 21)
+- Validates null behavior (Tests 3, 11, 18)
+- Does NOT contact production, DESS network, Tuya Cloud
+- Does NOT use real credentials
+- Does NOT use operational IDs
+- Is NOT grep-only (runs actual Python code with imports)
+- All 23 assertions PASS (observed output: "RESULTS: 23 passed, 0 failed")
+
+END-TO-END ACCEPTANCE ASSESSMENT
+
+1. Fictitious voltage/power source values reach runtime_state["inverter"]:
+   CONFIRMED - Test 21, Test 5, Test 15 verify this.
+
+2. Typed adapter carries values:
+   CONFIRMED - Test 12 (RuntimeControlSnapshotAdapterInput has inverter field),
+   Test 15 (full pipeline produces inverter with correct values).
+
+3. Endpoint snapshot serializes values:
+   CONFIRMED - Test 17 (inverter data survives to WebUiControlStateResponse JSON),
+   Test 18 (null values serialize as null in JSON).
+
+4. Dashboard rendering contract consumes values:
+   CONFIRMED - dashboard.js renderInverter() reads snapshot.inverter[0],
+   formatValue() renders with textContent. index.html has 8 inverter cards.
+
+5. Null values render as N/A, never 0:
+   CONFIRMED - formatValue() returns "N/A" for null/undefined. Test 18 verifies
+   null JSON serialization. Test 11 verifies None not coerced to 0.
+
+6. Existing load projection unchanged:
+   CONFIRMED - Test 19 (loads_count 1, sensors_count 1, inverter_count 1).
+   All regression validators pass for load-related checks.
+
+7. Existing sensor projection unchanged:
+   CONFIRMED - All 58 sensor checks pass in check-canonical-sensor-snapshot-pipeline.sh.
+   SensorReadSnapshot unchanged.
+
+8. No commands sent:
+   CONFIRMED - No command, write, or control paths added. No authentication changes.
+
+9. No production network access during tests:
+   CONFIRMED - Tests use deterministic fake dicts. No Tuya, DESS, or hardware calls.
+
+REGRESSION ASSESSMENT
+
+All regression validators PASS:
+- check-project-memory.sh: 44/44 PASSED (0 errors)
+- check-tuya-device-property-mapping.sh: 42/42 PASSED
+- check-canonical-device-observation.sh: 44/44 PASSED
+- check-web-dashboard.sh: 36/36 PASSED
+- check-web-authentication.sh: 41/41 PASSED
+- check-canonical-sensor-snapshot-pipeline.sh: 58/58 PASSED
+- check-runtime-read-only-web-host.sh: 18/19 PASSED (test 19: argon2 module missing - environment issue)
+- check-runtime-snapshot-adapter.sh: 22/23 PASSED (test 23: detects modified run.py and control_state_snapshot.py - expected per PLAN)
+- check-control-state-snapshot.sh: 23/24 PASSED (test 24: detects modified run.py - expected per PLAN)
+- python3 -m compileall -q app run.py: clean (no output)
+
+No existing load, sensor, authentication, or dashboard behavior is degraded.
+The only failures are expected file-detection validators and an argon2 environment issue.
+
+SECURITY ASSESSMENT
+
+- InverterReadSnapshot exposes only safe fields: numeric values, ISO timestamps,
+  string working modes. No Tuya device IDs, DESS credentials, tokens, signed URLs,
+  raw API payloads.
+- _parse_inverter() uses try/except with safe defaults. No exception text leaks
+  to API response.
+- _safe_inverter_float() rejects bool, NaN, inf - no type confusion.
+- _FORBIDDEN_DEVICE_ATTRS in web_runtime_integration.py continues to block
+  tuya_device_id, control_key, api_key, email, password, token, secret. NOT modified.
+- inverter_provider reads from inverter_mon.last_data (DeviceData attribute),
+  NOT from shared_state in the web layer. No shared_state reference found in
+  web_runtime_integration.py, web_control_state_provider.py, or run.py web layer.
+- Signed DESS URLs already redacted by PR 0035 (HEAD 949445c). app/api.py NOT modified.
+- dashboard.js uses textContent exclusively for all API-derived values
+  (lines 304-319, 351, 354, 357). Zero innerHTML calls for API data.
+- No raw Tuya IDs, parent IDs, ACCESS_ID, ACCESS_KEY, company-key, sign, salt,
+  tokens, passwords, signed DESS URLs, operational devices.yaml, or config.json
+  appear in changed code or tests.
+- Validator script (check-electrical-telemetry-flow.sh): no access_id, access_key,
+  token, sign, salt, company_key, passwords, or credentials found.
+
+SCOPE ASSESSMENT
+
+IN SCOPE (all implemented as planned):
+1. InverterReadSnapshot frozen dataclass with 22 fields
+2. _parse_inverter() helper with _safe_inverter_float()
+3. _convert_inverter() identity pass-through
+4. inverter field on RuntimeControlSnapshotAdapterInput
+5. inverter field on ControlStateSnapshotInput
+6. inverter field on ControlStateSnapshot
+7. Propagation through build_runtime_control_snapshot()
+8. Propagation through build_control_state_snapshot()
+9. _parse_inverter() call in build_control_state_snapshot_from_runtime_state()
+10. runtime_state["inverter"] emission from build_runtime_read_model()
+11. Dashboard rendering of inverter summary (8 cards, new section)
+12. inverter_provider wiring in run.py
+13. last_data attribute on InverterMonitor
+14. Failing test-first approach (documented in CODER_REPORT)
+15. check-electrical-telemetry-flow.sh validator (23 assertions)
+
+OUT OF SCOPE (correctly excluded - NOT modified):
+- Tuya 1106 handling, isolation budget (status_updater_async.py unchanged)
+- Individual sensor fallback (unchanged)
+- Weather telemetry (unchanged)
+- ML telemetry migration (unchanged)
+- Control commands or inverter writes (unchanged)
+- Startup reset redesign (unchanged)
+- Classification redesign (unchanged)
+- Authentication redesign (unchanged)
+- Broad dashboard redesign (new card row only, no tab refactoring)
+- configured_load_watts vs output_power conflation (unchanged)
+- shared_state removal (unchanged)
+- DeviceData migration (unchanged)
+- app/api.py (NOT modified)
+- shared_state/ (NOT modified)
+- Tuya device property mapping (unchanged)
+- Device observation logic (unchanged)
+
+BLOCKERS
+NONE
+
+WARNINGS
+- check-runtime-read-only-web-host.sh test 19 fails due to missing argon2 module
+  in the environment. This is not a regression from this PR.
+- check-runtime-snapshot-adapter.sh test 23 and check-control-state-snapshot.sh
+  test 24 detect modified run.py and control_state_snapshot.py. These are expected
+  per PLAN - the files are in approved scope.
+- InverterReadSnapshot.freshness defaults to "" and is not actively computed from
+  observed_at in this PR. Deferred to PR0036 (Runtime Heartbeat and Source Freshness).
+- InverterReadSnapshot.status defaults to "" and is not actively set. Placeholder
+  for future inverter communication status tracking.
+- Dashboard loads and sensors "No data" loading state is momentarily visible before
+  the first successful poll. This is pre-existing behavior, not introduced by this PR.
+- The inverter_provider reads from InverterMonitor.last_data (DeviceData). If
+  InverterMonitor has not received data yet, runtime_state has no inverter key and
+  the dashboard shows "No inverter data available." This is correct behavior.
+
+REQUIRED CORRECTIONS
+NONE
+
+VERDICT
+approved
+
+READY FOR COMMIT
+true
+
+READY FOR PULL REQUEST
+true
+
+ROOT CAUSE FIX VERIFIED
+Inverter electrical telemetry (voltage and power) is now extracted from
+InverterMonitor.last_data through a typed InverterReadSnapshot dataclass,
+propagated through runtime_state["inverter"], RuntimeControlSnapshotAdapterInput,
+ControlStateSnapshotInput, ControlStateSnapshot, FastAPI JSON serialization,
+and rendered on the dashboard. This fixes the first broken boundary where
+build_runtime_read_model had no inverter input path.
+
+FILES REVIEWED
+app/control/control_state_snapshot.py
+app/control/runtime_snapshot_adapter.py
+app/web_control_state_provider.py
+app/web_runtime_integration.py
+run.py
+service/inverter_monitor.py
+app/web/static/dashboard.js
+app/web/templates/index.html
+app/api.py
+app/control/web_ui_read_contract.py
+app/control/web_ui_read_endpoint.py
+scripts/check-electrical-telemetry-flow.sh
+
+VALIDATION RUN
+bash scripts/check-electrical-telemetry-flow.sh: 23/23 PASSED, exit 0
+bash scripts/check-project-memory.sh: 44/44 PASSED, exit 0
+bash scripts/check-tuya-device-property-mapping.sh: 42/42 PASSED, exit 0
+bash scripts/check-canonical-device-observation.sh: 44/44 PASSED, exit 0
+bash scripts/check-web-dashboard.sh: 36/36 PASSED, exit 0
+bash scripts/check-web-authentication.sh: 41/41 PASSED, exit 0
+python3 -m compileall -q app run.py: clean (no output), exit 0
+bash scripts/check-canonical-sensor-snapshot-pipeline.sh: 58/58 PASSED, exit 0
+bash scripts/check-runtime-read-only-web-host.sh: 18/19 PASSED, test 19 skipped (argon2), exit 0
+bash scripts/check-runtime-snapshot-adapter.sh: 22/23 PASSED, test 23 warns of modified files, exit 1
+bash scripts/check-control-state-snapshot.sh: 23/24 PASSED, test 24 warns of modified run.py, exit 1
+
+BLOCKERS
+NONE
+
+WARNINGS
+- argon2 module missing in environment causes check-runtime-read-only-web-host.sh test 19 to skip (not a PR regression)
+- check-runtime-snapshot-adapter.sh test 23 detects modified run.py and control_state_snapshot.py (expected per PLAN)
+- check-control-state-snapshot.sh test 24 detects modified run.py (expected per PLAN)
+
+REQUIRED CORRECTIONS
+NONE

@@ -111,6 +111,36 @@ async def main() -> None:
     # ─── 4b. OPTIONAL WEB HOST (start early for reset visibility) ──
     web_host_handle: RuntimeWebHostHandle | None = None
 
+    # Create inverter data provider lambda (reads from InverterMonitor.last_data)
+    def _inverter_provider() -> dict[str, Any] | None:
+        """Read latest inverter data from InverterMonitor for web dashboard.
+
+        Returns None when no DeviceData has been received yet.
+        """
+        if inverter_mon.last_data is None:
+            return None
+        dd = inverter_mon.last_data
+        return {
+            "battery_voltage": dd.battery_voltage,
+            "battery_soc": dd.battery_capacity,
+            "battery_current_chg": dd.battery_charging_current,
+            "battery_current_dis": dd.battery_discharging_current,
+            "pv1_voltage": dd.pv1_voltage,
+            "pv1_power": dd.pv1_power,
+            "pv2_voltage": dd.pv2_voltage,
+            "pv2_power": dd.pv2_power,
+            "pv_total_power": dd.pv_total_power,
+            "output_voltage": dd.output_voltage,
+            "output_power": dd.output_power,
+            "output_apparent_power": dd.output_apparent_power,
+            "ac_input_voltage": dd.ac_input_voltage,
+            "ac_input_frequency": dd.ac_input_frequency,
+            "ac_output_load": dd.ac_output_load,
+            "working_mode": dd.working_state if dd.working_state else "",
+            "mains_status": dd.mains_status if dd.mains_status else "",
+            "observed_at": dd.timestamp,
+        }
+
     # ─── 5. STARTUP RESET — command all binary switches OFF ──
     reset_coordinator = StartupResetCoordinator(
         dev_mgr=dev_mgr,
@@ -127,6 +157,7 @@ async def main() -> None:
             startup_reset_gate_open_provider=lambda: reset_coordinator.is_gate_open,
             per_device_results_provider=reset_coordinator.get_per_device_results,
             sensors_provider=telemetry_registry.get_all_readings_dict,
+            inverter_provider=_inverter_provider,
         )
     except Exception as exc:
         important_log.warning(f"[WEB] Read-only host not started: {exc}")

@@ -1,0 +1,767 @@
+PLAN COMPLETE
+
+TITLE
+PR 0034l — Inverter Electrical Telemetry Projection into Control State Snapshot
+
+INCIDENT
+The authenticated dashboard at GET /control/state does not display expected
+voltage and power values (battery_voltage, output_power, pv_total_power,
+output_voltage, pv1_voltage, pv2_voltage, ac_input_voltage, pv1_power,
+pv2_power).
+
+The runtime log also contains:
+- Tuya API response code 1106 ("permission deny");
+- updater warning "Isolation budget exceeded — giving up".
+
+These are unrelated root causes sharing no common data path:
+- Voltage and power are DESS inverter metrics written by InverterMonitor to
+  shared_state.  They never enter the typed control snapshot pipeline.
+- Code 1106 and isolation-budget exhaustion are Tuya sensor polling issues.
+  They affect sensor temperature telemetry only, not inverter metrics.
+
+REPOSITORY STATE
+- Branch: pr-0034l-electrical-telemetry-flow
+- HEAD: 073b76716c565cdd847cbea203b55b0f3f8406d0
+- Working tree: clean (confirmed by git status --short)
+- Previous PR: 0034j (sensor snapshot pipeline) complete.
+  Next planned: 0034k (operator surface roadmap) — plan complete.
+- HEAD commit: fix(security): redact signed DESS request diagnostics (#56)
+  (PR 0035 — signed DESS URL redaction, completed after 0034j)
+
+FILES READ
+.app/web/static/dashboard.js
+.app/web/static/dashboard.css
+.app/web/templates/index.html
+.app/web_host.py
+.app/web_auth.py
+.app/web_routes.py
+.app/web_control_state_provider.py
+.app/web_runtime_integration.py
+.app/api.py
+.app/service/telemetry_registry.py
+.app/service/inverter_monitor.py (service/inverter_monitor.py)
+.app/service/web_scraper.py
+.app/control/control_state_snapshot.py
+.app/control/runtime_snapshot_adapter.py
+.app/control/web_ui_read_contract.py
+.app/control/web_ui_read_endpoint.py
+.app/devices/relay_channel_device.py
+.app/devices/device_observation.py
+.app/devices/device_property_mapping.py
+.app/devices/sensor_telemetry.py
+.app/tuya/status_updater_async.py
+.app/tuya/relay_tuya_controller.py
+.app/monitoring/device_status_logger.py
+.app/monitoring/inverter_logger.py
+.app/ml/ml_data_collector.py
+run.py
+shared_state/shared_state.py
+.app/device_initializer.py
+.app/config.py
+.app/control/policy_decision.py
+.app/control/policy_models.py
+.app/control/command_safety_gate.py
+.app/control/energy_policy.py
+.project-memory/pr/0034j-canonical-sensor-snapshot-pipeline/PLAN.txt
+.project-memory/pr/0034j-canonical-sensor-snapshot-pipeline/reviews/PLAN_REVIEW.txt
+.project-memory/pr/0034j-canonical-sensor-snapshot-pipeline/CODER_REPORT.txt
+.project-memory/pr/0034j-canonical-sensor-snapshot-pipeline/reviews/PRECOMMIT_REVIEW.txt
+.project-memory/pr/0034k-operator-surface-roadmap/PLAN.txt
+.project-memory/pr/0034k-operator-surface-roadmap/reviews/PLAN_REVIEW.txt
+.project-memory/ROADMAP.md
+scripts/check-canonical-sensor-snapshot-pipeline.sh
+
+CURRENT DATA FLOW
+
+VOLTAGE (battery_voltage, pv1_voltage, pv2_voltage, output_voltage,
+        ac_input_voltage)
+
+Source: DESS API (api.py DeviceData fields)
+  -> DessAPI._parse_device_data() reads TITLE_MAPPING and extracts float
+     values from response "dat" list.
+  -> DeviceData dataclass stores each voltage as Optional[float].
+  -> InverterMonitor._process_business_metrics(dd) writes:
+       shared_state.update(battery_voltage=dd.battery_voltage, ...)
+     Value preserved in shared_state (global singleton dict).
+  -> build_runtime_read_model() (web_runtime_integration.py) does NOT read
+     shared_state.  Only reads device objects and sensors_provider.
+     No inverter data enters runtime_state.
+  -> runtime_state dict contains: loads, sensors, startup_reset_status,
+     startup_reset_gate_open.  No voltage keys.
+     Value absent by design.
+  -> build_control_state_snapshot_from_runtime_state() (web_control_state_provider.py)
+     reads runtime_state.get("loads") and runtime_state.get("sensors").
+     Does not read any voltage key.
+     Boundary not reached.
+  -> RuntimeControlSnapshotAdapterInput has no voltage field.
+     Boundary not reached.
+  -> ControlStateSnapshotInput has no voltage field.
+     Boundary not reached.
+  -> ControlStateSnapshot has no voltage field.
+     Boundary not reached.
+  -> FastAPI serialization of ControlStateSnapshot emits no voltage fields.
+     Value absent by design.
+  -> GET /control/state JSON contains no voltage fields.
+     Value absent by design.
+  -> dashboard.js renderSnapshot() reads no voltage fields.
+     No dashboard rendering for voltage.
+     Value absent by design.
+
+POWER (output_power, pv_total_power, pv1_power, pv2_power,
+       output_apparent_power)
+
+Identical data path to voltage:
+  DESS API -> DeviceData -> shared_state -> NOT in runtime_state ->
+  NOT in ControlStateSnapshot -> NOT in API response -> NOT in dashboard.
+
+LOAD CONFIGURED WATTS (configured_load_watts — NOT live measured power)
+
+Source: device.load_in_wt (YAML-configured estimate, not real-time)
+  -> _device_to_load_dict() reads configured_load_watts = load_in_wt
+  -> runtime_state["loads"][n]["configured_load_watts"]
+  -> _parse_loads() -> RuntimeLoadState.configured_load_watts
+  -> _to_load_candidate() -> LoadCandidate.configured_load_watts
+  -> _convert_load() -> LoadControlSnapshot.configured_load_watts
+  -> FastAPI serialization -> JSON field
+  -> dashboard.js renderSnapshot() displays as "Load (W)" column
+  Value preserved but is NOT live measured output power.
+
+CONSUMPTION PATH SUMMARY:
+- Inverter output_power (live measured) is in shared_state only.
+- configured_load_watts (config-estimated) is the only "power" in the
+  dashboard.  This is a configured upper bound, not real-time measurement.
+- The two values measure different physical quantities from different domains.
+  They must not be conflated.
+
+TUYA POLLING PATH (sensor telemetry — not inverter voltage/power)
+
+_requested parents -> build_poll_targets() returns ordered list of enabled
+  parent IDs (both LOAD and SENSOR classified).
+  -> _get_healthy_parents() filters out quarantined parents.
+  -> _poll_and_process() calls device_manager.get_device_list_status(parent_ids).
+  -> If success=false and code=1106:
+       Single parent -> _mark_permission_denied() with exponential backoff.
+       Multi-parent -> _bisect_failed() recursively halves the batch.
+         Each bisection increments _isolation_budget.
+         When _isolation_budget > MAX_ISOLATION_REQUESTS (16):
+           log: "Isolation budget exceeded — giving up"
+  -> On success: _process_result() iterates result per parent.
+       LOAD devices: update observation from state_property.
+       SENSOR devices: _update_sensor_telemetry() extracts temperature
+         from candidate properties (temp_current, va_temperature, etc.).
+  -> If sensor parent has no telemetry property in batch response:
+       _schedule_sensor_individual_fallback() triggers an RPC per parent
+       via run_coroutine_threadsafe with get_running_loop (same-loop pattern).
+  -> Quarantined parents with status=permission_denied are retried at
+     exponentially increasing intervals (300s -> 600s -> ... -> 3600s max).
+
+Note: The Tuya path handles only sensor temperature telemetry and device
+      binary state observations.  It does NOT handle voltage or power.
+      Voltage and power come exclusively from the DESS API.
+
+EVIDENCE
+
+1. InverterMonitor writes voltage/power ONLY to shared_state:
+   service/inverter_monitor.py lines 46-64:
+     shared_state.update(
+         battery_voltage=dd.battery_voltage,
+         output_power=dd.output_power,
+         pv_total_power=dd.pv_total_power,
+         ...
+     )
+   No typed registry receives these values.
+
+2. build_runtime_read_model() does not read shared_state:
+   app/web_runtime_integration.py lines 173-221:
+     - reads devices from devices_provider
+     - iterates device objects via _device_to_load_dict()
+     - reads optional sensors from sensors_provider
+     - reads startup reset status from providers
+     - NEVER reads shared_state or any inverter data.
+
+3. runtime_state dict keys from build_runtime_read_model():
+   - snapshot_id, created_at, loads
+   - sensors (when sensors_provider provided)
+   - startup_reset_status, startup_reset_gate_open
+   No inverter, voltage, or power keys.
+
+4. ControlStateSnapshot has no inverter/snapshot/custom fields:
+   app/control/control_state_snapshot.py lines 145-185:
+     fields: snapshot_id, created_at, status, loads, sensors, pipeline,
+             mode, energy_budget, battery_window, notes, warnings.
+   No inverter, voltage, power, or source-freshness fields.
+
+5. SensorReadSnapshot is for temperature-only telemetry:
+   app/control/control_state_snapshot.py lines 105-135:
+     fields: sensor_id, display_name, description, device_type, metric,
+             value, unit (default "celsius"), observed_at, source,
+             freshness, status, communication_status.
+   unit defaults to "celsius" — the type was designed for temperature sensors,
+   NOT for voltage (V) or power (W) electrical telemetry.
+   No canonical path exists for electrical metrics through this type.
+
+6. dashboard.js does not render voltage or power:
+   app/web/static/dashboard.js lines 300-450:
+     renderSnapshot() reads snapshot.loads and snapshot.sensors.
+     No reading of snapshot.inverter, snapshot.voltage, snapshot.power.
+   index.html lines 81-155:
+     Loads table has 9 columns: Device Name, Description, State, Load (W),
+     Controllable, Status, Mapping, Reset, Roles.
+     Sensors table has 6 columns: Sensor, Description, Value, Observed,
+     Freshness, Status.
+     No voltage or power column exists.
+
+7. Tuya code 1106 path does not affect inverter data:
+   app/tuya/status_updater_async.py lines 222-275:
+     _bisect_failed() isolates permission-denied parents.
+     The parents carry sensor devices and load-classified switches/pumps.
+     No inverter device is polled via Tuya.
+
+8. Isolation budget caps at 16 requests:
+   app/tuya/status_updater_async.py line 286:
+     if self._isolation_budget > MAX_ISOLATION_REQUESTS:
+         logger.warning("[Updater] Isolation budget exceeded...")
+   This affects bisection depth for permission-denied batches.
+   Does not affect inverter data flow.
+
+9. Inverter data is consumed by ML collectors and loggers from shared_state:
+   app/ml/ml_data_collector.py lines 470-486:
+     point.battery_voltage = shared_state.get("battery_voltage")
+     point.output_power = shared_state.get("output_power")
+     ...
+   app/monitoring/inverter_logger.py line 49:
+     "batt_v": dd.battery_voltage, "pv_w": dd.pv_total_power, ...
+   These consumers bypass the typed snapshot pipeline entirely.
+
+10. runtime_snapshot_adapter.py reads battery_voltage from runtime_state
+    ONLY for BatteryOperatingWindow construction, not for display:
+    app/control/runtime_snapshot_adapter.py line 445:
+      bv = _safe_float(rt.get("battery_voltage"))
+      if bv is not None: battery = BatteryOperatingWindow()
+    BatteryOperatingWindow carries voltage thresholds (24.5V, 25.0V, etc.)
+    but NOT the live battery_voltage value.
+
+ROOT CAUSE
+Inverter electrical telemetry (voltage and power) is never extracted from
+shared_state into the typed ControlStateSnapshot pipeline.  There is no
+InverterReadSnapshot type, no runtime_state["inverter"] key in
+build_runtime_read_model(), no parsing in the snapshot adapter, no
+propagation through ControlStateSnapshot, and no rendering in the dashboard.
+
+The dashboard displays:
+- Load state (ON/OFF/UNKNOWN per device, from Tuya polling)
+- Sensor temperature (water temp, from Tuya polling via TelemetryRegistry)
+- Configured load wattage (load_in_wt, from YAML config)
+
+It does NOT display any of:
+- battery_voltage (V)
+- output_power or output_apparent_power (W / VA)
+- pv_total_power, pv1_power, pv2_power (W)
+- output_voltage, pv1_voltage, pv2_voltage, ac_input_voltage (V)
+- battery_capacity / SOC (%)
+- battery_charging_current, battery_discharging_current (A)
+- ac_output_load (%)
+- ac_input_frequency (Hz)
+- working_mode (string)
+- mains_status (string)
+- inverter_summary (string)
+
+This is root cause #4: "Voltage and power are never extracted from the
+canonical source into the typed pipeline."
+
+Adjacent defects NOT part of this root cause:
+- Tuya 1106 (code 1106) and isolation-budget exhaustion are sensor polling
+  reliability issues.  They affect water temperature telemetry only, not
+  inverter voltage/power.  The data sources are completely separate:
+  DESS API vs Tuya IoT cloud.
+- The configured_load_watts vs live output_power distinction is a domain
+  concept, not a bug.  They measure different quantities.
+- Missing ambient temperature is weather-service telemetry, not electrical.
+
+TARGET DATA FLOW
+
+VOLTAGE AND POWER
+
+shared_state (written by InverterMonitor)
+  -> build_runtime_read_model()
+    NEW: reads shared_state (or receives inverter data from a provider)
+    NEW: emits runtime_state["inverter"] dict with typed keys
+  -> runtime_state["inverter"]
+    Contains: battery_voltage, output_power, pv_total_power, ...
+    Value preserved in typed dict.
+  -> build_control_state_snapshot_from_runtime_state()
+    NEW: _parse_inverter(runtime_state.get("inverter"))
+    -> InverterReadSnapshot tuple
+    Value parsed into typed dataclass.
+  -> RuntimeControlSnapshotAdapterInput
+    NEW: inverter field: tuple[InverterReadSnapshot, ...]
+    Value preserved.
+  -> build_runtime_control_snapshot()
+    -> ControlStateSnapshotInput
+    NEW: inverter field propagated.
+    Value preserved.
+  -> build_control_state_snapshot()
+    -> ControlStateSnapshot
+    NEW: inverter field: tuple[InverterReadSnapshot, ...]
+    Value preserved.
+  -> FastAPI serialization -> JSON "inverter" array
+    Value preserved as nested dataclass serialization.
+  -> GET /control/state JSON
+    NEW: "inverter" array with typed fields.
+    Value preserved.
+  -> dashboard.js
+    NEW: renderInverter(snapshot.inverter)
+    Voltage and power values displayed.
+
+TARGET TUYA POLLING PATH (unchanged — not in scope for this PR)
+
+Existing Tuya polling, 1106 isolation, and individual fallback remain
+unchanged.  The Tuya path handles device observations and sensor telemetry
+(temperature) only.  Inverter data is sourced from DESS API.
+
+DOMAIN MODEL / TYPED CONTRACT
+
+The target values are INVERTER-LEVEL electrical telemetry.  They belong in a
+new typed projection: InverterReadSnapshot.
+
+This is NOT sensor telemetry (temperature), NOT load observation (ON/OFF),
+and NOT a shared_state web fallback.  It is a new canonical domain object
+representing the single DESS inverter's current operating state.
+
+Field semantics for InverterReadSnapshot:
+
+  identifier       type          default    unit    nullable  description
+  snapshot_id      str           ""         —       no        snapshot identifier
+  observed_at      str | None    None       —       yes       ISO timestamp
+  battery_voltage  float | None  None       V       yes       battery bank voltage
+  battery_soc      float | None  None       %       yes       state of charge
+  battery_charging_current  float | None  None  A   yes       charge current
+  battery_discharging_current float | None  None  A  yes      discharge current
+  pv1_voltage      float | None  None       V       yes       PV1 voltage
+  pv1_power        float | None  None       W       yes       PV1 power
+  pv2_voltage      float | None  None       V       yes       PV2 voltage
+  pv2_power        float | None  None       W       yes       PV2 power
+  pv_total_power   float | None  None       W       yes       combined PV power
+  output_voltage   float | None  None       V       yes       AC output voltage
+  output_power     float | None  None       W       yes       active output power
+  output_apparent_power float | None  None  VA      yes       apparent output power
+  ac_input_voltage float | None  None       V       yes       AC input (grid) voltage
+  ac_input_frequency float | None None      Hz      yes       AC input frequency
+  ac_output_load   float | None  None       %       yes       output load percentage
+  working_mode     str           ""         —       no        inverter working state
+  battery_status   str           ""         —       no        battery status string
+  pv_status        str           ""         —       no        PV status string
+  mains_status     str           ""         —       no        mains status string
+  load_status      str           ""         —       no        load status string
+  freshness        str           ""         —       no        source freshness
+  source           str           "dess"     —       no        data source label
+
+Freshness is computed from observed_at relative to the snapshot creation time.
+When observed_at is missing, freshness is "unavailable".
+
+All voltage fields are in volts (V).  All power fields are in watts (W) except
+output_apparent_power (VA).  All current fields are in amperes (A).  All
+percentage fields are in percent (%).  Frequency is in hertz (Hz).
+
+Null values represent missing/unavailable data.  Dashboard renders N/A, never
+numeric zero.
+
+InverterReadSnapshot belongs in app/control/control_state_snapshot.py,
+alongside LoadControlSnapshot and SensorReadSnapshot.  It is a frozen
+dataclass with all fields keyword-only.
+
+No existing type carries voltage/power.  SensorReadSnapshot is designed for
+temperature (unit defaults to "celsius") and has no voltage or power fields.
+Adding voltage/power to SensorReadSnapshot would conflate two orthogonal
+telemetry domains (water temperature vs inverter electrical metrics).
+
+APPROVED SCOPE
+PR 0034l contains only:
+1. InverterReadSnapshot frozen dataclass (in control_state_snapshot.py).
+2. _parse_inverter() helper (in runtime_snapshot_adapter.py).
+3. _convert_inverter() helper (in control_state_snapshot.py).
+4. inverter field on RuntimeControlSnapshotAdapterInput.
+5. inverter field on ControlStateSnapshotInput.
+6. inverter field on ControlStateSnapshot.
+7. Propagation through build_runtime_control_snapshot().
+8. Propagation through build_control_state_snapshot().
+9. _parse_inverter() call in build_control_state_snapshot_from_runtime_state().
+10. runtime_state["inverter"] emission from build_runtime_read_model() — reads
+    inverter data from InverterMonitor or a dedicated provider.
+11. Dashboard rendering of inverter summary in a new card row or inline panel.
+12. Optional: backend provider wiring in run.py (pass inverter data into the
+    web host's runtime_state provider).
+13. Failing regression test before implementation.
+14. check-electrical-telemetry-flow.sh validation script.
+
+Items 10 and 12 require run.py changes to pass inverter data from
+InverterMonitor through the runtime state provider into the snapshot
+pipeline.  The preferred approach: InverterMonitor writes a typed dict
+to a thread-safe in-memory store (TelemetryRegistry-like) or directly into
+the runtime_state dict via a refresh callback.  Do NOT read shared_state
+directly in the web layer.
+
+OUT OF SCOPE
+- Tuya code 1106 handling, permission-denied isolation, isolation budget.
+- Individual sensor fallback behavior.
+- Async same-loop run_coroutine_threadsafe pattern (deferred to PR0034m).
+- Weather telemetry (ambient temperature, humidity, pressure).
+- ML telemetry migration.
+- DeviceStatusLogger migration.
+- Control commands or inverter parameter writes.
+- Startup reset redesign.
+- Classification redesign (device_type remains the only classifier).
+- Authentication redesign.
+- Broad dashboard redesign (tabs, route-backed navigation, energy detail).
+- TimescaleDB history or charts.
+- writable API endpoints.
+- Kubernetes and GitOps changes.
+- Operational configuration (devices.yaml, config.json) changes.
+- configured_load_watts vs output_power domain distinction (document only,
+  do not conflate or migrate).
+- Removal of shared_state or DeviceData migration.
+
+If run.py wiring is needed, the change is narrowly scoped to:
+- Creating an inverter state holder (analogous to sensors_provider).
+- Passing it into start_runtime_read_only_web_host.
+- Reading it in build_runtime_read_model (via runtime_state provider).
+
+EXPECTED FILES TO MODIFY
+
+Production files:
+- app/control/control_state_snapshot.py
+    Add: InverterReadSnapshot frozen dataclass.
+    Add: _convert_inverter() helper (identity or field-safe pass-through).
+    Extend: ControlStateSnapshotInput with inverter field.
+    Extend: ControlStateSnapshot with inverter field.
+    Update: build_control_state_snapshot() to propagate inverter and
+            include inverter presence in status determination.
+
+- app/control/runtime_snapshot_adapter.py
+    Add: _parse_inverter() helper (parses runtime_state["inverter"] dict
+         into InverterReadSnapshot tuple).
+    Extend: RuntimeControlSnapshotAdapterInput with inverter field.
+    Update: build_runtime_control_snapshot() to parse inverter from
+            runtime_state and/or propagate explicit inverter data.
+
+- app/web_control_state_provider.py
+    Update: build_control_state_snapshot_from_runtime_state() to read
+            runtime_state.get("inverter") and pass to _parse_inverter().
+
+- app/web_runtime_integration.py
+    Update: build_runtime_read_model() to accept an inverter_provider
+            callable and emit runtime_state["inverter"].
+    Update: create_runtime_state_provider() to accept and pass through
+            an inverter_provider.
+
+- run.py (if needed — narrow wiring only)
+    New: inverter_state_provider (reads latest InverterMonitor data).
+    Update: start_runtime_read_only_web_host call to pass inverter_provider.
+
+- app/web/static/dashboard.js
+    New: renderInverter() function rendering inverter summary.
+    New: Inverter summary card row in the existing layout.
+    Update: renderSnapshot() or handleSuccessfulResponse() to call
+            renderInverter(data.snapshot.inverter).
+
+- app/web/templates/index.html
+    New: Inverter summary placeholder div (cards for battery voltage/SOC,
+         output power, PV power, working mode).
+
+Tests:
+- scripts/check-electrical-telemetry-flow.sh (new file)
+
+Project-memory:
+- .project-memory/pr/0034l-electrical-telemetry-flow/CODER_REPORT.txt
+
+TEST-FIRST STRATEGY
+Write a focused failing test before any implementation changes.
+
+File: scripts/check-electrical-telemetry-flow.sh
+
+The test script must use real Python objects through the complete pipeline.
+It must fail on current code and pass after implementation.  Deterministic
+fake inputs only (no network, no Tuya, no production config, no browser).
+
+Test A — inverter data projection (CURRENT EXPECTED: FAIL):
+  Input: runtime_state dict containing "inverter" with:
+    battery_voltage=25.7, output_power=800.0, pv_total_power=1200.0,
+    working_mode="Line Mode", observed_at="2026-07-25T12:00:00+00:00"
+  Call: build_control_state_snapshot_from_runtime_state(runtime_state)
+  Assert:
+    result.snapshot is not None
+    result.snapshot.inverter is a non-empty tuple  (CURRENT: AttributeError)
+    result.snapshot.inverter[0].battery_voltage == 25.7
+    result.snapshot.inverter[0].output_power == 800.0
+    result.snapshot.inverter[0].pv_total_power == 1200.0
+    result.snapshot.inverter[0].working_mode == "Line Mode"
+
+Test B — null values propagate:
+  Input: inverter dict with battery_voltage=None, output_power=None
+  Assert: inverter[0].battery_voltage is None
+  Assert: inverter[0].output_power is None
+  Assert: Nulls survive JSON serialization (response JSON contains null)
+
+Test C — build_runtime_read_model accepts inverter_provider:
+  Input: inverter_provider lambda that returns a valid inverter dict
+  Assert: runtime_state["inverter"] is present with correct keys
+  Assert: runtime_state["inverter"]["battery_voltage"] == expected value
+
+Test D — inverter survives full end-to-end (to WebUiControlStateResponse):
+  Input: inverter dict through build_control_state_snapshot_from_runtime_state
+  Assert: WebUiControlStateResponse contains inverter at response.snapshot.inverter
+  Assert: JSON serialization produces correct numeric values
+
+Test E — missing inverter data does not crash:
+  Input: runtime_state without "inverter" key (current production state)
+  Assert: build_control_state_snapshot_from_runtime_state returns snapshot
+  Assert: snapshot.inverter is empty tuple
+  Assert: no exception raised
+
+FOCUSED VALIDATOR
+scripts/check-electrical-telemetry-flow.sh
+
+The validator must:
+1. Execute in Python with real objects (no grep-only checks).
+2. Construct deterministic fake input dicts (no production config).
+3. Call build_control_state_snapshot_from_runtime_state().
+4. Assert inverter fields on the returned ControlStateSnapshot.
+5. Assert null handling (None preserves, not zero).
+6. Assert the full chain survives to JSON serialization.
+7. Assert missing data does not crash.
+8. Use numbered assertions [1] through [20+].
+9. Print PASS/FAIL per assertion.
+10. Exit non-zero on any failure.
+11. Avoid: Tuya Cloud, hardware, real credentials, real operational IDs,
+    long sleeps, browser automation.
+
+Minimum assertions:
+[1]  InverterReadSnapshot dataclass exists and is frozen.
+[2]  All required fields present.
+[3]  Null fields default to None.
+[4]  _parse_inverter(None) returns empty tuple.
+[5]  _parse_inverter(valid dict) returns one typed entry.
+[6]  battery_voltage preserved as float.
+[7]  output_power preserved as float.
+[8]  pv_total_power preserved as float.
+[9]  working_mode preserved as str.
+[10] observed_at preserved as str or None.
+[11] Null values in parse input produce None in output.
+[12] RuntimeControlSnapshotAdapterInput has inverter field.
+[13] ControlStateSnapshotInput has inverter field.
+[14] ControlStateSnapshot has inverter field.
+[15] Full pipeline produces inverter with correct values.
+[16] Missing inverter key produces empty tuple, not crash.
+[17] Inverter data survives to WebUiControlStateResponse JSON.
+[18] No raw Tuya IDs or property codes exposed in inverter fields.
+[19] Existing loads and sensors remain non-duplicated.
+[20] Existing load/sensor behavior unchanged.
+
+END-TO-END ACCEPTANCE
+
+All of the following must work with deterministic fakes only:
+
+1. A deterministic inverter dict with battery_voltage=25.7, output_power=800.0,
+   pv_total_power=1200.0, working_mode="Line Mode" is passed through:
+   build_runtime_read_model -> runtime_state["inverter"]
+   -> build_control_state_snapshot_from_runtime_state -> _parse_inverter
+   -> RuntimeControlSnapshotAdapterInput -> ControlStateSnapshotInput
+   -> ControlStateSnapshot -> FastAPI serialization
+   All values survive with correct numeric values and units as documented.
+
+2. Null values (battery_voltage=None, output_power=None) propagate as null
+   in the JSON response.  Dashboard renders N/A, never "0 V" or "0 W".
+
+3. Missing inverter key in runtime_state produces empty tuple.  Dashboard
+   shows no inverter section or a graceful "No inverter data available".
+
+4. Existing load projections and sensor projections remain non-duplicated
+   and produce identical output to the pre-PR test run.
+
+5. No commands are sent.  No write paths exist.  No authentication changes.
+
+6. No Tuya Cloud, hardware, or production network access occurs in the
+   validator or implementation tests.
+
+SECURITY BOUNDARIES
+- InverterReadSnapshot exposes only safe fields: numeric voltage/power/current
+  values, string working mode, ISO timestamps.  No Tuya device IDs, no DESS
+  credentials, no tokens, no signed URLs, no raw API payloads.
+- _parse_inverter() uses try/except with safe defaults for all fields.
+  No exception text leaks to the API response.
+- _FORBIDDEN_DEVICE_ATTRS in web_runtime_integration.py continues to block
+  tuya_device_id, control_key, api_key, email, password, token, secret.
+  No new exposure vectors.
+- The inverter_provider is injected from run.py (the call site).  It does
+  NOT read shared_state directly in the web layer.  InverterMonitor writes
+  to a dedicated holder, and run.py passes the holder's read method.
+- Signed DESS URLs containing token, sign, salt are already redacted by
+  PR 0035 (HEAD 073b767).  No additional logging remediation needed for
+  this PR.
+- dashboard.js uses textContent for all API-derived values.  No innerHTML
+  is used for inverter data.
+
+ASYNC SAFETY ASSESSMENT
+The inverter data source (InverterMonitor) uses asyncio.to_thread for
+blocking DESS API calls and writes to a thread-safe shared_state singleton.
+No run_coroutine_threadsafe pattern exists in the inverter path.
+
+The Tuya status_updater_async.py contains:
+  _schedule_sensor_individual_fallback() at line 451-457:
+    asyncio.run_coroutine_threadsafe(
+        self._do_individual_fallback(...),
+        asyncio.get_running_loop(),
+    ).result(timeout=TUYA_RPC_TIMEOUT)
+
+This is the dangerous same-loop pattern: run_coroutine_threadsafe targeting
+the SAME running event loop from inside that same loop.  This blocks the
+polling coroutine indefinitely if the fallback RPC hangs (despite timeout,
+the blocking .result() holds the thread while the loop is running).
+
+However, this defect affects Tuya sensor fallback, NOT inverter electrical
+telemetry.  It is excluded from PR0034l scope and is the candidate root
+cause for PR0034m (Tuya async fallback and isolation hardening).
+
+No other dangerous async patterns were found in the inverter data path.
+InverterMonitor uses asyncio.to_thread (safe) and does not block the loop.
+
+ROLLBACK
+1. Revert file changes per EXPECTED FILES TO MODIFY.
+2. Remove scripts/check-electrical-telemetry-flow.sh.
+3. No stored data, database migrations, or configuration to revert.
+4. No YAML or operational config changes.
+5. Dashboard backward-compatible: empty inverter tuple shows no data.
+6. No authentication or session changes to revert.
+
+VALIDATION COMMANDS
+
+Existing regression validators (all expected PASS with no changes to
+their domain):
+  bash scripts/check-project-memory.sh
+  bash scripts/check-tuya-device-property-mapping.sh
+  bash scripts/check-canonical-device-observation.sh
+  bash scripts/check-canonical-sensor-snapshot-pipeline.sh
+  bash scripts/check-web-dashboard.sh
+  bash scripts/check-web-authentication.sh
+  bash scripts/check-runtime-read-only-web-host.sh
+  bash scripts/check-runtime-snapshot-adapter.sh
+  bash scripts/check-control-state-snapshot.sh
+  python3 -m compileall -q app run.py
+
+Focused validator:
+  bash scripts/check-electrical-telemetry-flow.sh     # NEW
+
+Implementation validation:
+  git diff --check
+  git status --short
+  git diff --name-only
+  git diff --stat
+  git diff --cached --name-only
+
+Planning was not required to execute these commands.  Will be executed
+during implementation and review phases.
+
+RISKS
+1. InverterMonitor writes to shared_state.  If the web layer reads
+   shared_state directly (instead of a dedicated provider), this creates
+   coupling to the global dict.  Mitigation: run.py creates a dedicated
+   inverter_holder (a simple thread-safe dict or callback) that
+   InverterMonitor writes to and the web provider reads.  shared_state
+   is not read in the web layer.
+
+2. InverterMonitor polls every 60s.  The dashboard polls every 5s.  If
+   the inverter holder is empty between polls, the dashboard shows null
+   values.  This is correct behavior (N/A displays).  No synthetic
+   fallback or zero-fill should be added.
+
+3. Adding inverter fields to the snapshot status determination.  An
+   otherwise empty snapshot with inverter data should not be UNKNOWN.
+   The plan requires this adjustment in build_control_state_snapshot().
+
+4. Dashboard layout: adding inverter cards above the loads table changes
+   the visual layout.  The plan limits this to a new card row (summary
+   cards inline with existing totals).  Full tab redesign is deferred to
+   PR0039+.
+
+5. BatteryOperatingWindow in the policy engine uses voltage thresholds
+   (24.5V, 25.0V, etc.), not live battery_voltage.  No live value flows
+   into the policy engine from this PR.  The live battery_voltage is
+   for display only until a future PR wires it into policy context.
+
+OPEN QUESTIONS
+- Should InverterMonitor write directly to an in-memory holder, or should
+  run.py extract from shared_state?  Preferred: InverterMonitor writes to
+  self.last_data (dataclass attribute) and run.py reads
+  inverter_mon.last_inverter_data.  This avoids shared_state coupling.
+  Confirm during implementation.
+
+- Should InverterReadSnapshot carry a full timestamp (observed_at) or
+  should it also carry a source_freshness enum?  The plan uses observed_at
+  with computed freshness.  Confirm that the single observed_at timestamp
+  is sufficient or if a PR0036-style heartbeat is needed first.
+
+- Does PR0036 (Runtime Heartbeat and Source Freshness) need to precede
+  this PR?  The PR0034k roadmap shows PR0036 as a dependency for PR0037.
+  Analysis: PR0036 adds source_freshness timestamps to runtime_state.
+  This PR can add inverter data without PR0036 (freshness computed from
+  observed_at).  PR0036 adds multi-source freshness separation.  Decision:
+  proceed without PR0036 gate.  Add inverter freshness as a computed
+  field from observed_at.  PR0036 can refine later.
+
+- Should the inverter_provider be a separate callable (like sensors_provider)
+  or merged into the existing runtime_state_provider?  This PR adds a
+  separate inverter_provider for clarity.  A future PR may consolidate
+  all providers into a single RuntimeStateInput dataclass.
+
+IMPLEMENTATION HANDOFF
+
+Implementation order:
+1. Write failing tests in scripts/check-electrical-telemetry-flow.sh
+   (Tests A-E all expected to fail on current code).
+2. Add InverterReadSnapshot to control_state_snapshot.py.
+3. Add _parse_inverter() to runtime_snapshot_adapter.py.
+4. Add _convert_inverter() to control_state_snapshot.py.
+5. Add inverter field to RuntimeControlSnapshotAdapterInput.
+6. Add inverter propagation in build_runtime_control_snapshot().
+7. Add inverter field to ControlStateSnapshotInput.
+8. Add inverter field to ControlStateSnapshot.
+9. Add inverter propagation in build_control_state_snapshot().
+10. Add _parse_inverter() call in build_control_state_snapshot_from_runtime_state().
+11. Add inverter_provider parameter to build_runtime_read_model() and
+    create_runtime_state_provider().
+12. Add inverter_provider wiring in run.py.
+13. Add inverter rendering in dashboard.js and index.html.
+14. Run check-electrical-telemetry-flow.sh — all tests pass.
+15. Run full regression suite (all existing validators).
+16. Code review.
+
+Steps 12-13 (run.py wiring and dashboard rendering) may execute in either
+order.  Dashboard rendering requires backend endpoint to serve inverter
+data first.
+
+Step 12 (run.py wiring) is optional if the implementation uses a simpler
+path: InverterMonitor writes to a thread-safe last_data dict, and
+build_runtime_read_model reads it directly.  Confirm approach during
+implementation.
+
+The typed contract (InverterReadSnapshot) and parsing (_parse_inverter)
+must precede dashboard rendering.  Dashboard rendering without backend
+data produces an empty/grey section — acceptable intermediate state.
+
+DEFERRED PR 0034m
+The following concerns are explicitly deferred to a separate PR 0034m:
+
+- Tuya individual sensor fallback using run_coroutine_threadsafe with
+  get_running_loop (same-loop blocking pattern).  This is a real defect
+  but affects sensor temperature telemetry, not inverter voltage/power.
+- Isolation budget exhaustion suppression of healthy sibling parents.
+- Permission-denied retry backoff hardening.
+- Individual fallback chatty RPC mitigation.
+
+These Tuya polling concerns are deferred because:
+1. They affect a completely different data path (Tuya sensors vs DESS inverter).
+2. They require different typed contracts (sensor polling state) vs this PR
+   (inverter electrical telemetry).
+3. They have different test requirements (Tuya SDK mocking vs DESS API fakes).
+4. Merging both into one PR would delay the inverter fix and conflate two
+   independent root causes.
