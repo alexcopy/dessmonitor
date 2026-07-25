@@ -1,0 +1,19 @@
+OPERATOR OVERRIDE — PR 0039: Output Power out_w Fallback
+========================================================
+
+PLAN / PLAN-REVIEW skipped by direct operator decision.
+
+Scope:
+  - One-field inverter output power adapter fallback only.
+  - app/control/runtime_snapshot_adapter.py is the only production file modified.
+
+Out of scope:
+  - UI redesign.
+  - Weather/prediction.
+  - Analytics backend.
+  - Dashboard.js or template changes.
+
+No backend control semantics are changed.
+No DESS/Tuya polling or signing behavior is changed.
+No authentication behavior is changed.
+No control commands are changed.

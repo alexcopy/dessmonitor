@@ -81,27 +81,44 @@
                 <div class="dm-inverter-detail dm-mono">
                     AC In: <span id="inv-detail-ac-voltage">N/A</span> &nbsp;&middot;&nbsp;
                     Last sync: <span id="inv-timestamp">N/A</span>
-                    &nbsp;&middot;&nbsp; Dis: <span id="inv-detail-dis">N/A</span>
-                    &nbsp;&middot;&nbsp; Chg: <span id="inv-detail-chg">N/A</span>
                 </div>
             </div>
 
             <div class="dm-inverter-metrics">
-                <div class="dm-inv-metric">
-                    <div class="dm-inv-metric-label">&#9788; PV Power</div>
-                    <div class="dm-inv-metric-val pv-color">
-                        <span id="ds-pv-power">N/A</span><span class="unit"> W</span>
-                    </div>
-                    <div class="dm-kpi-sub" id="ds-pv-status">&mdash;</div>
-                </div>
+                <!-- 1. Battery voltage — цветовая кодировка через JS: bat-green / bat-amber / bat-red -->
                 <div class="dm-inv-metric">
                     <div class="dm-inv-metric-label">&#9889; Battery</div>
-                    <div class="dm-inv-metric-val bat-color">
+                    <div class="dm-inv-metric-val" id="ds-battery-voltage-wrap">
                         <span id="ds-battery-voltage">N/A</span><span class="unit"> V</span>
                     </div>
                     <div class="dm-kpi-sub" id="ds-battery-sub">&mdash;</div>
                 </div>
+                <!-- 2. Output power (load W) -->
+                <div class="dm-inv-metric dm-inv-metric-sep">
+                    <div class="dm-inv-metric-label">&#128229; Power</div>
+                    <div class="dm-inv-metric-val load-color">
+                        <span id="ds-output-power">N/A</span><span class="unit"> W</span>
+                    </div>
+                    <div class="dm-kpi-sub" id="ds-load-sub">&mdash;</div>
+                </div>
+                <!-- 3. Discharge current -->
                 <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#8595; Discharge</div>
+                    <div class="dm-inv-metric-val dis-color">
+                        <span id="inv-detail-dis">N/A</span><span class="unit"> A</span>
+                    </div>
+                    <div class="dm-kpi-sub">Current out</div>
+                </div>
+                <!-- 4. Charge current -->
+                <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#8593; Charge</div>
+                    <div class="dm-inv-metric-val chg-color">
+                        <span id="inv-detail-chg">N/A</span><span class="unit"> A</span>
+                    </div>
+                    <div class="dm-kpi-sub">Current in</div>
+                </div>
+                <!-- 5. Output voltage -->
+                <div class="dm-inv-metric dm-inv-metric-sep">
                     <div class="dm-inv-metric-label">&#128268; Output</div>
                     <div class="dm-inv-metric-val load-color">
                         <span id="ds-output-voltage">N/A</span><span class="unit"> V</span>
@@ -110,13 +127,15 @@
                         Load: <span id="inv-detail-load">N/A</span>
                     </div>
                 </div>
+                <!-- 6. PV power -->
                 <div class="dm-inv-metric">
-                    <div class="dm-inv-metric-label">&#128229; Power</div>
-                    <div class="dm-inv-metric-val load-color">
-                        <span id="ds-output-power">N/A</span><span class="unit"> W</span>
+                    <div class="dm-inv-metric-label">&#9788; PV Power</div>
+                    <div class="dm-inv-metric-val pv-color">
+                        <span id="ds-pv-power">N/A</span><span class="unit"> W</span>
                     </div>
-                    <div class="dm-kpi-sub" id="ds-load-sub">&mdash;</div>
+                    <div class="dm-kpi-sub" id="ds-pv-status">&mdash;</div>
                 </div>
+                <!-- 7. AC In -->
                 <div class="dm-inv-metric">
                     <div class="dm-inv-metric-label">&#128225; AC In</div>
                     <div class="dm-inv-metric-val ac-in-size">
@@ -141,20 +160,31 @@
 
         <!-- MINI STATS STRIP -->
         <div class="dm-stats-strip">
+            <!-- Output power (load) — was PV Generation -->
             <div class="dm-stat-mini">
-                <div class="dm-stat-mini-icon teal">&#9788;</div>
+                <div class="dm-stat-mini-icon teal">&#128229;</div>
                 <div>
-                    <div class="dm-stat-mini-label">PV Generation</div>
-                    <div class="dm-stat-mini-val" id="mini-pv">—</div>
+                    <div class="dm-stat-mini-label">Output Power</div>
+                    <div class="dm-stat-mini-val" id="mini-output-power">—</div>
                 </div>
             </div>
+            <!-- Battery voltage с цветовой кодировкой — was Battery SOC -->
             <div class="dm-stat-mini">
-                <div class="dm-stat-mini-icon amber">&#9889;</div>
+                <div class="dm-stat-mini-icon amber" id="mini-bat-icon">&#9889;</div>
+                <div>
+                    <div class="dm-stat-mini-label">Battery</div>
+                    <div class="dm-stat-mini-val" id="mini-battery-v">—</div>
+                </div>
+            </div>
+            <!-- SOC — новый box -->
+            <div class="dm-stat-mini">
+                <div class="dm-stat-mini-icon amber">&#9646;</div>
                 <div>
                     <div class="dm-stat-mini-label">Battery SOC</div>
                     <div class="dm-stat-mini-val" id="mini-soc">—</div>
                 </div>
             </div>
+            <!-- Active loads -->
             <div class="dm-stat-mini">
                 <div class="dm-stat-mini-icon green">&#9889;</div>
                 <div>
@@ -162,6 +192,7 @@
                     <div class="dm-stat-mini-val" id="mini-loads">—</div>
                 </div>
             </div>
+            <!-- Water temp -->
             <div class="dm-stat-mini">
                 <div class="dm-stat-mini-icon red">&#127777;</div>
                 <div>
@@ -197,10 +228,19 @@
             <div class="dm-card">
                 <div class="dm-card-header">
                     <div class="dm-kpi-label">&#9881; Current Loads</div>
-                    <div class="dm-badge-group">
-                        <span class="dm-badge ok" id="loads-on-badge">ON</span>
-                        <span class="dm-badge muted" id="loads-off-badge">OFF</span>
-                        <span class="dm-badge muted-dim" id="loads-unknown-badge">UNK</span>
+                    <div class="dm-card-header-right">
+                        <div class="dm-badge-group">
+                            <span class="dm-badge ok" id="loads-on-badge">ON</span>
+                            <span class="dm-badge muted" id="loads-off-badge">OFF</span>
+                            <span class="dm-badge muted-dim" id="loads-unknown-badge">UNK</span>
+                        </div>
+                        <label class="dm-toggle" id="loads-toggle-wrap" title="Show all devices">
+                            <input type="checkbox" id="loads-show-all" class="dm-toggle-input">
+                            <span class="dm-toggle-track">
+                                <span class="dm-toggle-thumb"></span>
+                            </span>
+                            <span class="dm-toggle-label">All</span>
+                        </label>
                     </div>
                 </div>
 
