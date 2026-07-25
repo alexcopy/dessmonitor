@@ -242,3 +242,45 @@ BOUNDARY CONFIRMATIONS
 - confirm: validation commands run and recorded
 - confirm: no git mutation commands run (no add, commit, push, reset, restore, checkout, switch, merge, rebase, tag, clean)
 - confirm: no Docker commands run
+
+POST-PRECOMMIT RUNTIME CORRECTION
+
+Incident:
+Production/runtime startup failed with NameError: name 'Any' is not defined.
+
+Root cause:
+run.py introduced _inverter_provider() with annotation dict[str, Any] | None but did not import Any.
+
+Correction:
+Added missing typing import for Any in run.py.
+
+Validation after correction:
+python3 -m compileall -q app run.py: clean
+bash scripts/check-electrical-telemetry-flow.sh: rerun required, must pass
+bash scripts/check-project-memory.sh: rerun required, must pass
+bash scripts/check-web-dashboard.sh: rerun required, must pass
+bash scripts/check-web-authentication.sh: rerun required, must pass
+
+Scope:
+No data-flow, contract, dashboard, Tuya, DESS signing, authentication, startup reset, GitOps, or command behavior changes.
+
+POST-PRECOMMIT RUNTIME CORRECTION
+
+Incident:
+Runtime startup failed with NameError: name 'Any' is not defined.
+
+Root cause:
+run.py introduced _inverter_provider() with annotation dict[str, Any] | None but did not import Any.
+
+Correction:
+Added missing typing import for Any in run.py.
+
+Validation after correction:
+python3 -m compileall -q app run.py: clean
+bash scripts/check-electrical-telemetry-flow.sh: 23/23 PASSED
+bash scripts/check-project-memory.sh: 44/44 PASSED
+bash scripts/check-web-dashboard.sh: 36/36 PASSED
+bash scripts/check-web-authentication.sh: 41/41 PASSED
+
+Scope:
+No data-flow, contract, dashboard, Tuya, DESS signing, authentication, startup reset, GitOps, or command behavior changes.

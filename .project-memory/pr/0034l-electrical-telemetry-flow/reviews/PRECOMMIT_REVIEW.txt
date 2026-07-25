@@ -368,3 +368,45 @@ WARNINGS
 
 REQUIRED CORRECTIONS
 NONE
+
+POST-APPROVAL RUNTIME BLOCKER REVIEW
+
+Blocker found after initial approval:
+run.py used Any in _inverter_provider() annotation without importing Any, causing runtime startup failure.
+
+Correction reviewed:
+Missing Any import added to run.py.
+
+Required validation after correction:
+python3 -m compileall -q app run.py
+bash scripts/check-electrical-telemetry-flow.sh
+bash scripts/check-project-memory.sh
+bash scripts/check-web-dashboard.sh
+bash scripts/check-web-authentication.sh
+
+Updated verdict:
+The previous approval is valid only if the correction validation passes and staged scope contains only the approved implementation files plus updated reports.
+
+POST-APPROVAL RUNTIME BLOCKER REVIEW
+
+Blocker found after initial approval:
+run.py used Any in _inverter_provider() annotation without importing Any, causing runtime startup failure.
+
+Correction reviewed:
+Missing Any import added to run.py.
+
+Validation after correction:
+python3 -m compileall -q app run.py: clean
+bash scripts/check-electrical-telemetry-flow.sh: 23/23 PASSED
+bash scripts/check-project-memory.sh: 44/44 PASSED
+bash scripts/check-web-dashboard.sh: 36/36 PASSED
+bash scripts/check-web-authentication.sh: 41/41 PASSED
+
+Updated verdict:
+approved
+
+READY FOR COMMIT
+true
+
+READY FOR PULL REQUEST
+true
