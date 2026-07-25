@@ -76,34 +76,35 @@
     }
 
     /* ── 3. TOGGLE SWITCH ─────────────────────────────────────
-       dashboard.js строит <tr> через createElement без классов.
-       Определяем активные строки по наличию .dm-state-on.
-       MutationObserver на tbody (dashboard.js сбрасывает его
-       через textContent="" при каждом poll).
+       Вместо per-row style.display используем динамический <style>
+       тег — он применяется мгновенно и не мигает при перестройке
+       tbody dashboard.js-ом.
+       Активная строка содержит .dm-state-on.
+       Неактивная — не содержит.
     ──────────────────────────────────────────────────────────── */
     function setupToggle() {
-        var chk   = document.getElementById('loads-show-all');
-        var tbody = document.getElementById('loads-table-body');
-        if (!chk || !tbody) return;
+        var chk = document.getElementById('loads-show-all');
+        if (!chk) return;
+
+        /* создаём <style> тег один раз */
+        var styleEl = document.createElement('style');
+        styleEl.id = 'dm-toggle-style';
+        document.head.appendChild(styleEl);
 
         function applyFilter() {
-            var showAll = chk.checked;
-            tbody.querySelectorAll('tr').forEach(function (tr) {
-                var isActive = !!tr.querySelector('.dm-state-on');
-                if (isActive) {
-                    tr.style.display = '';
-                } else {
-                    tr.style.display = showAll ? '' : 'none';
-                }
-            });
+            if (chk.checked) {
+                /* показываем все */
+                styleEl.textContent = '';
+            } else {
+                /* скрываем строки без .dm-state-on */
+                styleEl.textContent =
+                    '#loads-table-body tr:not(:has(.dm-state-on)) { display: none; }';
+            }
         }
 
         chk.addEventListener('change', applyFilter);
-
-        /* dashboard.js очищает tbody.textContent → childList mutation */
-        new MutationObserver(function () {
-            setTimeout(applyFilter, 80);
-        }).observe(tbody, { childList: true });
+        /* применяем сразу при загрузке */
+        applyFilter();
     }
 
     /* ── 4. TIMESTAMP TIMEZONE ────────────────────────────────
