@@ -7,6 +7,7 @@ import signal
 import sys
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo  # stdlib Python 3.9+, requires tzdata in Docker image
 from app.api import DessAPI
 from app.config import Config
 from app.device_initializer import DeviceInitializer
@@ -117,10 +118,33 @@ async def main() -> None:
         """Read latest inverter data from InverterMonitor for web dashboard.
 
         Returns None when no DeviceData has been received yet.
+        Normalises observed_at to ISO 8601 with Europe/London timezone offset
+        using zoneinfo.ZoneInfo.  Assumes naive local-time strings from the
+        DESS API represent Europe/London local time.
         """
         if inverter_mon.last_data is None:
             return None
         dd = inverter_mon.last_data
+
+        # --- observed_at: normalise to ISO 8601 Europe/London ---
+        observed_at_iso: str | None = None
+        raw_ts = dd.timestamp
+        if raw_ts and isinstance(raw_ts, str) and raw_ts.strip():
+            raw_ts = raw_ts.strip()
+            # If already ISO-like (contains T, Z, or offset), pass as-is
+            if "T" in raw_ts or "Z" in raw_ts or "+" in raw_ts or raw_ts.endswith("00:00"):
+                observed_at_iso = raw_ts
+            else:
+                # Naive "YYYY-MM-DD HH:MM:SS" assumed to be Europe/London local time
+                try:
+                    naive_dt = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
+                    london_dt = naive_dt.replace(tzinfo=ZoneInfo("Europe/London"))
+                    observed_at_iso = london_dt.isoformat()
+                except (ValueError, TypeError, KeyError):
+                    observed_at_iso = raw_ts  # fallback: pass original
+        elif raw_ts is not None:
+            observed_at_iso = str(raw_ts)
+
         return {
             "battery_voltage": dd.battery_voltage,
             "battery_soc": dd.battery_capacity,
@@ -139,7 +163,7 @@ async def main() -> None:
             "ac_output_load": dd.ac_output_load,
             "working_mode": dd.working_state if dd.working_state else "",
             "mains_status": dd.mains_status if dd.mains_status else "",
-            "observed_at": dd.timestamp,
+            "observed_at": observed_at_iso,
         }
 
     # ─── 5. STARTUP RESET — command all binary switches OFF ──

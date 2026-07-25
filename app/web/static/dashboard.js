@@ -93,6 +93,9 @@
         dom.invDetailLoad = document.getElementById("inv-detail-load");
         dom.invDetailChg = document.getElementById("inv-detail-chg");
         dom.invDetailDis = document.getElementById("inv-detail-dis");
+        /* Inverter timestamp and freshness */
+        dom.invTimestamp = document.getElementById("inv-timestamp");
+        dom.invFreshness = document.getElementById("inv-freshness");
     }
 
     /* -----------------------------------------------------------------------
@@ -353,6 +356,31 @@
     }
 
     /* -----------------------------------------------------------------------
+     * Output power severity
+     * -----------------------------------------------------------------------
+     */
+
+    var POWER_SEVERITY_CLASSES = {
+        green: "ds-compact-value ds-power-severity-green",
+        amber: "ds-compact-value ds-power-severity-amber",
+        red: "ds-compact-value ds-power-severity-red",
+        unknown: "ds-compact-value"
+    };
+
+    function computePowerSeverity(outputPower) {
+        if (outputPower === null || outputPower === undefined) {
+            return "unknown";
+        }
+        if (outputPower <= 1700) {
+            return "green";
+        }
+        if (outputPower <= 2600) {
+            return "amber";
+        }
+        return "red";
+    }
+
+    /* -----------------------------------------------------------------------
      * Operator summary (compact inverter metrics)
      * -----------------------------------------------------------------------
      */
@@ -362,6 +390,7 @@
         var inverter = snapshot.inverter;
         if (!Array.isArray(inverter) || inverter.length === 0) {
             dom.dsOutputPower.textContent = "N/A";
+            dom.dsOutputPower.className = POWER_SEVERITY_CLASSES.unknown;
             dom.dsOutputVoltage.textContent = "N/A";
             dom.dsBatteryVoltage.textContent = "N/A";
             dom.dsPvPower.textContent = "N/A";
@@ -385,6 +414,9 @@
         }
 
         dom.dsOutputPower.textContent = formatCompact(inv.output_power, "W");
+        dom.dsOutputPower.className = POWER_SEVERITY_CLASSES[
+            computePowerSeverity(inv.output_power)
+        ] || POWER_SEVERITY_CLASSES.unknown;
         dom.dsOutputVoltage.textContent = formatCompact(inv.output_voltage, "V");
         dom.dsBatteryVoltage.textContent = formatCompact(inv.battery_voltage, "V");
         dom.dsBatterySoc.textContent = formatCompact(inv.battery_soc, "%");
@@ -447,6 +479,107 @@
         dom.invDetailLoad.textContent = formatDetail(inv.ac_output_load, "%");
         dom.invDetailChg.textContent = formatDetail(inv.battery_current_chg, "A");
         dom.invDetailDis.textContent = formatDetail(inv.battery_current_dis, "A");
+
+        /* Render inverter timestamp (Europe/London) */
+        if (dom.invTimestamp) {
+            renderInverterTimestamp(snapshot);
+        }
+    }
+
+    /* -----------------------------------------------------------------------
+     * Inverter timestamp (Europe/London display)
+     * -----------------------------------------------------------------------
+     */
+
+    function formatLondonTimestamp(isoString) {
+        if (!isoString || isoString === "" || isoString === "-") {
+            return "N/A";
+        }
+        try {
+            var d = new Date(isoString);
+            if (isNaN(d.getTime())) {
+                return "N/A";
+            }
+            return d.toLocaleString("en-GB", { timeZone: "Europe/London" });
+        } catch (e) {
+            return "N/A";
+        }
+    }
+
+    function renderInverterTimestamp(snapshot) {
+        if (!snapshot) { return; }
+        var inverter = snapshot.inverter;
+        if (!Array.isArray(inverter) || inverter.length === 0) {
+            if (dom.invTimestamp) { dom.invTimestamp.textContent = "N/A"; }
+            return;
+        }
+        var inv = inverter[0];
+        if (!inv || typeof inv !== "object") {
+            if (dom.invTimestamp) { dom.invTimestamp.textContent = "N/A"; }
+            return;
+        }
+        if (dom.invTimestamp) {
+            dom.invTimestamp.textContent = formatLondonTimestamp(inv.observed_at);
+        }
+    }
+
+    /* -----------------------------------------------------------------------
+     * Inverter freshness (client-side computation from observed_at)
+     * -----------------------------------------------------------------------
+     */
+
+    var FRESHNESS_STATES = {
+        fresh:    { label: "fresh", className: "tag is-success is-light" },
+        stale:    { label: "stale", className: "tag is-warning is-light" },
+        unavailable: { label: "unavailable", className: "tag is-light" }
+    };
+
+    function computeInverterFreshness(observedAtStr) {
+        if (!observedAtStr || observedAtStr === "") {
+            return "unavailable";
+        }
+        try {
+            var obsTime = new Date(observedAtStr).getTime();
+            if (isNaN(obsTime)) {
+                return "unavailable";
+            }
+            var ageSeconds = (Date.now() - obsTime) / 1000;
+            if (ageSeconds <= 150) {
+                return "fresh";
+            }
+            if (ageSeconds <= 600) {
+                return "stale";
+            }
+            return "unavailable";
+        } catch (e) {
+            return "unavailable";
+        }
+    }
+
+    function renderInverterFreshness(snapshot) {
+        if (!snapshot) { return; }
+        var inverter = snapshot.inverter;
+        if (!Array.isArray(inverter) || inverter.length === 0) {
+            if (dom.invFreshness) {
+                dom.invFreshness.textContent = "unavailable";
+                dom.invFreshness.className = "tag is-light";
+            }
+            return;
+        }
+        var inv = inverter[0];
+        if (!inv || typeof inv !== "object") {
+            if (dom.invFreshness) {
+                dom.invFreshness.textContent = "unavailable";
+                dom.invFreshness.className = "tag is-light";
+            }
+            return;
+        }
+        var state = computeInverterFreshness(inv.observed_at);
+        var info = FRESHNESS_STATES[state] || FRESHNESS_STATES.unavailable;
+        if (dom.invFreshness) {
+            dom.invFreshness.textContent = info.label;
+            dom.invFreshness.className = info.className;
+        }
     }
 
     /* -----------------------------------------------------------------------
@@ -490,6 +623,9 @@
         /* Render source indicator and operator summary FIRST */
         renderSourceIndicator(snapshot);
         renderOperatorSummary(snapshot);
+
+        /* Inverter freshness badge */
+        renderInverterFreshness(snapshot);
 
         /* Startup reset badge (unchanged) */
         renderStartupReset(snapshot);

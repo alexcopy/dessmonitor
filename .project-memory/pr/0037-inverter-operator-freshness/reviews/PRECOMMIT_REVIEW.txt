@@ -1,0 +1,373 @@
+PRECOMMIT REVIEW
+
+TITLE
+PR 0037 — Inverter Operator Metrics and Freshness
+
+REPOSITORY STATE
+Branch: pr-0037-inverter-operator-freshness
+HEAD: a91049b6f49dd8cbc471723b2aad511d28fd4709
+HEAD commit: docs: plan inverter operator freshness
+Working tree: 4 modified files (dashboard.css, dashboard.js, index.html, run.py), 2 untracked (CODER_REPORT.txt, check-inverter-operator-freshness.sh)
+Staged: empty (confirmed by git diff --cached --name-only = no output)
+Date: 2026-07-25T15:09:02Z
+
+ARTIFACTS READ
+- .project-memory/pr/0037-inverter-operator-freshness/PLAN.txt (read completely)
+- .project-memory/pr/0037-inverter-operator-freshness/reviews/PLAN_REVIEW.txt (read completely, verdict: approved)
+- .project-memory/pr/0037-inverter-operator-freshness/CODER_REPORT.txt (read completely)
+
+CHANGED FILES READ
+All changed files from git diff --name-only read completely:
+1. app/web/static/dashboard.css (29 lines added)
+2. app/web/static/dashboard.js (136 lines added)
+3. app/web/templates/index.html (8 lines added)
+4. run.py (26 lines changed, 1 deletion)
+
+Validator file read:
+5. scripts/check-inverter-operator-freshness.sh (new file, 28 assertions)
+
+STAGED STATE
+git diff --cached --name-only: empty (no output)
+Staging area: clean. No files are staged. Precondition satisfied.
+
+IMPLEMENTATION SUMMARY
+
+The implementation adds inverter operator metrics and freshness to the dashboard
+with no backend telemetry contract changes, no weather, and no control commands.
+
+run.py:
+- Added: from zoneinfo import ZoneInfo (stdlib, Python 3.9+)
+- Updated _inverter_provider(): normalizes naive DD.timestamp to ISO 8601 with
+  Europe/London timezone offset using ZoneInfo("Europe/London")
+- Already-ISO strings (containing T, Z, or offset) pass through unchanged
+- All existing inverter fields and wiring preserved unchanged
+
+dashboard.js:
+- New: computePowerSeverity(outputPower) — pure function with exact thresholds
+  (<=1700 green, >1700 and <=2600 amber, >2600 red, null/undefined unknown)
+- New: formatLondonTimestamp(isoString) — toLocaleString("en-GB",
+  {timeZone: "Europe/London"}), returns "N/A" for missing/invalid
+- New: renderInverterTimestamp(snapshot) — reads inverter[0].observed_at,
+  sets #inv-timestamp textContent via formatLondonTimestamp
+- New: computeInverterFreshness(observedAtStr) — client-side freshness from
+  observed_at age (<=150s fresh, <=600s stale, >600s/null unavailable)
+- New: renderInverterFreshness(snapshot) — sets #inv-freshness textContent
+  and className (tag is-success is-light / is-warning is-light / is-light)
+- New: FRESHNESS_STATES lookup table and POWER_SEVERITY_CLASSES mapping
+- Updated: renderOperatorSummary() — now sets dsOutputPower.className with
+  severity class from computePowerSeverity()
+- Updated: renderSnapshot() — calls renderInverterFreshness() after
+  renderOperatorSummary, renderInverterTimestamp called from renderInverterDetail
+- Updated: cacheDom() — binds dom.invTimestamp and dom.invFreshness
+- All existing invariants preserved: textContent only, AbortController,
+  setTimeout recursion, visibilitychange, 5-state connection machine
+
+index.html:
+- Added <span id="inv-freshness"> in operator-summary row, after source
+  indicator badge (default: "unavailable", tag is-light)
+- Added <span id="inv-timestamp"> in inverter-detail-section as first field,
+  labeled "Inv time:" (default: "N/A")
+
+dashboard.css:
+- Added .ds-power-severity-green (color: #48c78e)
+- Added .ds-power-severity-amber (color: #946c00)
+- Added .ds-power-severity-red (color: #f14668)
+- Added dark mode overrides for all three severity classes
+
+INDEPENDENT INVERTER DATA-FLOW TRACE
+
+source inverter object (DeviceData from InverterMonitor.last_data):
+  output_power: float | None — unchanged from backend
+  timestamp: naive str "%Y-%m-%d %H:%M:%S" or None — unchanged source
+
+-> parser/runtime provider (_inverter_provider in run.py):
+  output_power: passed through unchanged
+  observed_at: normalized to ISO 8601 with Europe/London offset via
+    zoneinfo.ZoneInfo("Europe/London"). Already-ISO strings pass through.
+    PRESERVED: value semantics. TRANSFORMED: naive->aware timezone.
+
+-> runtime_state["inverter"][0]:
+  output_power: float | None — unchanged
+  observed_at: ISO 8601 with offset | None — transformed
+
+-> typed snapshot (InverterReadSnapshot -> ControlStateSnapshot):
+  inverter[0].output_power: float | None — unchanged
+  inverter[0].observed_at: str | None — ISO 8601 with offset preserved
+
+-> /control/state JSON:
+  inverter[0].output_power: numeric or null — unchanged
+  inverter[0].observed_at: ISO string or null — with timezone offset
+
+-> dashboard render logic:
+  output_power -> computePowerSeverity() -> severity class on #ds-output-power
+    PRESERVED: value. TRANSFORMED: color severity applied.
+  observed_at -> formatLondonTimestamp() -> #inv-timestamp textContent
+    TRANSFORMED: rendered as Europe/London locale time.
+  observed_at -> computeInverterFreshness() -> #inv-freshness badge
+    TRANSFORMED: computed fresh/stale/unavailable badge.
+
+POWER SEVERITY ASSESSMENT
+
+Exact thresholds implemented in computePowerSeverity() (dashboard.js):
+
+output_power   severity   CSS class              Visual color
+<= 1700        green      ds-power-severity-green  green (#48c78e)
+>1700, <=2600  amber      ds-power-severity-amber  amber (#946c00)
+>2600          red        ds-power-severity-red    red (#f14668)
+null/undefined unknown    ds-compact-value (plain) default text color
+
+Verified by Python derivation tests [1]-[5]. Applied ONLY to #ds-output-power
+element via className. No other metric receives severity coloring.
+
+CONFIRMED: matches PLAN.txt exact thresholds.
+
+TIMESTAMP ASSESSMENT
+
+Snapshot timestamp (#snapshot-timestamp):
+  Source: ControlStateSnapshot.created_at (ISO 8601 UTC)
+  Display: "Snapshot: <toLocaleString output>" — existing, unchanged
+  Label: "Snapshot:" — existing, unchanged
+
+Inverter timestamp (#inv-timestamp, NEW):
+  Source: InverterReadSnapshot.observed_at (ISO 8601 with Europe/London offset)
+  Display: via formatLondonTimestamp() using toLocaleString("en-GB",
+    {timeZone: "Europe/London"})
+  Label: "Inv time:" — in inverter-detail-section
+  Default: "N/A" when inverter data absent
+
+Backend normalization:
+  run.py _inverter_provider() uses zoneinfo.ZoneInfo("Europe/London") to convert
+  naive "YYYY-MM-DD HH:MM:SS" strings to ISO 8601 with offset.
+  Already-ISO strings pass through unchanged.
+  Verified by Python zoneinfo tests [10]-[11]: BST (July) produces +01:00,
+  winter (January) produces +00:00 (GMT).
+
+Two timestamps are clearly distinguished: one labeled "Snapshot" at the top of
+dashboard content, one labeled "Inv time" in the inverter detail section.
+
+CONFIRMED: matches PLAN.txt timestamp contract.
+
+FRESHNESS ASSESSMENT
+
+Exact thresholds implemented in computeInverterFreshness() (dashboard.js):
+
+observed_at age       freshness    Visual
+<= 150 seconds        fresh        green badge (tag is-success is-light)
+>150, <= 600 seconds  stale        amber badge (tag is-warning is-light)
+>600 seconds          unavailable  grey badge (tag is-light)
+null/empty/missing    unavailable  grey badge (tag is-light)
+
+Computed each dashboard render cycle (5s poll). Rendered via #inv-freshness
+element in operator-summary row. Verified by Python freshness tests [6]-[9].
+
+CONFIRMED: matches PLAN.txt 150s/600s freshness contract.
+
+SENSOR PRESERVATION ASSESSMENT
+
+- Sensors section: PRESERVED (#sensors-table-body in index.html, unchanged)
+- renderSensors() in dashboard.js: UNCHANGED (same textContent, null->N/A,
+  description rendering, freshness badges, status badges)
+- Sensor value null handling: PRESERVED (rawValue===null -> "N/A")
+- Watertemp rendering: PRESERVED (same sensor pipeline, unchanged)
+- sensor descriptions remain safely rendered via textContent, no innerHTML
+- Assertion [16] confirms #sensors-table-body present
+- All 58 sensor snapshot pipeline checks pass
+
+TEST-FIRST ASSESSMENT
+
+CODER_REPORT.txt records:
+
+1. INITIAL FAILING COMMAND:
+   bash scripts/check-inverter-operator-freshness.sh
+
+2. INITIAL FAILING ASSERTIONS (10 failures):
+   [12] #inv-timestamp — Element not found in index.html
+   [13] #inv-freshness — Element not found in index.html
+   [20] Weather section check (validator bug in counting - also fixed)
+   [21] renderInverterTimestamp — Function not found in dashboard.js
+   [22] renderInverterFreshness — Function not found in dashboard.js
+   [23] computePowerSeverity — Function not found in dashboard.js
+   [25] .ds-power-severity-green — CSS class not found
+   [26] .ds-power-severity-amber — CSS class not found
+   [27] .ds-power-severity-red — CSS class not found
+   [28] zoneinfo import — run.py missing zoneinfo import
+
+3. REASON FOR FAILURE: These failures exactly match the PLAN.txt root cause:
+   output power severity, inverter timestamp, and inverter freshness all absent
+   from the current code.
+
+4. POST-IMPLEMENTATION PASSING RESULT: 28 passed, 0 failed.
+
+The CODER_REPORT provides clear test-first evidence: initial failing command,
+failing assertion numbers with reasons, and post-implementation passing result.
+CONFIRMED: test-first evidence is present.
+
+FOCUSED VALIDATOR ASSESSMENT
+
+scripts/check-inverter-operator-freshness.sh:
+- Block 1 (Severity derivation): [1]-[5] all PASS
+- Block 2 (Freshness computation): [6]-[9] all PASS
+- Block 3 (Europe/London timestamp): [10]-[11] all PASS
+- Block 4 (HTML element presence): [12]-[20] all PASS
+- Block 5 (Static asset checks): [21]-[28] all PASS
+- Total: 28 passed, 0 failed
+- Numbered assertions: YES (28)
+- Exits non-zero on failure: YES
+- Verifies power severity thresholds: YES ([1]-[5])
+- Verifies both timestamps: YES ([10]-[12], [15])
+- Verifies Europe/London rendering: YES ([10]-[11])
+- Verifies freshness states: YES ([6]-[9], [13])
+- Verifies charge/discharge currents: YES ([17])
+- Verifies sensors preservation: YES ([16])
+- Verifies no weather/prediction: YES ([20])
+- Verifies safe DOM behavior: YES ([24])
+- No production/Tuya/DESS/hardware contact: YES (deterministic fakes)
+- Not grep-only: uses Python for severity, freshness, and timezone logic
+
+END-TO-END ACCEPTANCE ASSESSMENT
+
+1. Output power is shown: YES (#ds-output-power present [14])
+2. Output power severity is deterministic: YES ([1]-[5], green/amber/red/unknown)
+3. Output voltage is shown: YES (#ds-output-voltage present)
+4. Charge current is shown: YES (#inv-detail-chg present [17])
+5. Discharge current is shown: YES (#inv-detail-dis present [17])
+6. Snapshot timestamp is shown: YES (#snapshot-timestamp present [15])
+7. Inverter timestamp is shown: YES (#inv-timestamp present [12])
+8. Inverter timestamp is Europe/London normalized: YES ([10]-[11], +01:00 BST / GMT winter)
+9. Freshness/liveliness is visible: YES (#inv-freshness present [13], states [6]-[9])
+10. Sensors/watertemp remain visible: YES (#sensors-table-body present [16])
+11. Missing values render as N/A, not 0: YES (formatDetail/formatCompact return "N/A",
+    InverterReadSnapshot defaults None; verified by existing telemetry-flow tests)
+12. /control/state remains read-only: YES (no backend endpoint changes)
+13. No weather/prediction added: YES ([20], only 0 weather references in index.html)
+14. No control commands added: YES (no write endpoints, no POST routes)
+
+REGRESSION ASSESSMENT
+
+All regression validators PASS:
+- check-compact-operator-dashboard.sh: 20/20 PASSED
+- check-project-memory.sh: 46/46 PASSED (0 errors)
+- check-web-dashboard.sh: 36/36 PASSED
+- check-web-authentication.sh: 41/41 PASSED
+- check-electrical-telemetry-flow.sh: 23/23 PASSED
+- check-canonical-sensor-snapshot-pipeline.sh: 58/58 PASSED
+- python3 -m compileall -q app run.py: clean (exit 0)
+
+All existing dashboard, authentication, inverter, and sensor invariants preserved:
+- textContent for API values (no innerHTML)
+- AbortController, visibilitychange, setTimeout recursion
+- 5-state connection machine, bounded retry, stale/offline timers
+- Source indicator, load tabs, working mode badge, inverter detail row
+- Sensors table, loads table, summary cards all unchanged
+- Authentication unchanged — 41 auth checks pass
+
+SECURITY ASSESSMENT
+
+- All API-derived values rendered via textContent (verified: zero innerHTML usages
+  in dashboard.js for API values; grep shows only a comment mentioning "no innerHTML")
+- Severity classes are hardcoded CSS strings — no untrusted input
+- Freshness computation is client-side only — no new backend exposure
+- Inverter timestamp conversion uses zoneinfo stdlib — no network access
+- No raw device IDs, Tuya IDs, parent IDs, tokens, credentials, or signed URLs exposed
+- _FORBIDDEN_DEVICE_ATTRS untouched (backend unchanged)
+- No new write endpoints, routes, or authentication changes
+- /control/state remains read-only
+- Authentication unchanged — all 41 auth checks pass
+- No operational devices.yaml or secrets in the web layer
+- No .ariadne residue (.ariadne absent)
+
+SCOPE ASSESSMENT
+
+IN SCOPE (all implemented per PLAN):
+1. Output power severity coloring (green/amber/red/unknown thresholds in JS)
+2. Inverter-reported timestamp display (new #inv-timestamp element)
+3. Inverter freshness indicator (new #inv-freshness element)
+4. Timezone normalization in run.py (zoneinfo Europe/London)
+5. Dashboard CSS for severity classes and freshness badge
+6. scripts/check-inverter-operator-freshness.sh
+
+OUT OF SCOPE (correctly excluded):
+- Weather forecast integration (not added — assertion [20] confirms)
+- Prediction block (not added)
+- New external data sources (none added)
+- DESS signing/API changes unrelated to timestamp format (none)
+- Tuya fallback changes, ML changes, logger redesign (none)
+- Route redesign, control commands, authentication changes (none)
+- Startup reset, load/sensor classification changes (none)
+- Charge/discharge current visibility (already present from PR0036, preserved [17])
+- Inverter poll interval (unchanged at 60s)
+
+HARD RULE VERIFICATION:
+1. No weather forecast integration: CONFIRMED ([20], 0 weather references)
+2. No prediction section: CONFIRMED (no prediction elements in any changed file)
+3. No new backend data source: CONFIRMED (zoneinfo is stdlib)
+4. No control commands: CONFIRMED
+5. No authentication redesign: CONFIRMED
+6. No startup reset changes: CONFIRMED
+7. No Tuya fallback changes: CONFIRMED
+8. No DESS signing/API changes unrelated to already-existing inverter fields: CONFIRMED
+9. No ML changes: CONFIRMED
+10. No GitOps/deployment changes: CONFIRMED
+11. No source-state guesses from names/descriptions: CONFIRMED (severity uses output_power only)
+12. No measured power from load_in_wt: CONFIRMED
+13. No missing numeric values coerced to zero: CONFIRMED (default None, render "N/A")
+14. No unsafe innerHTML for untrusted text: CONFIRMED (textContent only)
+15. Sensors and watertemp remain visible: CONFIRMED ([16])
+16. Existing /control/state read-only behavior preserved: CONFIRMED
+17. Power severity thresholds match approved contract (<=1700 green, <=2600 amber, >2600 red): CONFIRMED ([1]-[5])
+18. Freshness thresholds match approved 150s/600s contract: CONFIRMED ([6]-[9])
+19. Inverter timestamp rendering is Europe/London: CONFIRMED ([10]-[11])
+
+BLOCKERS
+NONE
+
+WARNINGS
+- check-runtime-read-only-web-host.sh test 19 fails due to missing argon2 module
+  (pre-existing environment issue, not caused by PR0037 changes)
+- zoneinfo requires tzdata in Docker images — documented in run.py import comment
+  (Debian/Ubuntu Python 3.12+ includes it by default)
+- Freshness thresholds (150s/600s) depend on 60s inverter poll interval — if poll
+  interval changes, thresholds may need review
+
+REQUIRED CORRECTIONS
+NONE
+
+VERDICT
+approved
+
+READY FOR COMMIT
+true
+
+READY FOR PULL REQUEST
+true
+
+ROOT CAUSE FIX VERIFIED
+Output power severity coloring (green/amber/red thresholds), inverter timestamp display (Europe/London timezone via zoneinfo), and inverter freshness indicator (fresh/stale/unavailable badge) are all implemented. Backend data unchanged — all improvements are in the rendering layer and timezone normalization.
+
+FILES REVIEWED
+app/web/static/dashboard.css
+app/web/static/dashboard.js
+app/web/templates/index.html
+run.py
+scripts/check-inverter-operator-freshness.sh
+
+VALIDATION RUN
+bash scripts/check-inverter-operator-freshness.sh: 28/28 PASSED, exit 0
+bash scripts/check-compact-operator-dashboard.sh: 20/20 PASSED, exit 0
+bash scripts/check-project-memory.sh: 46/46 PASSED, exit 0
+bash scripts/check-web-dashboard.sh: 36/36 PASSED, exit 0
+bash scripts/check-web-authentication.sh: 41/41 PASSED, exit 0
+bash scripts/check-electrical-telemetry-flow.sh: 23/23 PASSED, exit 0
+bash scripts/check-canonical-sensor-snapshot-pipeline.sh: 58/58 PASSED, exit 0
+python3 -m compileall -q app run.py: clean (no output), exit 0
+
+BLOCKERS
+NONE
+
+WARNINGS
+- check-runtime-read-only-web-host.sh test 19 fails — missing argon2 module (pre-existing, not PR-related)
+- zoneinfo requires tzdata in Docker images (documented in run.py, present by default on Debian/Ubuntu Python 3.12+)
+- Freshness thresholds (150s/600s) depend on 60s inverter poll interval
+
+REQUIRED CORRECTIONS
+NONE

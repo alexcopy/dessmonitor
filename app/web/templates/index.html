@@ -68,6 +68,10 @@
                 <div class="column is-narrow">
                     <span id="source-indicator" class="tag is-medium ds-source-indicator ds-source-unknown">— N/A</span>
                 </div>
+                <!-- Inverter freshness badge -->
+                <div class="column is-narrow">
+                    <span id="inv-freshness" class="tag is-light">unavailable</span>
+                </div>
                 <!-- Output power -->
                 <div class="column is-narrow">
                     <div class="ds-compact-card">
@@ -234,6 +238,10 @@
             <div id="inverter-detail-section" class="is-hidden mt-4">
                 <div class="columns is-multiline is-gapless">
                     <div class="column is-narrow">
+                        <span class="is-size-7 has-text-grey">Inv time:</span>
+                        <span class="is-size-7 ml-1" id="inv-timestamp">N/A</span>
+                    </div>
+                    <div class="column is-narrow ml-3">
                         <span class="is-size-7 has-text-grey">AC In:</span>
                         <span class="is-size-7 ml-1" id="inv-detail-ac-voltage">N/A</span>
                     </div>

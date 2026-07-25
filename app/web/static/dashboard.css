@@ -237,6 +237,23 @@ input:focus-visible {
 }
 
 /* ---------------------------------------------------------------------------
+ * Output power severity colours
+ * ---------------------------------------------------------------------------
+ */
+
+.ds-power-severity-green {
+    color: #48c78e !important;
+}
+
+.ds-power-severity-amber {
+    color: #946c00 !important;
+}
+
+.ds-power-severity-red {
+    color: #f14668 !important;
+}
+
+/* ---------------------------------------------------------------------------
  * Dark mode overrides
  * ---------------------------------------------------------------------------
  */
@@ -283,5 +300,17 @@ input:focus-visible {
 
     .ds-compact-value {
         color: #e0e0e0;
+    }
+
+    .ds-power-severity-green {
+        color: #6ee7b7 !important;
+    }
+
+    .ds-power-severity-amber {
+        color: #fcd34d !important;
+    }
+
+    .ds-power-severity-red {
+        color: #f87171 !important;
     }
 }
