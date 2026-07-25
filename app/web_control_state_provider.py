@@ -24,6 +24,7 @@ from app.control.runtime_snapshot_adapter import (
     RuntimeControlSnapshotAdapterInput,
     RuntimeLoadState,
     SensorReadSnapshot,
+    _parse_inverter,
     _parse_sensors,
     build_runtime_control_snapshot,
 )
@@ -84,6 +85,9 @@ def build_control_state_snapshot_from_runtime_state(
         runtime_state.get("sensors")
     )
 
+    # --- parse inverter (best-effort) ---
+    inverter = _parse_inverter(runtime_state.get("inverter"))
+
     # --- direct pipeline objects (pass through) ---
     policy_decision = runtime_state.get("policy_decision")
     command_proposal = runtime_state.get("command_proposal")
@@ -110,6 +114,7 @@ def build_control_state_snapshot_from_runtime_state(
         energy_budget=energy_budget,
         battery_window=battery_window,
         mode=mode,
+        inverter=inverter,
         notes=tuple(notes) if isinstance(notes, (list, tuple)) else (),
     )
 

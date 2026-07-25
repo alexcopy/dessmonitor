@@ -137,7 +137,44 @@ class ControlModeSnapshot:
 
 
 # ===================================================================
-# Type 6: SensorReadSnapshot
+# Type 6: InverterReadSnapshot
+# ===================================================================
+
+
+@dataclass(frozen=True)
+class InverterReadSnapshot:
+    """A single inverter reading's electrical telemetry snapshot for the web UI.
+
+    Pure data — no hardware calls, no side effects.
+    All numeric fields are nullable float; None represents missing/unavailable data.
+    observed_at is an ISO string or None at this boundary.
+    """
+    snapshot_id: str = ""
+    observed_at: str | None = None
+    battery_voltage: float | None = None
+    battery_soc: float | None = None
+    battery_current_chg: float | None = None
+    battery_current_dis: float | None = None
+    pv1_voltage: float | None = None
+    pv1_power: float | None = None
+    pv2_voltage: float | None = None
+    pv2_power: float | None = None
+    pv_total_power: float | None = None
+    output_voltage: float | None = None
+    output_power: float | None = None
+    output_apparent_power: float | None = None
+    ac_input_voltage: float | None = None
+    ac_input_frequency: float | None = None
+    ac_output_load: float | None = None
+    working_mode: str = ""
+    mains_status: str = ""
+    freshness: str = ""
+    status: str = ""
+    source: str = "dess"
+
+
+# ===================================================================
+# Type 7: SensorReadSnapshot
 # ===================================================================
 
 
@@ -164,7 +201,7 @@ class SensorReadSnapshot:
 
 
 # ===================================================================
-# Type 7: ControlStateSnapshotInput (extended)
+# Type 8: ControlStateSnapshotInput (extended)
 # ===================================================================
 
 
@@ -189,6 +226,7 @@ class ControlStateSnapshotInput:
     energy_budget: EnergyBudget | None = None
     battery_window: BatteryOperatingWindow | None = None
     mode: ControlModeSnapshot | None = None
+    inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -212,8 +250,33 @@ class ControlStateSnapshot:
     mode: ControlModeSnapshot | None = None
     energy_budget: EnergyBudget | None = None
     battery_window: BatteryOperatingWindow | None = None
+    inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
     notes: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+# ---------------------------------------------------------------------------
+# Helper: convert an InverterReadSnapshot (identity pass-through)
+# ---------------------------------------------------------------------------
+
+
+def _convert_inverter(
+    inv: InverterReadSnapshot,
+) -> InverterReadSnapshot:
+    """Convert an InverterReadSnapshot (identity pass-through for consistency).
+
+    All validation and field-safe handling is done by the InverterReadSnapshot
+    frozen dataclass and its constructor defaults.  This function exists for
+    architectural symmetry with _convert_load and may add freshness computation
+    in a future PR.
+
+    Args:
+        inv: The InverterReadSnapshot to pass through.
+
+    Returns:
+        The same InverterReadSnapshot.
+    """
+    return inv
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +405,7 @@ def build_control_state_snapshot(
         has_any_input = any([
             has_policy, has_proposal, has_safety, has_eligibility,
             snapshot_input.loads, snapshot_input.sensors,
+            snapshot_input.inverter,
         ])
         if has_any_input:
             status = ControlStateSnapshotStatus.DEGRADED
@@ -399,12 +463,16 @@ def build_control_state_snapshot(
     # Include caller-provided notes
     all_notes = list(snapshot_input.notes) + base_notes
 
+    # Convert inverter snapshots (identity pass-through — already typed)
+    inverter_snapshots = snapshot_input.inverter
+
     return ControlStateSnapshot(
         snapshot_id=snapshot_input.snapshot_id,
         created_at=snapshot_input.created_at,
         status=status,
         loads=load_snapshots,
         sensors=snapshot_input.sensors,
+        inverter=inverter_snapshots,
         pipeline=pipeline,
         mode=mode,
         energy_budget=snapshot_input.energy_budget,

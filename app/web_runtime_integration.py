@@ -153,6 +153,7 @@ def build_runtime_read_model(
     startup_reset_gate_open: bool | None = None,
     per_device_results: dict[str, str] | None = None,
     sensors: list[dict[str, Any]] | None = None,
+    inverter_provider: Callable[[], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Build a runtime state mapping from a list of device objects.
 
@@ -160,6 +161,19 @@ def build_runtime_read_model(
     - LOAD-classified devices appear in loads.
     - SENSOR-classified devices appear in sensors (via the sensors param).
     - No device appears in both collections.
+
+    Args:
+        devices: List of device objects from the device manager.
+        created_at: Optional ISO timestamp for the snapshot.
+        startup_reset_status: Optional startup reset status string.
+        startup_reset_gate_open: Optional startup reset gate open flag.
+        per_device_results: Optional per-device startup reset results dict.
+        sensors: Optional list of sensor reading dicts.
+        inverter_provider: Optional callable returning inverter data dict.
+
+    Returns:
+        A dict with snapshot_id, created_at, loads, and optionally
+        sensors, inverter, startup_reset_status, startup_reset_gate_open.
     """
     if created_at is None:
         created_at = datetime.now(timezone.utc).isoformat()
@@ -192,6 +206,15 @@ def build_runtime_read_model(
         result["startup_reset_status"] = startup_reset_status
     if startup_reset_gate_open is not None:
         result["startup_reset_gate_open"] = startup_reset_gate_open
+    # --- inverter data (from provider, if available) ---
+    if inverter_provider is not None:
+        try:
+            inv_data = inverter_provider()
+        except Exception:
+            inv_data = None
+        if inv_data is not None and isinstance(inv_data, dict):
+            # Wrap single dict in a list for _parse_inverter
+            result["inverter"] = [inv_data]
     return result
 
 
@@ -302,6 +325,7 @@ def create_runtime_state_provider(
     startup_reset_gate_open_provider: Callable[[], bool | None] | None = None,
     per_device_results_provider: Callable[[], dict[str, str] | None] | None = None,
     sensors_provider: Callable[[], list[dict[str, Any]] | None] | None = None,
+    inverter_provider: Callable[[], dict[str, Any] | None] | None = None,
 ) -> Callable[[], dict[str, Any] | None]:
     def _provider() -> dict[str, Any] | None:
         try:
@@ -320,6 +344,7 @@ def create_runtime_state_provider(
             startup_reset_gate_open=srg,
             per_device_results=pdr,
             sensors=sensors,
+            inverter_provider=inverter_provider,
         )
     return _provider
 
@@ -352,6 +377,7 @@ async def start_runtime_read_only_web_host(
     startup_reset_gate_open_provider: Callable[[], bool | None] | None = None,
     per_device_results_provider: Callable[[], dict[str, str] | None] | None = None,
     sensors_provider: Callable[[], list[dict[str, Any]] | None] | None = None,
+    inverter_provider: Callable[[], dict[str, Any] | None] | None = None,
 ) -> RuntimeWebHostHandle | None:
     env = environ if environ is not None else os.environ
     if not is_runtime_web_host_enabled(env):
@@ -374,6 +400,7 @@ async def start_runtime_read_only_web_host(
         startup_reset_gate_open_provider=startup_reset_gate_open_provider,
         per_device_results_provider=per_device_results_provider,
         sensors_provider=sensors_provider,
+        inverter_provider=inverter_provider,
     )
     from app.web_host import create_app
     app = create_app(runtime_state_provider=provider)

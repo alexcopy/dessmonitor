@@ -13,11 +13,13 @@ class InverterMonitor:
         self.logger   = InverterLogger()                  # файл + Loki
         self.imp      = logging.getLogger("IMPORTANT")    # один раз!
         self._stop    = asyncio.Event()
+        self.last_data: DeviceData | None = None
 
     async def run(self) -> None:
         while not self._stop.is_set():
             try:
                 dd = await asyncio.to_thread(self.api.fetch_device_data)
+                self.last_data = dd
                 self.logger.log(dd)                       # Inverter log
                 self._process_business_metrics(dd)
             except Exception as exc:
