@@ -1,8 +1,8 @@
-/* dashboard.js — dessmonitor read-only dashboard
+/* dashboard.js — dessmonitor read-only architect dashboard
  *
+ * PR 0038: Architect Dashboard and Analytics UI.
  * Implements short polling against the authenticated GET /control/state
- * endpoint with a responsive state machine, bounded retry, and safe DOM
- * rendering.
+ * endpoint with architect-inspired dark theme rendering.
  *
  * Rules:
  * - One request in flight maximum (AbortController)
@@ -28,74 +28,86 @@
     var REQUEST_TIMEOUT_MS = 10000;
     var STALE_THRESHOLD_MS = 15000;
     var OFFLINE_THRESHOLD_MS = 60000;
-
-    var MAX_CONSECUTIVE_BACKOFF = 3; /* failures 0-2: normal, 3+: offline */
+    var MAX_CONSECUTIVE_BACKOFF = 3;
 
     /* -----------------------------------------------------------------------
      * State
      * -----------------------------------------------------------------------
      */
 
-    var connectionState = "connecting"; /* connecting|online|stale|degraded|offline */
+    var connectionState = "connecting";
     var lastSuccessfulResponseTime = null;
     var lastSnapshot = null;
     var consecutiveFailures = 0;
-
     var currentAbortController = null;
     var pollTimeoutId = null;
     var staleTimerId = null;
     var offlineTimerId = null;
 
     /* -----------------------------------------------------------------------
-     * DOM references (cached once after DOM ready) — deferred script ensures
-     * the DOM is parsed, but we guard with DOMContentLoaded anyway.
+     * DOM references
      * -----------------------------------------------------------------------
      */
 
     var dom = {};
 
     function cacheDom() {
-        dom.connectionBadge = document.getElementById("connection-state-badge");
-        dom.connectionTags = document.getElementById("connection-state-tags");
-        dom.lastRefresh = document.getElementById("last-refresh");
+        dom.navStatusBadge = document.getElementById("nav-status-badge");
+        dom.dashboardAlert = document.getElementById("dashboard-alert");
+        dom.alertText = document.getElementById("alert-text");
+        dom.alertTime = document.getElementById("alert-time");
         dom.dashboardUnavailable = document.getElementById("dashboard-unavailable");
         dom.dashboardContent = document.getElementById("dashboard-content");
+        dom.sourceIndicator = document.getElementById("source-indicator");
+        dom.invFreshness = document.getElementById("inv-freshness");
+        dom.dsPvPower = document.getElementById("ds-pv-power");
+        dom.dsPvStatus = document.getElementById("ds-pv-status");
+        dom.dsBatteryVoltage = document.getElementById("ds-battery-voltage");
+        dom.dsBatterySub = document.getElementById("ds-battery-sub");
+        dom.dsOutputVoltage = document.getElementById("ds-output-voltage");
+        dom.dsOutputPower = document.getElementById("ds-output-power");
+        dom.dsLoadSub = document.getElementById("ds-load-sub");
+        dom.dsAcInput = document.getElementById("ds-ac-input");
+        dom.invDetailAcVoltage = document.getElementById("inv-detail-ac-voltage");
+        dom.invDetailLoad = document.getElementById("inv-detail-load");
+        dom.invDetailChg = document.getElementById("inv-detail-chg");
+        dom.invDetailDis = document.getElementById("inv-detail-dis");
+        dom.invTimestamp = document.getElementById("inv-timestamp");
+        dom.socPct = document.getElementById("socPct");
+        dom.socGaugeFill = document.getElementById("socGaugeFill");
+        dom.miniPv = document.getElementById("mini-pv");
+        dom.miniSoc = document.getElementById("mini-soc");
+        dom.miniLoads = document.getElementById("mini-loads");
+        dom.miniWatertemp = document.getElementById("mini-watertemp");
+        dom.loadsTableBody = document.getElementById("loads-table-body");
+        dom.loadsOnBadge = document.getElementById("loads-on-badge");
+        dom.loadsOffBadge = document.getElementById("loads-off-badge");
+        dom.loadsUnknownBadge = document.getElementById("loads-unknown-badge");
+        dom.totalLoadWatts = document.getElementById("total-load-watts");
+        dom.sensorsPanel = document.getElementById("sensors-panel");
+        dom.footerInvTime = document.getElementById("footer-inv-time");
+        dom.footerAcIn = document.getElementById("footer-ac-in");
+        dom.footerLoad = document.getElementById("footer-load");
+        dom.footerDis = document.getElementById("footer-dis");
+        dom.footerChg = document.getElementById("footer-chg");
+        dom.footerUpdated = document.getElementById("footer-updated");
+        /* Hidden compatibility elements */
+        dom.connectionBadge = document.getElementById("connection-state-badge");
+        dom.lastRefresh = document.getElementById("last-refresh");
         dom.summaryStatus = document.getElementById("summary-status");
         dom.summaryApiStatus = document.getElementById("summary-api-status");
         dom.summaryTotalLoads = document.getElementById("summary-total-loads");
         dom.summaryOnCount = document.getElementById("summary-on-count");
         dom.summaryOffCount = document.getElementById("summary-off-count");
         dom.summaryUnknownCount = document.getElementById("summary-unknown-count");
+        dom.snapshotTimestamp = document.getElementById("snapshot-timestamp");
+        dom.dsWorkingMode = document.getElementById("ds-working-mode");
         dom.dashboardWarnings = document.getElementById("dashboard-warnings");
         dom.warningsBody = document.getElementById("warnings-body");
-        dom.snapshotTimestamp = document.getElementById("snapshot-timestamp");
-        /* Load tab bodies */
-        dom.loadsActiveBody = document.getElementById("loads-active-body");
-        dom.loadsInactiveBody = document.getElementById("loads-inactive-body");
-        dom.loadsTabActive = document.getElementById("loads-tab-active");
-        dom.loadsTabInactive = document.getElementById("loads-tab-inactive");
-    dom.startupResetBadge = document.getElementById("startup-reset-badge");
-    dom.startupResetInfo = document.getElementById("startup-reset-info");
-    dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
-    dom.sensorsTableBody = document.getElementById("sensors-table-body");
-        /* Operator summary */
-        dom.sourceIndicator = document.getElementById("source-indicator");
-        dom.dsOutputPower = document.getElementById("ds-output-power");
-        dom.dsOutputVoltage = document.getElementById("ds-output-voltage");
-        dom.dsBatteryVoltage = document.getElementById("ds-battery-voltage");
-        dom.dsPvPower = document.getElementById("ds-pv-power");
-        dom.dsBatterySoc = document.getElementById("ds-battery-soc");
-        dom.dsWorkingMode = document.getElementById("ds-working-mode");
-        dom.dsPvCol = document.getElementById("ds-pv-col");
-        /* Inverter detail row */
-        dom.inverterDetailSection = document.getElementById("inverter-detail-section");
-        dom.invDetailAcVoltage = document.getElementById("inv-detail-ac-voltage");
-        dom.invDetailLoad = document.getElementById("inv-detail-load");
-        dom.invDetailChg = document.getElementById("inv-detail-chg");
-        dom.invDetailDis = document.getElementById("inv-detail-dis");
-        /* Inverter timestamp and freshness */
-        dom.invTimestamp = document.getElementById("inv-timestamp");
-        dom.invFreshness = document.getElementById("inv-freshness");
+        dom.startupResetBadge = document.getElementById("startup-reset-badge");
+        dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
+        /* Detect if we are on the analytics page (no dashboard-content) */
+        dom.isAnalyticsPage = !dom.dashboardContent;
     }
 
     /* -----------------------------------------------------------------------
@@ -103,35 +115,38 @@
      * -----------------------------------------------------------------------
      */
 
-    var STATE_CLASSES = {
-        connecting: "is-info is-connecting",
-        online: "is-success is-online",
-        stale: "is-warning is-stale",
-        degraded: "is-warning is-degraded",
-        offline: "is-danger is-offline"
-    };
-
     var STATE_LABELS = {
         connecting: "Connecting\u2026",
-        online: "Online",
-        stale: "Stale data",
-        degraded: "System degraded",
+        online: "OK",
+        stale: "Stale",
+        degraded: "Degraded",
         offline: "Offline"
     };
 
-    function setConnectionState(newState) {
-        if (connectionState === newState) {
-            return;
-        }
-        connectionState = newState;
-        dom.connectionBadge.textContent = STATE_LABELS[newState] || newState;
-        dom.connectionBadge.className = "tag " + (STATE_CLASSES[newState] || "");
+    var STATE_CLASSES = {
+        connecting: "degraded",
+        online: "ok",
+        stale: "degraded",
+        degraded: "degraded",
+        offline: "error"
+    };
 
-        /* Stale visual treatment on main area */
-        if (newState === "stale" || newState === "offline") {
-            dom.dashboardContent.classList.add("is-stale-data");
-        } else {
-            dom.dashboardContent.classList.remove("is-stale-data");
+    function setConnectionState(newState) {
+        if (connectionState === newState) { return; }
+        connectionState = newState;
+        if (dom.navStatusBadge) {
+            dom.navStatusBadge.textContent = STATE_LABELS[newState] || newState;
+            dom.navStatusBadge.className = "dm-badge " + (STATE_CLASSES[newState] || "degraded");
+        }
+        if (dom.connectionBadge) {
+            dom.connectionBadge.textContent = STATE_LABELS[newState] || newState;
+        }
+        if (dom.dashboardContent) {
+            if (newState === "stale" || newState === "offline") {
+                dom.dashboardContent.classList.add("is-stale-data");
+            } else {
+                dom.dashboardContent.classList.remove("is-stale-data");
+            }
         }
     }
 
@@ -141,22 +156,14 @@
      */
 
     function clearStaleTimers() {
-        if (staleTimerId) {
-            clearTimeout(staleTimerId);
-            staleTimerId = null;
-        }
-        if (offlineTimerId) {
-            clearTimeout(offlineTimerId);
-            offlineTimerId = null;
-        }
+        if (staleTimerId) { clearTimeout(staleTimerId); staleTimerId = null; }
+        if (offlineTimerId) { clearTimeout(offlineTimerId); offlineTimerId = null; }
     }
 
     function startStaleTimers() {
         clearStaleTimers();
         staleTimerId = setTimeout(function () {
-            if (connectionState === "online") {
-                setConnectionState("stale");
-            }
+            if (connectionState === "online") { setConnectionState("stale"); }
         }, STALE_THRESHOLD_MS);
         offlineTimerId = setTimeout(function () {
             if (connectionState === "online" || connectionState === "stale") {
@@ -171,15 +178,9 @@
      */
 
     function computeDelay() {
-        if (document.hidden) {
-            return POLL_HIDDEN_MS;
-        }
-        if (connectionState === "offline") {
-            return POLL_OFFLINE_MS;
-        }
-        if (consecutiveFailures >= MAX_CONSECUTIVE_BACKOFF) {
-            return POLL_OFFLINE_MS;
-        }
+        if (document.hidden) { return POLL_HIDDEN_MS; }
+        if (connectionState === "offline") { return POLL_OFFLINE_MS; }
+        if (consecutiveFailures >= MAX_CONSECUTIVE_BACKOFF) { return POLL_OFFLINE_MS; }
         return POLL_NORMAL_MS;
     }
 
@@ -189,106 +190,32 @@
      */
 
     function safeText(value) {
-        if (value === null || value === undefined || value === "") {
-            return "-";
-        }
+        if (value === null || value === undefined || value === "") { return "-"; }
         return String(value);
     }
 
-    function formatYesNo(value) {
-        if (value === true) { return "Yes"; }
-        if (value === false) { return "No"; }
-        return "-";
-    }
-
-    function formatOnOff(value) {
-        if (value === true) { return "ON"; }
-        if (value === false) { return "OFF"; }
-        return "-";
-    }
-
-    function formatWatts(value) {
-        if (value === null || value === undefined || value === "") {
-            return "-";
-        }
-        return String(value) + " W";
-    }
-
-    function formatRoles(roles) {
-        if (!Array.isArray(roles) || roles.length === 0) {
-            return "-";
-        }
-        return roles.map(function (r) { return String(r); }).join(", ");
+    function formatCompact(val, unit) {
+        if (val === null || val === undefined) { return "N/A"; }
+        if (unit) { return String(val) + " " + unit; }
+        return String(val);
     }
 
     function formatTimestamp(isoString) {
-        if (!isoString || isoString === "" || isoString === "-") {
-            return "-";
-        }
+        if (!isoString || isoString === "" || isoString === "-") { return "-"; }
         try {
             var d = new Date(isoString);
-            if (isNaN(d.getTime())) {
-                return "-";
-            }
+            if (isNaN(d.getTime())) { return "-"; }
             return d.toLocaleString();
-        } catch (e) {
-            return "-";
-        }
+        } catch (e) { return "-"; }
     }
 
-    /* Startup reset badge rendering */
-    function renderStartupReset(snapshot) {
-        if (!snapshot) {
-            return;
-        }
-        var startupResetStatus = snapshot.startup_reset_status;
-        var gateOpen = snapshot.startup_reset_gate_open;
-
-        if (!startupResetStatus) {
-            dom.startupResetBadge.classList.add("is-hidden");
-            return;
-        }
-
-        dom.startupResetBadge.classList.remove("is-hidden");
-
-        var badgeClass = "tag is-info";
-        var label = "Startup Reset: " + startupResetStatus;
-
-        if (startupResetStatus === "in_progress") {
-            badgeClass = "tag is-warning";
-            dom.startupResetInfoText.textContent = "Resetting switches to OFF...";
-        } else if (startupResetStatus === "confirmed") {
-            badgeClass = "tag is-success";
-            dom.startupResetInfoText.textContent = "All switches confirmed OFF.";
-        } else if (startupResetStatus === "blocked") {
-            badgeClass = "tag is-danger";
-            dom.startupResetInfoText.textContent = "Startup reset blocked — some switches not confirmed OFF.";
-        } else if (startupResetStatus === "cancelled" || startupResetStatus === "not_started") {
-            badgeClass = "tag is-light";
-            dom.startupResetInfoText.textContent = "";
-        }
-
-        dom.startupResetBadge.className = badgeClass;
-        dom.startupResetBadge.textContent = label;
-
-        if (gateOpen === true) {
-            dom.startupResetInfoText.textContent = "Automation gate is open.";
-        } else if (gateOpen === false && startupResetStatus === "confirmed") {
-            dom.startupResetInfoText.textContent = "";
-        }
-    }
-
-    /* Canonical device type labels */
-    var DEVICE_TYPE_LABELS = {
-        "multi_switch": "Multi-switch",
-        "switch": "Switch",
-        "pump": "Pump",
-        "thermo": "Thermometer",
-        "unknown": "Unknown"
-    };
-
-    function getDeviceTypeLabel(dt) {
-        return DEVICE_TYPE_LABELS[dt] || dt || "Unknown";
+    function formatLondonTimestamp(isoString) {
+        if (!isoString || isoString === "" || isoString === "-") { return "N/A"; }
+        try {
+            var d = new Date(isoString);
+            if (isNaN(d.getTime())) { return "N/A"; }
+            return d.toLocaleString("en-GB", { timeZone: "Europe/London" });
+        } catch (e) { return "N/A"; }
     }
 
     /* -----------------------------------------------------------------------
@@ -297,42 +224,21 @@
      */
 
     var INVERTER_MODES = {
-        "Battery Mode": true,
-        "PV Mode": true,
-        "Invert Mode": true,
-        "Power Saving Mode": true,
-        "Standby Mode": true,
-        "Bypass Mode": true
+        "Battery Mode": true, "PV Mode": true, "Invert Mode": true,
+        "Power Saving Mode": true, "Standby Mode": true, "Bypass Mode": true
     };
 
     function getSourceState(inverter) {
-        if (!inverter || !Array.isArray(inverter) || inverter.length === 0) {
-            return "unknown";
-        }
+        if (!inverter || !Array.isArray(inverter) || inverter.length === 0) { return "unknown"; }
         var inv = inverter[0];
-        if (!inv || typeof inv !== "object") {
-            return "unknown";
-        }
+        if (!inv || typeof inv !== "object") { return "unknown"; }
         var wm = inv.working_mode;
-        if (!wm || wm === "") {
-            return "unknown";
-        }
-        if (wm === "Line Mode") {
-            return "mains";
-        }
-        if (wm === "Fault Mode") {
-            return "fault";
-        }
-        if (INVERTER_MODES[wm]) {
-            return "inverter";
-        }
+        if (!wm || wm === "") { return "unknown"; }
+        if (wm === "Line Mode") { return "mains"; }
+        if (wm === "Fault Mode") { return "fault"; }
+        if (INVERTER_MODES[wm]) { return "inverter"; }
         return "unknown";
     }
-
-    /* -----------------------------------------------------------------------
-     * Source indicator rendering
-     * -----------------------------------------------------------------------
-     */
 
     var SOURCE_LABELS = {
         inverter: "\u2600 Inverter",
@@ -342,46 +248,104 @@
     };
 
     var SOURCE_CLASSES = {
-        inverter: "tag is-medium ds-source-indicator ds-source-inverter",
-        mains: "tag is-medium ds-source-indicator ds-source-mains",
-        fault: "tag is-medium ds-source-indicator ds-source-fault",
-        unknown: "tag is-medium ds-source-indicator ds-source-unknown"
+        inverter: "dm-badge ok",
+        mains: "dm-badge degraded",
+        fault: "dm-badge error",
+        unknown: "dm-badge"
     };
 
     function renderSourceIndicator(snapshot) {
         if (!snapshot || !snapshot.inverter) { return; }
         var state = getSourceState(snapshot.inverter);
-        dom.sourceIndicator.textContent = SOURCE_LABELS[state] || "\u2014 N/A";
-        dom.sourceIndicator.className = SOURCE_CLASSES[state] || SOURCE_CLASSES.unknown;
+        if (dom.sourceIndicator) {
+            dom.sourceIndicator.textContent = SOURCE_LABELS[state] || "\u2014 N/A";
+            dom.sourceIndicator.className = SOURCE_CLASSES[state] || "dm-badge";
+        }
     }
 
     /* -----------------------------------------------------------------------
-     * Output power severity
+     * Inverter freshness
      * -----------------------------------------------------------------------
      */
 
-    var POWER_SEVERITY_CLASSES = {
-        green: "ds-compact-value ds-power-severity-green",
-        amber: "ds-compact-value ds-power-severity-amber",
-        red: "ds-compact-value ds-power-severity-red",
-        unknown: "ds-compact-value"
-    };
+    function computeInverterFreshness(observedAtStr) {
+        if (!observedAtStr || observedAtStr === "") { return "unavailable"; }
+        try {
+            var obsTime = new Date(observedAtStr).getTime();
+            if (isNaN(obsTime)) { return "unavailable"; }
+            var ageSeconds = (Date.now() - obsTime) / 1000;
+            if (ageSeconds <= 150) { return "fresh"; }
+            if (ageSeconds <= 600) { return "stale"; }
+            return "unavailable";
+        } catch (e) { return "unavailable"; }
+    }
 
-    function computePowerSeverity(outputPower) {
-        if (outputPower === null || outputPower === undefined) {
-            return "unknown";
+    function renderInverterFreshness(snapshot) {
+        if (!snapshot) { return; }
+        var inverter = snapshot.inverter;
+        if (!Array.isArray(inverter) || inverter.length === 0) {
+            if (dom.invFreshness) { dom.invFreshness.textContent = "unavailable"; dom.invFreshness.className = "dm-badge"; }
+            return;
         }
-        if (outputPower <= 1700) {
-            return "green";
+        var inv = inverter[0];
+        if (!inv || typeof inv !== "object") {
+            if (dom.invFreshness) { dom.invFreshness.textContent = "unavailable"; dom.invFreshness.className = "dm-badge"; }
+            return;
         }
-        if (outputPower <= 2600) {
-            return "amber";
+        var state = computeInverterFreshness(inv.observed_at);
+        var labels = { fresh: "fresh", stale: "stale", unavailable: "unavailable" };
+        var classes = { fresh: "dm-badge ok", stale: "dm-badge degraded", unavailable: "dm-badge" };
+        if (dom.invFreshness) {
+            dom.invFreshness.textContent = labels[state] || "unavailable";
+            dom.invFreshness.className = classes[state] || "dm-badge";
         }
-        return "red";
     }
 
     /* -----------------------------------------------------------------------
-     * Operator summary (compact inverter metrics)
+     * SOC semicircle gauge (SVG)
+     * -----------------------------------------------------------------------
+     */
+
+    function renderSocGauge(soc) {
+        if (!dom.socGaugeFill || !dom.socPct) { return; }
+        if (soc === null || soc === undefined) {
+            dom.socPct.textContent = "\u2014";
+            dom.socPct.style.color = "var(--text-dim)";
+            dom.socGaugeFill.setAttribute("d", "M 11 70 A 54 54 0 0 1 11 70");
+            dom.socGaugeFill.setAttribute("stroke", "#30363d");
+            return;
+        }
+        var pct = Math.max(0, Math.min(100, soc));
+        dom.socPct.textContent = Math.round(pct) + "%";
+        /* Color gradient: red -> amber -> green */
+        if (pct <= 30) {
+            dom.socPct.style.color = "var(--red)";
+            dom.socGaugeFill.setAttribute("stroke", "#ff3860");
+        } else if (pct <= 60) {
+            dom.socPct.style.color = "var(--amber)";
+            dom.socGaugeFill.setAttribute("stroke", "#f5a623");
+        } else {
+            dom.socPct.style.color = "var(--green)";
+            dom.socGaugeFill.setAttribute("stroke", "#23d160");
+        }
+        /* Arc: startAngle=PI, endAngle=PI + (soc/100)*PI */
+        var angle = (pct / 100) * Math.PI;
+        var cx = 65, cy = 70, r = 54;
+        var startAngle = Math.PI;
+        var endAngle = Math.PI + angle;
+        var x1 = cx + r * Math.cos(startAngle);
+        var y1 = cy + r * Math.sin(startAngle);
+        var x2 = cx + r * Math.cos(endAngle);
+        var y2 = cy + r * Math.sin(endAngle);
+        var largeArc = angle > Math.PI ? 1 : 0;
+        dom.socGaugeFill.setAttribute("d",
+            "M " + x1.toFixed(1) + " " + y1.toFixed(1) +
+            " A " + r + " " + r + " 0 " + largeArc + " 1 " + x2.toFixed(1) + " " + y2.toFixed(1)
+        );
+    }
+
+    /* -----------------------------------------------------------------------
+     * Operator summary (inverter hero metrics)
      * -----------------------------------------------------------------------
      */
 
@@ -389,314 +353,202 @@
         if (!snapshot) { return; }
         var inverter = snapshot.inverter;
         if (!Array.isArray(inverter) || inverter.length === 0) {
-            dom.dsOutputPower.textContent = "N/A";
-            dom.dsOutputPower.className = POWER_SEVERITY_CLASSES.unknown;
-            dom.dsOutputVoltage.textContent = "N/A";
-            dom.dsBatteryVoltage.textContent = "N/A";
-            dom.dsPvPower.textContent = "N/A";
-            dom.dsBatterySoc.textContent = "N/A";
-            dom.dsWorkingMode.textContent = "N/A";
-            dom.dsWorkingMode.className = "tag is-light";
-            return;
-        }
-
-        var inv = inverter[0];
-        if (!inv || typeof inv !== "object") { return; }
-
-        function formatCompact(val, unit) {
-            if (val === null || val === undefined) {
-                return "N/A";
-            }
-            if (unit) {
-                return String(val) + " " + unit;
-            }
-            return String(val);
-        }
-
-        dom.dsOutputPower.textContent = formatCompact(inv.output_power, "W");
-        dom.dsOutputPower.className = POWER_SEVERITY_CLASSES[
-            computePowerSeverity(inv.output_power)
-        ] || POWER_SEVERITY_CLASSES.unknown;
-        dom.dsOutputVoltage.textContent = formatCompact(inv.output_voltage, "V");
-        dom.dsBatteryVoltage.textContent = formatCompact(inv.battery_voltage, "V");
-        dom.dsBatterySoc.textContent = formatCompact(inv.battery_soc, "%");
-
-        /* PV power — show if non-null, hide column otherwise */
-        if (inv.pv_total_power !== null && inv.pv_total_power !== undefined) {
-            dom.dsPvPower.textContent = formatCompact(inv.pv_total_power, "W");
-            dom.dsPvCol.classList.remove("is-hidden");
-        } else {
-            dom.dsPvPower.textContent = "N/A";
-            dom.dsPvCol.classList.add("is-hidden");
-        }
-
-        /* Working mode tag */
-        var wm = inv.working_mode || "";
-        dom.dsWorkingMode.textContent = wm || "N/A";
-        if (wm === "Line Mode") {
-            dom.dsWorkingMode.className = "tag is-warning is-light";
-        } else if (wm === "Fault Mode") {
-            dom.dsWorkingMode.className = "tag is-danger is-light";
-        } else if (wm) {
-            dom.dsWorkingMode.className = "tag is-success is-light";
-        } else {
-            dom.dsWorkingMode.className = "tag is-light";
-        }
-    }
-
-    /* -----------------------------------------------------------------------
-     * Inverter detail (compact row — remaining fields)
-     * -----------------------------------------------------------------------
-     */
-
-    function renderInverterDetail(snapshot) {
-        if (!snapshot) { return; }
-        var inverter = snapshot.inverter;
-        if (!Array.isArray(inverter) || inverter.length === 0) {
-            dom.inverterDetailSection.classList.add("is-hidden");
-            return;
-        }
-
-        var inv = inverter[0];
-        if (!inv || typeof inv !== "object") {
-            dom.inverterDetailSection.classList.add("is-hidden");
-            return;
-        }
-
-        dom.inverterDetailSection.classList.remove("is-hidden");
-
-        function formatDetail(val, unit) {
-            if (val === null || val === undefined) {
-                return "N/A";
-            }
-            if (unit) {
-                return String(val) + " " + unit;
-            }
-            return String(val);
-        }
-
-        dom.invDetailAcVoltage.textContent = formatDetail(inv.ac_input_voltage, "V");
-        dom.invDetailLoad.textContent = formatDetail(inv.ac_output_load, "%");
-        dom.invDetailChg.textContent = formatDetail(inv.battery_current_chg, "A");
-        dom.invDetailDis.textContent = formatDetail(inv.battery_current_dis, "A");
-
-        /* Render inverter timestamp (Europe/London) */
-        if (dom.invTimestamp) {
-            renderInverterTimestamp(snapshot);
-        }
-    }
-
-    /* -----------------------------------------------------------------------
-     * Inverter timestamp (Europe/London display)
-     * -----------------------------------------------------------------------
-     */
-
-    function formatLondonTimestamp(isoString) {
-        if (!isoString || isoString === "" || isoString === "-") {
-            return "N/A";
-        }
-        try {
-            var d = new Date(isoString);
-            if (isNaN(d.getTime())) {
-                return "N/A";
-            }
-            return d.toLocaleString("en-GB", { timeZone: "Europe/London" });
-        } catch (e) {
-            return "N/A";
-        }
-    }
-
-    function renderInverterTimestamp(snapshot) {
-        if (!snapshot) { return; }
-        var inverter = snapshot.inverter;
-        if (!Array.isArray(inverter) || inverter.length === 0) {
-            if (dom.invTimestamp) { dom.invTimestamp.textContent = "N/A"; }
+            setInverterNA();
             return;
         }
         var inv = inverter[0];
-        if (!inv || typeof inv !== "object") {
-            if (dom.invTimestamp) { dom.invTimestamp.textContent = "N/A"; }
-            return;
+        if (!inv || typeof inv !== "object") { setInverterNA(); return; }
+
+        /* PV Power */
+        if (dom.dsPvPower) {
+            dom.dsPvPower.textContent = formatCompact(inv.pv_total_power, "");
         }
+        if (dom.dsPvStatus && inv.pv_total_power !== null && inv.pv_total_power !== undefined) {
+            dom.dsPvStatus.textContent = inv.pv_total_power > 0 ? "\u25B2 Generating" : "\u2014 Idle";
+        } else if (dom.dsPvStatus) {
+            dom.dsPvStatus.textContent = "\u2014";
+        }
+
+        /* Battery Voltage */
+        if (dom.dsBatteryVoltage) {
+            dom.dsBatteryVoltage.textContent = formatCompact(inv.battery_voltage, "");
+        }
+        if (dom.dsBatterySub) {
+            var dis = inv.battery_current_dis;
+            var chg = inv.battery_current_chg;
+            if (dis !== null && dis !== undefined && dis > 0) {
+                dom.dsBatterySub.textContent = "Discharging " + dis + "A";
+            } else if (chg !== null && chg !== undefined && chg > 0) {
+                dom.dsBatterySub.textContent = "Charging " + chg + "A";
+            } else {
+                dom.dsBatterySub.textContent = "\u2014";
+            }
+        }
+
+        /* Output Voltage */
+        if (dom.dsOutputVoltage) {
+            dom.dsOutputVoltage.textContent = formatCompact(inv.output_voltage, "");
+        }
+
+        /* Output Power */
+        if (dom.dsOutputPower) {
+            dom.dsOutputPower.textContent = formatCompact(inv.output_power, "");
+        }
+
+        /* AC Input */
+        if (dom.dsAcInput) {
+            dom.dsAcInput.textContent = formatCompact(inv.ac_input_voltage, "");
+        }
+
+        /* Load percentage */
+        if (dom.invDetailLoad) {
+            dom.invDetailLoad.textContent = formatCompact(inv.ac_output_load, "%");
+        }
+        if (dom.dsLoadSub) {
+            var loadPct = inv.ac_output_load;
+            if (loadPct !== null && loadPct !== undefined) {
+                dom.dsLoadSub.textContent = "Load: " + loadPct + "%";
+            } else {
+                dom.dsLoadSub.textContent = "\u2014";
+            }
+        }
+
+        /* Detail row */
+        if (dom.invDetailAcVoltage) {
+            dom.invDetailAcVoltage.textContent = formatCompact(inv.ac_input_voltage, "V");
+        }
+        if (dom.invDetailChg) {
+            dom.invDetailChg.textContent = formatCompact(inv.battery_current_chg, "A");
+        }
+        if (dom.invDetailDis) {
+            dom.invDetailDis.textContent = formatCompact(inv.battery_current_dis, "A");
+        }
+
+        /* Inverter timestamp */
         if (dom.invTimestamp) {
             dom.invTimestamp.textContent = formatLondonTimestamp(inv.observed_at);
         }
+
+        /* SOC gauge */
+        renderSocGauge(inv.battery_soc);
+
+        /* Mini stat cards */
+        if (dom.miniPv) {
+            dom.miniPv.textContent = formatCompact(inv.pv_total_power, "W");
+        }
+        if (dom.miniSoc) {
+            dom.miniSoc.textContent = inv.battery_soc !== null && inv.battery_soc !== undefined
+                ? Math.round(inv.battery_soc) + "%" : "\u2014";
+        }
+
+        /* Footer bar */
+        if (dom.footerInvTime) {
+            dom.footerInvTime.textContent = formatLondonTimestamp(inv.observed_at);
+        }
+        if (dom.footerAcIn) {
+            dom.footerAcIn.textContent = formatCompact(inv.ac_input_voltage, "V");
+        }
+        if (dom.footerLoad) {
+            dom.footerLoad.textContent = formatCompact(inv.ac_output_load, "%");
+        }
+        if (dom.footerDis) {
+            dom.footerDis.textContent = formatCompact(inv.battery_current_dis, "A");
+        }
+        if (dom.footerChg) {
+            dom.footerChg.textContent = formatCompact(inv.battery_current_chg, "A");
+        }
+    }
+
+    function setInverterNA() {
+        if (dom.dsPvPower) dom.dsPvPower.textContent = "N/A";
+        if (dom.dsBatteryVoltage) dom.dsBatteryVoltage.textContent = "N/A";
+        if (dom.dsOutputVoltage) dom.dsOutputVoltage.textContent = "N/A";
+        if (dom.dsOutputPower) dom.dsOutputPower.textContent = "N/A";
+        if (dom.dsAcInput) dom.dsAcInput.textContent = "N/A";
+        if (dom.invDetailAcVoltage) dom.invDetailAcVoltage.textContent = "N/A";
+        if (dom.invDetailLoad) dom.invDetailLoad.textContent = "N/A";
+        if (dom.invDetailChg) dom.invDetailChg.textContent = "N/A";
+        if (dom.invDetailDis) dom.invDetailDis.textContent = "N/A";
+        if (dom.invTimestamp) dom.invTimestamp.textContent = "N/A";
+        if (dom.invFreshness) { dom.invFreshness.textContent = "unavailable"; dom.invFreshness.className = "dm-badge"; }
+        renderSocGauge(null);
+        if (dom.miniPv) dom.miniPv.textContent = "\u2014";
+        if (dom.miniSoc) dom.miniSoc.textContent = "\u2014";
     }
 
     /* -----------------------------------------------------------------------
-     * Inverter freshness (client-side computation from observed_at)
+     * Alert strip
      * -----------------------------------------------------------------------
      */
 
-    var FRESHNESS_STATES = {
-        fresh:    { label: "fresh", className: "tag is-success is-light" },
-        stale:    { label: "stale", className: "tag is-warning is-light" },
-        unavailable: { label: "unavailable", className: "tag is-light" }
-    };
-
-    function computeInverterFreshness(observedAtStr) {
-        if (!observedAtStr || observedAtStr === "") {
-            return "unavailable";
-        }
-        try {
-            var obsTime = new Date(observedAtStr).getTime();
-            if (isNaN(obsTime)) {
-                return "unavailable";
+    function renderAlertStrip(data) {
+        if (!dom.dashboardAlert) { return; }
+        var apiStatus = (data && data.status) ? String(data.status) : "";
+        if (apiStatus === "degraded" || apiStatus === "blocked") {
+            dom.dashboardAlert.classList.remove("hidden");
+            if (dom.alertText) {
+                dom.alertText.textContent = "Control state snapshot degraded — API reporting " + apiStatus + " state";
             }
-            var ageSeconds = (Date.now() - obsTime) / 1000;
-            if (ageSeconds <= 150) {
-                return "fresh";
+            if (dom.alertTime && data.snapshot && data.snapshot.created_at) {
+                dom.alertTime.textContent = "Snapshot: " + formatTimestamp(data.snapshot.created_at);
             }
-            if (ageSeconds <= 600) {
-                return "stale";
-            }
-            return "unavailable";
-        } catch (e) {
-            return "unavailable";
-        }
-    }
-
-    function renderInverterFreshness(snapshot) {
-        if (!snapshot) { return; }
-        var inverter = snapshot.inverter;
-        if (!Array.isArray(inverter) || inverter.length === 0) {
-            if (dom.invFreshness) {
-                dom.invFreshness.textContent = "unavailable";
-                dom.invFreshness.className = "tag is-light";
-            }
-            return;
-        }
-        var inv = inverter[0];
-        if (!inv || typeof inv !== "object") {
-            if (dom.invFreshness) {
-                dom.invFreshness.textContent = "unavailable";
-                dom.invFreshness.className = "tag is-light";
-            }
-            return;
-        }
-        var state = computeInverterFreshness(inv.observed_at);
-        var info = FRESHNESS_STATES[state] || FRESHNESS_STATES.unavailable;
-        if (dom.invFreshness) {
-            dom.invFreshness.textContent = info.label;
-            dom.invFreshness.className = info.className;
-        }
-    }
-
-    /* -----------------------------------------------------------------------
-     * Rendering
-     * -----------------------------------------------------------------------
-     */
-
-    function renderUnavailable() {
-        dom.dashboardUnavailable.classList.remove("is-hidden");
-        dom.dashboardContent.classList.add("is-hidden");
-    }
-
-    function renderSnapshot(data) {
-        /* data is the full JSON response from GET /control/state */
-        if (!data || typeof data !== "object") {
-            renderUnavailable();
-            return;
-        }
-
-        var snapshot = data.snapshot;
-
-        /* No snapshot -> unavailable */
-        if (snapshot === null || snapshot === undefined) {
-            renderUnavailable();
-            return;
-        }
-
-        dom.dashboardUnavailable.classList.add("is-hidden");
-        dom.dashboardContent.classList.remove("is-hidden");
-
-        /* Top-level status */
-        dom.summaryStatus.textContent = safeText(
-            snapshot.status ? snapshot.status : data.status
-        );
-        dom.summaryApiStatus.textContent = "API: " + safeText(data.status);
-
-        /* Snapshot timestamp */
-        dom.snapshotTimestamp.textContent = "Snapshot: " +
-            formatTimestamp(snapshot.created_at);
-
-        /* Render source indicator and operator summary FIRST */
-        renderSourceIndicator(snapshot);
-        renderOperatorSummary(snapshot);
-
-        /* Inverter freshness badge */
-        renderInverterFreshness(snapshot);
-
-        /* Startup reset badge (unchanged) */
-        renderStartupReset(snapshot);
-
-        /* Warnings */
-        if (data.warnings && Array.isArray(data.warnings) && data.warnings.length > 0) {
-            dom.dashboardWarnings.classList.remove("is-hidden");
-            dom.warningsBody.textContent = data.warnings.join("; ");
         } else {
-            dom.dashboardWarnings.classList.add("is-hidden");
+            dom.dashboardAlert.classList.add("hidden");
         }
+    }
 
-        /* Loads — split into active and inactive */
+    /* -----------------------------------------------------------------------
+     * Loads table
+     * -----------------------------------------------------------------------
+     */
+
+    function renderLoadsTable(snapshot) {
+        if (!dom.loadsTableBody) { return; }
         var loads = snapshot.loads;
         if (!Array.isArray(loads) || loads.length === 0) {
-            dom.loadsActiveBody.textContent = "";
-            dom.loadsInactiveBody.textContent = "";
+            dom.loadsTableBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 9;
-            emptyCell.className = "has-text-centered has-text-grey";
+            emptyCell.colSpan = 4;
+            emptyCell.style.cssText = "text-align:center; color:var(--text-dim);";
             emptyCell.textContent = "No loads available";
             emptyRow.appendChild(emptyCell);
-            dom.loadsActiveBody.appendChild(emptyRow);
-            dom.summaryTotalLoads.textContent = "0";
-            dom.summaryOnCount.textContent = "0";
-            dom.summaryOffCount.textContent = "0";
-            dom.summaryUnknownCount.textContent = "0";
+            dom.loadsTableBody.appendChild(emptyRow);
+            if (dom.loadsOnBadge) dom.loadsOnBadge.textContent = "0 ON";
+            if (dom.loadsOffBadge) dom.loadsOffBadge.textContent = "0 OFF";
+            if (dom.loadsUnknownBadge) dom.loadsUnknownBadge.textContent = "0 UNK";
+            if (dom.totalLoadWatts) dom.totalLoadWatts.textContent = "\u2014";
+            if (dom.miniLoads) dom.miniLoads.textContent = "0 / 0";
             return;
         }
 
-        var totalLoads = loads.length;
-        var onCount = 0;
-        var offCount = 0;
-        var unknownCount = 0;
-
-        var activeRows = [];
-        var inactiveRows = [];
+        dom.loadsTableBody.textContent = "";
+        var onCount = 0, offCount = 0, unknownCount = 0;
+        var totalActiveW = 0;
 
         for (var i = 0; i < loads.length; i++) {
             var load = loads[i];
             if (!load || typeof load !== "object") { continue; }
-
             var displayName = safeText(load.display_name);
             var currentlyOn = load.currently_on;
-            var configuredWatts = formatWatts(load.configured_load_watts);
-            var controllable = formatYesNo(load.controllable);
-            var status = safeText(load.status);
-            var roles = formatRoles(load.roles);
+            var configuredWatts = load.configured_load_watts || 0;
             var isLifeSupport = load.is_life_support === true;
             var freshness = load.freshness || "";
             var isStale = (freshness === "stale");
-            var mappingStatus = load.mapping_status || null;
-            var startupResetResult = load.startup_reset_result || null;
 
-            if (currentlyOn === true) {
-                onCount++;
-            } else if (currentlyOn === false) {
-                offCount++;
-            } else {
-                unknownCount++;
-            }
+            if (currentlyOn === true) { onCount++; if (configuredWatts) totalActiveW += configuredWatts; }
+            else if (currentlyOn === false) { offCount++; }
+            else { unknownCount++; }
 
             var tr = document.createElement("tr");
-            if (isStale) {
-                tr.className = "is-stale-row";
-            }
+            if (isStale) { tr.className = "is-stale-row"; }
 
-            /* Device Name cell */
+            /* Device Name */
             var tdName = document.createElement("td");
-            tdName.textContent = displayName;
+            var nameSpan = document.createElement("span");
+            nameSpan.className = "dm-device-name";
+            nameSpan.textContent = displayName;
+            tdName.appendChild(nameSpan);
             if (isLifeSupport) {
                 tdName.appendChild(document.createTextNode(" "));
                 var lsTag = document.createElement("span");
@@ -706,163 +558,118 @@
             }
             if (isStale) {
                 tdName.appendChild(document.createTextNode(" "));
-                var staleIndicator = document.createElement("span");
-                staleIndicator.className = "tag is-warning is-light is-stale-indicator";
-                staleIndicator.textContent = "stale";
-                staleIndicator.title = "Observation is stale — may not reflect current state";
-                tdName.appendChild(staleIndicator);
+                var staleSpan = document.createElement("span");
+                staleSpan.className = "dm-badge degraded";
+                staleSpan.style.cssText = "font-size:0.6rem; padding:0.1rem 0.3rem;";
+                staleSpan.textContent = "stale";
+                staleSpan.title = "Observation is stale";
+                tdName.appendChild(staleSpan);
             }
+            /* Description */
+            var descSpan = document.createElement("div");
+            descSpan.className = "dm-device-desc";
+            descSpan.textContent = (load.description || "\u2014");
+            tdName.appendChild(descSpan);
             tr.appendChild(tdName);
 
-            /* Description cell */
-            var tdDesc = document.createElement("td");
-            var rawDesc = load.description || "";
-            tdDesc.textContent = rawDesc || "\u2014";
-            tr.appendChild(tdDesc);
-
-            /* State cell (ON/OFF/UNKNOWN badge) */
+            /* State */
             var tdState = document.createElement("td");
-            var stateTag = document.createElement("span");
             if (currentlyOn === true) {
-                stateTag.className = "tag is-success";
-                stateTag.textContent = "ON";
+                var onSpan = document.createElement("span");
+                onSpan.className = "dm-state-on";
+                var dotOn = document.createElement("span");
+                dotOn.className = "dm-state-dot on";
+                onSpan.appendChild(dotOn);
+                onSpan.appendChild(document.createTextNode("ON"));
+                tdState.appendChild(onSpan);
             } else if (currentlyOn === false) {
-                stateTag.className = "tag is-light";
-                stateTag.textContent = "OFF";
+                var offSpan = document.createElement("span");
+                offSpan.className = "dm-state-off";
+                var dotOff = document.createElement("span");
+                dotOff.className = "dm-state-dot off";
+                offSpan.appendChild(dotOff);
+                offSpan.appendChild(document.createTextNode("OFF"));
+                tdState.appendChild(offSpan);
             } else {
-                stateTag.className = "tag is-light";
-                stateTag.textContent = "---";
-                stateTag.title = "Unknown";
+                tdState.textContent = "\u2014";
+                tdState.style.color = "var(--text-dim)";
             }
-            tdState.appendChild(stateTag);
             tr.appendChild(tdState);
 
-            /* Load (W) cell */
-            var tdWatts = document.createElement("td");
-            tdWatts.textContent = configuredWatts;
-            tr.appendChild(tdWatts);
-
-            /* Controllable cell */
-            var tdCtrl = document.createElement("td");
-            tdCtrl.textContent = controllable;
-            tr.appendChild(tdCtrl);
-
-            /* Status cell */
-            var tdStatus = document.createElement("td");
-            tdStatus.textContent = status;
-            tr.appendChild(tdStatus);
-
-            /* Mapping status cell */
-            var tdMapping = document.createElement("td");
-            if (mappingStatus === "invalid") {
-                var invTag = document.createElement("span");
-                invTag.className = "tag is-danger is-light";
-                invTag.textContent = "mapping invalid";
-                tdMapping.appendChild(invTag);
-            } else if (mappingStatus && mappingStatus !== "valid") {
-                tdMapping.textContent = mappingStatus;
+            /* Power */
+            var tdPower = document.createElement("td");
+            var wattSpan = document.createElement("div");
+            wattSpan.className = "dm-watt";
+            wattSpan.textContent = configuredWatts + " W";
+            if (currentlyOn !== true) { wattSpan.style.color = "var(--text-dim)"; }
+            tdPower.appendChild(wattSpan);
+            if (currentlyOn === true && configuredWatts > 0) {
+                var wattBar = document.createElement("div");
+                wattBar.className = "dm-watt-bar";
+                var wattFill = document.createElement("div");
+                wattFill.className = "dm-watt-bar-fill";
+                var maxW = 2000;
+                var pctW = Math.min(100, (configuredWatts / maxW) * 100);
+                wattFill.style.width = pctW + "%";
+                wattBar.appendChild(wattFill);
+                tdPower.appendChild(wattBar);
             }
-            tr.appendChild(tdMapping);
+            tr.appendChild(tdPower);
 
-            /* Reset result cell */
-            var tdReset = document.createElement("td");
-            if (startupResetResult === "confirmed_off") {
-                var confTag = document.createElement("span");
-                confTag.className = "tag is-success is-light";
-                confTag.textContent = "reset confirmed";
-                tdReset.appendChild(confTag);
-            } else if (startupResetResult === "pending") {
-                var pendTag = document.createElement("span");
-                pendTag.className = "tag is-warning is-light";
-                pendTag.textContent = "pending OFF";
-                tdReset.appendChild(pendTag);
-            } else if (startupResetResult === "contradictory") {
-                var contTag = document.createElement("span");
-                contTag.className = "tag is-danger is-light";
-                contTag.textContent = "reset contradictory";
-                tdReset.appendChild(contTag);
-            } else if (startupResetResult && startupResetResult.indexOf("skipped") === 0) {
-                /* Skip rendering for skipped devices */
-            } else if (startupResetResult && startupResetResult !== "unknown") {
-                tdReset.textContent = startupResetResult;
-            }
-            tr.appendChild(tdReset);
-
-            /* Roles cell */
+            /* Roles */
             var tdRoles = document.createElement("td");
-            tdRoles.textContent = roles;
+            tdRoles.style.cssText = "font-size:0.7rem; color:var(--text-dim); font-family:var(--mono);";
+            var roles = load.roles;
+            if (Array.isArray(roles) && roles.length > 0) {
+                tdRoles.textContent = roles.join(", ");
+            } else {
+                tdRoles.textContent = "\u2014";
+            }
             tr.appendChild(tdRoles);
 
-            /* Sort into active or inactive */
-            if (currentlyOn === true) {
-                activeRows.push(tr);
-            } else {
-                inactiveRows.push(tr);
-            }
+            dom.loadsTableBody.appendChild(tr);
         }
 
-        /* Render active body */
-        dom.loadsActiveBody.textContent = "";
-        if (activeRows.length === 0) {
-            var emptyRow = document.createElement("tr");
-            var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 9;
-            emptyCell.className = "has-text-centered has-text-grey";
-            emptyCell.textContent = "No active loads";
-            emptyRow.appendChild(emptyCell);
-            dom.loadsActiveBody.appendChild(emptyRow);
-        } else {
-            for (var ai = 0; ai < activeRows.length; ai++) {
-                dom.loadsActiveBody.appendChild(activeRows[ai]);
-            }
-        }
+        /* Update badges */
+        if (dom.loadsOnBadge) dom.loadsOnBadge.textContent = onCount + " ON";
+        if (dom.loadsOffBadge) dom.loadsOffBadge.textContent = offCount + " OFF";
+        if (dom.loadsUnknownBadge) dom.loadsUnknownBadge.textContent = unknownCount + " UNK";
+        if (dom.totalLoadWatts) dom.totalLoadWatts.textContent = totalActiveW + " W";
+        if (dom.miniLoads) dom.miniLoads.textContent = onCount + " / " + loads.length;
 
-        /* Render inactive body */
-        dom.loadsInactiveBody.textContent = "";
-        if (inactiveRows.length === 0) {
-            var emptyRow2 = document.createElement("tr");
-            var emptyCell2 = document.createElement("td");
-            emptyCell2.colSpan = 9;
-            emptyCell2.className = "has-text-centered has-text-grey";
-            emptyCell2.textContent = "No inactive loads";
-            emptyRow2.appendChild(emptyCell2);
-            dom.loadsInactiveBody.appendChild(emptyRow2);
-        } else {
-            for (var ii = 0; ii < inactiveRows.length; ii++) {
-                dom.loadsInactiveBody.appendChild(inactiveRows[ii]);
-            }
-        }
-
-        dom.summaryTotalLoads.textContent = String(totalLoads);
-        dom.summaryOnCount.textContent = String(onCount);
-        dom.summaryOffCount.textContent = String(offCount);
-        if (dom.summaryUnknownCount) {
-            dom.summaryUnknownCount.textContent = String(unknownCount);
-        }
-
-        /* Render inverter detail row */
-        renderInverterDetail(snapshot);
+        /* Hidden compatibility fields */
+        if (dom.summaryTotalLoads) dom.summaryTotalLoads.textContent = String(loads.length);
+        if (dom.summaryOnCount) dom.summaryOnCount.textContent = String(onCount);
+        if (dom.summaryOffCount) dom.summaryOffCount.textContent = String(offCount);
+        if (dom.summaryUnknownCount) dom.summaryUnknownCount.textContent = String(unknownCount);
     }
 
-    /* Sensors rendering */
-    function renderSensors(snapshot) {
-        if (!snapshot) { return; }
+    /* -----------------------------------------------------------------------
+     * Sensors panel
+     * -----------------------------------------------------------------------
+     */
+
+    function renderSensorsPanel(snapshot) {
+        if (!dom.sensorsPanel) { return; }
         var sensors = snapshot.sensors;
+        dom.sensorsPanel.textContent = "";
+
         if (!Array.isArray(sensors) || sensors.length === 0) {
-            dom.sensorsTableBody.textContent = "";
-            var emptyRow = document.createElement("tr");
-            var emptyCell = document.createElement("td");
-            var sensorsHeaderRow = document.querySelector("#sensors-table-body").parentElement.querySelector("thead tr");
-            var sensorsColCount = sensorsHeaderRow ? sensorsHeaderRow.children.length : 6;
-            emptyCell.colSpan = sensorsColCount;
-            emptyCell.className = "has-text-centered has-text-grey";
-            emptyCell.textContent = "No sensors available";
-            emptyRow.appendChild(emptyCell);
-            dom.sensorsTableBody.appendChild(emptyRow);
+            var emptyDiv = document.createElement("div");
+            emptyDiv.className = "dm-sensor";
+            var emptyBody = document.createElement("div");
+            emptyBody.className = "dm-sensor-body";
+            var emptyDesc = document.createElement("div");
+            emptyDesc.className = "dm-sensor-desc";
+            emptyDesc.style.cssText = "text-align:center; padding:1rem;";
+            emptyDesc.textContent = "No sensors available";
+            emptyBody.appendChild(emptyDesc);
+            emptyDiv.appendChild(emptyBody);
+            dom.sensorsPanel.appendChild(emptyDiv);
+            /* Also update watertemp mini stat */
+            if (dom.miniWatertemp) { dom.miniWatertemp.textContent = "\u2014"; }
             return;
         }
-
-        dom.sensorsTableBody.textContent = "";
 
         for (var i = 0; i < sensors.length; i++) {
             var sensor = sensors[i];
@@ -872,80 +679,156 @@
             var rawDescription = sensor.description || "";
             var rawValue = sensor.value;
             var unit = sensor.unit || "celsius";
-            var observedAt = formatTimestamp(sensor.observed_at);
             var freshness = sensor.freshness || "";
             var status = sensor.status || "";
-            var isStale = (freshness === "stale");
-            var isUnavailable = (freshness === "unavailable");
 
-            var tr = document.createElement("tr");
-            if (isStale) {
-                tr.className = "is-stale-row";
+            var sensorDiv = document.createElement("div");
+            sensorDiv.className = "dm-sensor";
+
+            /* Icon */
+            var iconDiv = document.createElement("div");
+            iconDiv.className = "dm-sensor-icon";
+            iconDiv.textContent = "\uD83C\uDF21"; /* thermometer emoji */
+            sensorDiv.appendChild(iconDiv);
+
+            /* Body */
+            var bodyDiv = document.createElement("div");
+            bodyDiv.className = "dm-sensor-body";
+
+            var nameDiv = document.createElement("div");
+            nameDiv.className = "dm-sensor-name";
+            nameDiv.textContent = displayName;
+            bodyDiv.appendChild(nameDiv);
+
+            var descDiv = document.createElement("div");
+            descDiv.className = "dm-sensor-desc";
+            descDiv.textContent = rawDescription || "\u2014";
+            bodyDiv.appendChild(descDiv);
+
+            /* Freshness/status row */
+            var metaDiv = document.createElement("div");
+            metaDiv.style.cssText = "margin-top:0.3rem; display:flex; gap:0.4rem; align-items:center;";
+            if (freshness) {
+                var freshSpan = document.createElement("span");
+                freshSpan.className = "dm-freshness " + (freshness === "fresh" ? "fresh" : "stale");
+                freshSpan.textContent = freshness;
+                metaDiv.appendChild(freshSpan);
             }
-
-            /* Sensor name */
-            var tdName = document.createElement("td");
-            tdName.textContent = displayName;
-            tr.appendChild(tdName);
-
-            /* Description cell */
-            var tdDesc = document.createElement("td");
-            tdDesc.textContent = rawDescription || "\u2014";
-            tr.appendChild(tdDesc);
+            if (status) {
+                var statusSpan = document.createElement("span");
+                statusSpan.className = "dm-freshness " + (status === "valid" ? "fresh" : "stale");
+                statusSpan.textContent = status;
+                metaDiv.appendChild(statusSpan);
+            }
+            bodyDiv.appendChild(metaDiv);
+            sensorDiv.appendChild(bodyDiv);
 
             /* Value */
-            var tdValue = document.createElement("td");
+            var valDiv = document.createElement("div");
+            valDiv.className = "dm-sensor-val";
             if (rawValue === null || rawValue === undefined) {
-                tdValue.textContent = "N/A";
-                tdValue.className = "has-text-grey-light";
-            } else if (unit === "celsius") {
-                tdValue.textContent = String(rawValue) + " \u00b0C";
+                valDiv.textContent = "\u2014";
+                valDiv.style.color = "var(--text-dim)";
             } else {
-                tdValue.textContent = String(rawValue) + " " + unit;
+                valDiv.textContent = String(rawValue);
+                var unitSpan = document.createElement("span");
+                unitSpan.className = "dm-sensor-unit";
+                if (unit === "celsius") {
+                    unitSpan.textContent = "\u00B0C";
+                } else {
+                    unitSpan.textContent = " " + unit;
+                }
+                valDiv.appendChild(unitSpan);
             }
-            tr.appendChild(tdValue);
+            sensorDiv.appendChild(valDiv);
 
-            /* Observed */
-            var tdObs = document.createElement("td");
-            tdObs.textContent = observedAt;
-            tr.appendChild(tdObs);
+            dom.sensorsPanel.appendChild(sensorDiv);
 
-            /* Freshness */
-            var tdFresh = document.createElement("td");
-            var freshTag = document.createElement("span");
-            if (freshness === "fresh") {
-                freshTag.className = "tag is-success is-light";
-                freshTag.textContent = "fresh";
-            } else if (freshness === "stale") {
-                freshTag.className = "tag is-warning is-light";
-                freshTag.textContent = "stale";
-            } else {
-                freshTag.className = "tag is-light";
-                freshTag.textContent = "unavailable";
+            /* Update watertemp mini stat if this is watertemp */
+            if (displayName.toLowerCase().indexOf("watertemp") !== -1 || displayName.toLowerCase().indexOf("water") !== -1) {
+                if (dom.miniWatertemp && rawValue !== null && rawValue !== undefined) {
+                    dom.miniWatertemp.textContent = rawValue + "\u00B0C";
+                } else if (dom.miniWatertemp) {
+                    dom.miniWatertemp.textContent = "\u2014";
+                }
             }
-            tdFresh.appendChild(freshTag);
-            tr.appendChild(tdFresh);
+        }
+    }
 
-            /* Status */
-            var tdStatus = document.createElement("td");
-            var statusTag = document.createElement("span");
-            if (status === "valid") {
-                statusTag.className = "tag is-success is-light";
-                statusTag.textContent = "valid";
-            } else if (status === "stale") {
-                statusTag.className = "tag is-warning is-light";
-                statusTag.textContent = "stale";
-            } else if (status === "invalid") {
-                statusTag.className = "tag is-danger is-light";
-                statusTag.textContent = "invalid";
-            } else {
-                statusTag.className = "tag is-light";
-                statusTag.textContent = "unavailable";
-            }
-            tdStatus.appendChild(statusTag);
-            tr.appendChild(tdStatus);
+    /* -----------------------------------------------------------------------
+     * Startup reset badge
+     * -----------------------------------------------------------------------
+     */
 
-            dom.sensorsTableBody.appendChild(tr);
+    function renderStartupReset(snapshot) {
+        if (!snapshot) { return; }
+        var startupResetStatus = snapshot.startup_reset_status;
+        if (!startupResetStatus || !dom.startupResetBadge) { return; }
+        dom.startupResetBadge.classList.remove("is-hidden");
+        var badgeClass = "dm-badge";
+        var label = "Startup Reset: " + startupResetStatus;
+        if (startupResetStatus === "in_progress") {
+            badgeClass += " degraded";
+        } else if (startupResetStatus === "confirmed") {
+            badgeClass += " ok";
+        } else if (startupResetStatus === "blocked") {
+            badgeClass += " error";
+        }
+        dom.startupResetBadge.className = badgeClass;
+        dom.startupResetBadge.textContent = label;
+    }
+
+    /* -----------------------------------------------------------------------
+     * Rendering
+     * -----------------------------------------------------------------------
+     */
+
+    function renderUnavailable() {
+        if (dom.dashboardUnavailable) dom.dashboardUnavailable.classList.remove("is-hidden");
+        if (dom.dashboardContent) dom.dashboardContent.classList.add("is-hidden");
+    }
+
+    function renderSnapshot(data) {
+        if (!data || typeof data !== "object") { renderUnavailable(); return; }
+        var snapshot = data.snapshot;
+        if (snapshot === null || snapshot === undefined) { renderUnavailable(); return; }
+
+        if (dom.dashboardUnavailable) dom.dashboardUnavailable.classList.add("is-hidden");
+        if (dom.dashboardContent) dom.dashboardContent.classList.remove("is-hidden");
+
+        /* Alert strip */
+        renderAlertStrip(data);
+
+        /* Source indicator and operator summary */
+        renderSourceIndicator(snapshot);
+        renderInverterFreshness(snapshot);
+        renderOperatorSummary(snapshot);
+
+        /* Startup reset */
+        renderStartupReset(snapshot);
+
+        /* Warnings */
+        if (data.warnings && Array.isArray(data.warnings) && data.warnings.length > 0) {
+            if (dom.dashboardWarnings) dom.dashboardWarnings.classList.remove("is-hidden");
+            if (dom.warningsBody) dom.warningsBody.textContent = data.warnings.join("; ");
+        } else {
+            if (dom.dashboardWarnings) dom.dashboardWarnings.classList.add("is-hidden");
+        }
+
+        /* Loads table */
+        renderLoadsTable(snapshot);
+
+        /* Sensors panel */
+        renderSensorsPanel(snapshot);
+
+        /* Hidden compatibility */
+        if (dom.summaryStatus && data.status) dom.summaryStatus.textContent = safeText(data.status);
+        if (dom.summaryApiStatus) dom.summaryApiStatus.textContent = "API: " + safeText(data.status);
+        if (dom.snapshotTimestamp) dom.snapshotTimestamp.textContent = "Snapshot: " + formatTimestamp(snapshot.created_at);
+
+        /* Footer updated time */
+        if (dom.footerUpdated) {
+            dom.footerUpdated.textContent = "just now";
         }
     }
 
@@ -955,9 +838,7 @@
      */
 
     function scheduleNextPoll(delayMs) {
-        if (pollTimeoutId) {
-            clearTimeout(pollTimeoutId);
-        }
+        if (pollTimeoutId) { clearTimeout(pollTimeoutId); }
         pollTimeoutId = setTimeout(function () {
             pollTimeoutId = null;
             executePoll();
@@ -965,10 +846,7 @@
     }
 
     function executePoll() {
-        /* Cancel any prior in-flight fetch */
-        if (currentAbortController) {
-            currentAbortController.abort();
-        }
+        if (currentAbortController) { currentAbortController.abort(); }
         currentAbortController = new AbortController();
 
         var timeoutId = setTimeout(function () {
@@ -984,18 +862,8 @@
             .then(function (response) {
                 clearTimeout(timeoutId);
                 currentAbortController = null;
-
-                if (response.status === 401) {
-                    handleUnauthenticated();
-                    return;
-                }
-
-                if (!response.ok) {
-                    handleHttpError(response.status);
-                    scheduleNextPoll(computeDelay());
-                    return;
-                }
-
+                if (response.status === 401) { handleUnauthenticated(); return; }
+                if (!response.ok) { handleHttpError(response.status); scheduleNextPoll(computeDelay()); return; }
                 return response.json().then(function (data) {
                     handleSuccessfulResponse(data);
                     scheduleNextPoll(computeDelay());
@@ -1004,14 +872,7 @@
             .catch(function (error) {
                 clearTimeout(timeoutId);
                 currentAbortController = null;
-
-                if (error && error.name === "AbortError") {
-                    /* Intentional abort from timeout or new request — do not
-                     * treat as a network failure. The polling cycle may be
-                     * restarted elsewhere. */
-                    return;
-                }
-
+                if (error && error.name === "AbortError") { return; }
                 handleNetworkError(error);
                 scheduleNextPoll(computeDelay());
             });
@@ -1021,68 +882,44 @@
         consecutiveFailures = 0;
         lastSuccessfulResponseTime = Date.now();
         lastSnapshot = data;
-
         clearStaleTimers();
-
-        /* Determine state from response */
         var apiStatus = (data && data.status) ? String(data.status) : "";
         if (apiStatus === "degraded" || apiStatus === "blocked") {
             setConnectionState("degraded");
         } else {
             setConnectionState("online");
         }
-
         renderSnapshot(data);
-        renderSensors(data.snapshot);
         updateLastRefresh();
         startStaleTimers();
     }
 
     function handleHttpError(status) {
         consecutiveFailures++;
-
         if (status >= 400 && status < 500) {
-            /* Client error — do not retry aggressively, but keep current state */
-            if (lastSnapshot && connectionState === "online") {
-                setConnectionState("degraded");
-            }
+            if (lastSnapshot && connectionState === "online") { setConnectionState("degraded"); }
         } else if (status >= 500) {
-            /* Server error — bounded retry */
-            if (consecutiveFailures >= MAX_CONSECUTIVE_BACKOFF) {
-                setConnectionState("offline");
-            }
+            if (consecutiveFailures >= MAX_CONSECUTIVE_BACKOFF) { setConnectionState("offline"); }
         }
     }
 
     function handleNetworkError(/* error */) {
         consecutiveFailures++;
-        if (consecutiveFailures >= MAX_CONSECUTIVE_BACKOFF) {
-            setConnectionState("offline");
-        }
+        if (consecutiveFailures >= MAX_CONSECUTIVE_BACKOFF) { setConnectionState("offline"); }
     }
 
     function handleUnauthenticated() {
-        /* Clear all timers and state */
-        if (pollTimeoutId) {
-            clearTimeout(pollTimeoutId);
-            pollTimeoutId = null;
-        }
-        if (currentAbortController) {
-            currentAbortController.abort();
-            currentAbortController = null;
-        }
+        if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null; }
+        if (currentAbortController) { currentAbortController.abort(); currentAbortController = null; }
         clearStaleTimers();
         consecutiveFailures = 0;
-
-        /* Navigate to login */
         window.location.href = "/login";
     }
 
     function updateLastRefresh() {
-        if (lastSuccessfulResponseTime) {
+        if (lastSuccessfulResponseTime && dom.lastRefresh) {
             var seconds = Math.floor((Date.now() - lastSuccessfulResponseTime) / 1000);
-            var text = "Last updated: " + seconds + "s ago";
-            dom.lastRefresh.textContent = text;
+            dom.lastRefresh.textContent = "Last updated: " + seconds + "s ago";
         }
     }
 
@@ -1091,35 +928,13 @@
      * -----------------------------------------------------------------------
      */
 
-    var visibilityRefreshPending = false;
-
     function onVisibilityChange() {
         if (document.hidden) {
-            /* When hidden, the next scheduled poll will use POLL_HIDDEN_MS.
-             * Cancel any pending poll and reschedule at hidden rate. */
-            if (pollTimeoutId) {
-                clearTimeout(pollTimeoutId);
-                pollTimeoutId = null;
-            }
-            /* Do NOT start a new poll — let the current cycle finish and
-             * reschedule. But if there's no active cycle, start one. */
-            if (!currentAbortController) {
-                scheduleNextPoll(POLL_HIDDEN_MS);
-            }
+            if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null; }
+            if (!currentAbortController) { scheduleNextPoll(POLL_HIDDEN_MS); }
         } else {
-            /* Becoming visible — immediate poll, then resume normal */
-            if (!visibilityRefreshPending) {
-                visibilityRefreshPending = true;
-                /* Cancel pending timer */
-                if (pollTimeoutId) {
-                    clearTimeout(pollTimeoutId);
-                    pollTimeoutId = null;
-                }
-                /* Immediate poll */
-                executePoll();
-                /* Allow next visibility change after poll settles */
-                visibilityRefreshPending = false;
-            }
+            if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null; }
+            executePoll();
         }
     }
 
@@ -1129,19 +944,28 @@
      */
 
     function onBeforeUnload() {
-        if (pollTimeoutId) {
-            clearTimeout(pollTimeoutId);
-            pollTimeoutId = null;
-        }
-        if (currentAbortController) {
-            currentAbortController.abort();
-            currentAbortController = null;
-        }
-        if (refreshTickId) {
-            clearTimeout(refreshTickId);
-            refreshTickId = null;
-        }
+        if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null; }
+        if (currentAbortController) { currentAbortController.abort(); currentAbortController = null; }
+        if (refreshTickId) { clearTimeout(refreshTickId); refreshTickId = null; }
         clearStaleTimers();
+    }
+
+    /* -----------------------------------------------------------------------
+     * Footer ticker
+     * -----------------------------------------------------------------------
+     */
+
+    var refreshTickId = null;
+
+    function scheduleRefreshTick() {
+        if (refreshTickId) { clearTimeout(refreshTickId); }
+        refreshTickId = setTimeout(function () {
+            if (lastSuccessfulResponseTime && dom.footerUpdated) {
+                var seconds = Math.floor((Date.now() - lastSuccessfulResponseTime) / 1000);
+                dom.footerUpdated.textContent = seconds + "s ago";
+            }
+            scheduleRefreshTick();
+        }, 1000);
     }
 
     /* -----------------------------------------------------------------------
@@ -1149,51 +973,17 @@
      * -----------------------------------------------------------------------
      */
 
-    var refreshTickId = null;
-
-    function scheduleRefreshTick() {
-        if (refreshTickId) {
-            clearTimeout(refreshTickId);
-        }
-        refreshTickId = setTimeout(function () {
-            updateLastRefresh();
-            scheduleRefreshTick();
-        }, 1000);
-    }
-
     function start() {
         cacheDom();
-
-        /* Load tab switching */
-        if (dom.loadsTabActive) {
-            dom.loadsTabActive.addEventListener("click", function () {
-                dom.loadsTabActive.classList.add("is-active");
-                dom.loadsTabInactive.classList.remove("is-active");
-                dom.loadsActiveBody.classList.remove("is-hidden");
-                dom.loadsInactiveBody.classList.add("is-hidden");
-            });
-        }
-        if (dom.loadsTabInactive) {
-            dom.loadsTabInactive.addEventListener("click", function () {
-                dom.loadsTabInactive.classList.add("is-active");
-                dom.loadsTabActive.classList.remove("is-active");
-                dom.loadsInactiveBody.classList.remove("is-hidden");
-                dom.loadsActiveBody.classList.add("is-hidden");
-            });
-        }
-
+        /* Skip polling on analytics page */
+        if (dom.isAnalyticsPage) { return; }
         document.addEventListener("visibilitychange", onVisibilityChange);
         window.addEventListener("beforeunload", onBeforeUnload);
         window.addEventListener("pagehide", onBeforeUnload);
-
-        /* Begin polling immediately */
         executePoll();
-
-        /* Update the "last updated" text periodically */
         scheduleRefreshTick();
     }
 
-    /* Run after DOM is ready */
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", start);
     } else {

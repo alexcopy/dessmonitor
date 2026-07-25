@@ -1,0 +1,201 @@
+PRECOMMIT REVIEW — PR 0038: Architect Dashboard and Analytics UI (R3)
+=======================================================================
+
+TITLE
+-----
+Architect Dashboard and Analytics UI — Precommit Review (Round 3: all validators pass)
+
+OPERATOR OVERRIDE REVIEW
+-------------------------
+Operator override documented in OPERATOR_OVERRIDE.txt.
+PLAN/PLAN-REVIEW skipped by operator decision.
+Scope: UI/UX template integration only.
+No backend data-flow changes. No control semantics changes.
+Deferred: output_power fix, weather/prediction, real analytics backend, Chart.js/Lucide vendoring.
+
+REPOSITORY STATE
+----------------
+Branch:    pr-0038-architect-dashboard-analytics-ui
+HEAD:      7c54c4eff1dd217e69fb8a97ee180acc439f42bf
+Branch correct: YES
+
+Dirty tree (uncommitted):
+  M app/web/static/dashboard.css
+  M app/web/static/dashboard.js
+  M app/web/templates/index.html
+  M app/web_routes.py
+  M scripts/check-compact-operator-dashboard.sh     (validator update)
+  M scripts/check-inverter-operator-freshness.sh     (validator update)
+  M scripts/check-web-dashboard.sh                   (validator update)
+  ?? app/web/templates/analytics.html
+  ?? scripts/check-architect-dashboard-analytics-ui.sh
+  ?? .project-memory/pr/0038-architect-dashboard-analytics-ui/
+  ?? .tmp_refs/
+
+Staged files: 3 validator scripts:
+  M scripts/check-compact-operator-dashboard.sh
+  M scripts/check-inverter-operator-freshness.sh
+  M scripts/check-web-dashboard.sh
+
+ARTIFACTS READ
+--------------
+  .project-memory/pr/0038-architect-dashboard-analytics-ui/OPERATOR_OVERRIDE.txt
+  .project-memory/pr/0038-architect-dashboard-analytics-ui/CODER_REPORT.txt
+  .project-memory/pr/0038-architect-dashboard-analytics-ui/reviews/PRECOMMIT_REVIEW.txt
+
+REFERENCE TEMPLATES READ
+-------------------------
+  .tmp_refs/dashboard.html — architect dark-theme dashboard (CDN deps NOT copied)
+  .tmp_refs/analytics.html — architect analytics page (CDN deps NOT copied)
+
+CHANGED FILES READ
+------------------
+Implementation files:
+  app/web/static/dashboard.css        (modified)
+  app/web/static/dashboard.js         (modified)
+  app/web/templates/index.html        (modified)
+  app/web_routes.py                   (modified)
+  app/web/templates/analytics.html    (untracked, new)
+  scripts/check-architect-dashboard-analytics-ui.sh (untracked, new)
+
+Updated validator scripts:
+  scripts/check-web-dashboard.sh                   (modified)
+  scripts/check-compact-operator-dashboard.sh       (modified)
+  scripts/check-inverter-operator-freshness.sh      (modified)
+
+Context files:
+  app/web_host.py
+  app/control/web_ui_read_endpoint.py
+  app/control/web_ui_read_contract.py
+
+STAGED STATE
+------------
+3 validator scripts staged — expected from prior round. No new staged files.
+
+VALIDATOR CORRECTION ASSESSMENT
+--------------------------------
+Three legacy validator scripts were updated to replace obsolete PR 0034/0036/0037
+selectors with architect dm-* equivalents. All assertions replaced 1:1 with
+equivalent coverage. No security/safety assertions deleted or weakened.
+
+DASHBOARD UI ASSESSMENT
+-----------------------
+  [PASS] Sticky nav (dm-nav, role="banner")
+  [PASS] Dashboard / Analytics / Controls / Settings nav labels
+  [PASS] Degraded/OK badge (dm-badge, id="nav-status-badge")
+  [PASS] Alert strip (dm-alert, id="dashboard-alert")
+  [PASS] Inverter hero (dm-inverter-hero with source indicator, freshness)
+  [PASS] SOC semicircle SVG gauge (id="socGaugeSvg")
+  [PASS] Mini stat cards (dm-stats-strip: PV, SOC, Loads, WaterTemp)
+  [PASS] Loads table (dm-table, id="loads-table-body")
+  [PASS] Sensors panel (id="sensors-panel")
+  [PASS] Footer bar (dm-footer-bar with inv time, AC In, Load, Dis, Chg)
+
+ANALYTICS UI ASSESSMENT
+-----------------------
+  [PASS] analytics.html with dm-nav (Analytics active)
+  [PASS] GET /analytics route with auth guard
+  [PASS] Date range buttons (6H, 12H, 24H active, 7D, 30D)
+  [PASS] Summary strip (dm-summary-row, 5 cards, placeholder values)
+  [PASS] Chart containers (7 CSS-only placeholders)
+  [PASS] Events table (dm-table with deferred backend note)
+
+ASSET AND CDN ASSESSMENT
+-------------------------
+  [PASS] No external URLs in index.html
+  [PASS] No CDN references in dashboard.css
+  [PASS] No external URLs in dashboard.js
+  [PASS] No Google Fonts in index.html
+  [PASS] CSP: default-src 'self', no unsafe-inline
+
+READ-ONLY CONTRACT
+------------------
+  [PASS] /control/state: GET-only, no POST/PUT/PATCH/DELETE
+  [PASS] Controls nav: disabled class (pointer-events: none)
+  [PASS] dashboard.js: fetch GET with credentials same-origin
+
+SECURITY ASSESSMENT
+-------------------
+  [PASS] textContent only (no innerHTML for runtime values)
+  [PASS] No eval(), no localStorage
+  [PASS] No subprocess/os.system
+  [PASS] No weather/prediction implementation
+  [PASS] No output_power coercion to zero
+  [PASS] Authentication preserved (41/41)
+  [PASS] No secrets, payloads, config, tokens, or operational IDs
+
+SCOPE ASSESSMENT
+----------------
+  [PASS] output_power data-flow NOT fixed
+  [PASS] Weather/prediction NOT added
+  [PASS] Control commands NOT added
+  [PASS] Tuya/DESS unchanged
+  [PASS] Sensor pipeline unchanged
+  [PASS] No GitOps/deployment changes
+
+BLOCKERS
+--------
+NONE
+
+WARNINGS
+--------
+1. Non-standard workflow: PLAN/PLAN-REVIEW skipped (operator documented).
+2. .tmp_refs/ untracked directory not in allowed list (local reference templates, not served).
+
+REQUIRED CORRECTIONS
+--------------------
+NONE
+
+VERDICT
+-------
+approved
+
+READY FOR COMMIT
+----------------
+true
+
+READY FOR PULL REQUEST
+-----------------------
+true
+
+APPROVAL STANDARD
+-----------------
+1.  Operator override documented — PASS
+2.  UI scope matches architect templates — PASS
+3.  No backend data-flow fix bundled — PASS
+4.  No weather/prediction bundled — PASS
+5.  No external CDN/URLs introduced — PASS
+6.  Read-only behavior preserved — PASS
+7.  Security boundaries preserved — PASS
+8.  Focused validator passes — PASS (28/28)
+9.  All required regressions pass — PASS (all 9 validators exit 0)
+10. Changed files in scope — PASS
+
+All 10 criteria satisfied.
+
+VALIDATION (R3 — all exit 0)
+-----------------------------
+bash scripts/check-architect-dashboard-analytics-ui.sh   → EXIT 0, 28/28 PASS
+bash scripts/check-web-dashboard.sh                      → EXIT 0, 36/36 PASS
+bash scripts/check-web-authentication.sh                 → EXIT 0, 41/41 PASS
+bash scripts/check-compact-operator-dashboard.sh         → EXIT 0, 20/20 PASS
+bash scripts/check-inverter-operator-freshness.sh        → EXIT 0, 28/28 PASS
+bash scripts/check-electrical-telemetry-flow.sh          → EXIT 0, 23/23 PASS
+bash scripts/check-canonical-sensor-snapshot-pipeline.sh → EXIT 0, 58/58 PASS
+bash scripts/check-project-memory.sh                     → EXIT 0, PASS
+python3 -m compileall -q app run.py                      → EXIT 0
+
+SECURITY GREP CHECKS
+--------------------
+CDN references in served files:    0
+Google Fonts in served files:      0
+External URLs in served files:     0
+innerHTML in dashboard.js:         0 (comment header only)
+eval() in dashboard.js:            0 (comment header only)
+localStorage in dashboard.js:      0 (comment header only)
+subprocess/os.system in web/:      0
+Weather/prediction in code:        0 (comment only)
+output_power coercion to zero:     0
+Write routes (/control/state):     0
+
+.ariadne residue check: .ariadne absent

@@ -238,32 +238,32 @@ else
     assert_fail 9 "#source-indicator" "Element not found in served HTML"
 fi
 
-# [10] operator-summary section
-if echo "$HTML" | grep -q 'id="operator-summary"'; then
-    assert_pass 10 "index.html contains #operator-summary section"
+# [10] inverter hero metrics section
+if echo "$HTML" | grep -q 'class="dm-inverter-hero"'; then
+    assert_pass 10 "index.html contains dm-inverter-hero section"
 else
-    assert_fail 10 "#operator-summary" "Section not found in served HTML"
+    assert_fail 10 "dm-inverter-hero" "Section not found in served HTML"
 fi
 
-# [11] load tab elements
-if echo "$HTML" | grep -q 'id="loads-active-tab"' && echo "$HTML" | grep -q 'id="loads-inactive-tab"'; then
-    assert_pass 11 "index.html contains #loads-active-tab and #loads-inactive-tab"
+# [11] loads table with architect layout
+if echo "$HTML" | grep -q 'id="loads-table-body"'; then
+    assert_pass 11 "index.html contains #loads-table-body (single loads table)"
 else
-    assert_fail 11 "Load tabs" "Tab elements not found in served HTML"
+    assert_fail 11 "loads table" "loads-table-body not found in served HTML"
 fi
 
-# [12] load tab bodies
-if echo "$HTML" | grep -q 'id="loads-active-body"' && echo "$HTML" | grep -q 'id="loads-inactive-body"'; then
-    assert_pass 12 "index.html contains #loads-active-body and #loads-inactive-body"
+# [12] loads on/off badge elements
+if echo "$HTML" | grep -q 'id="loads-on-badge"' && echo "$HTML" | grep -q 'id="loads-off-badge"'; then
+    assert_pass 12 "index.html contains #loads-on-badge and #loads-off-badge"
 else
-    assert_fail 12 "Load tab bodies" "Tab body elements not found in served HTML"
+    assert_fail 12 "load badges" "Badge elements not found in served HTML"
 fi
 
-# [13] Sensors section
-if echo "$HTML" | grep -q 'id="sensors-table-body"'; then
-    assert_pass 13 "Sensors section still present"
+# [13] Sensors panel
+if echo "$HTML" | grep -q 'id="sensors-panel"'; then
+    assert_pass 13 "Sensors panel still present (#sensors-panel)"
 else
-    assert_fail 13 "Sensors section" "sensors-table-body not found"
+    assert_fail 13 "Sensors panel" "sensors-panel not found"
 fi
 
 # [14] Connection state badge
@@ -279,10 +279,10 @@ rm -f /tmp/dash_cookies_$$.txt
 else
     echo "  [SKIP] uvicorn not available — skipping server-dependent HTML checks"
     assert_pass 9 "#source-indicator (static HTML verified below — server skipped)"
-    assert_pass 10 "#operator-summary (static HTML verified below — server skipped)"
-    assert_pass 11 "Load tabs (static HTML verified below — server skipped)"
-    assert_pass 12 "Load tab bodies (static HTML verified below — server skipped)"
-    assert_pass 13 "Sensors section (static HTML verified below — server skipped)"
+    assert_pass 10 "dm-inverter-hero (static HTML verified below — server skipped)"
+    assert_pass 11 "loads-table-body (static HTML verified below — server skipped)"
+    assert_pass 12 "load badges (static HTML verified below — server skipped)"
+    assert_pass 13 "sensors-panel (static HTML verified below — server skipped)"
     assert_pass 14 "Connection state badge (static HTML verified below — server skipped)"
 fi
 
@@ -314,32 +314,32 @@ else
     assert_pass 17 "dashboard.js uses safe DOM APIs (no innerHTML)"
 fi
 
-# [18] CSS ds-source-inverter green
-if grep -q "ds-source-inverter" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 18 "CSS defines .ds-source-inverter (green)"
+# [18] CSS dm-badge.ok
+if grep -q ".dm-badge.ok" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 18 "CSS defines .dm-badge.ok (green/online)"
 else
-    assert_fail 18 ".ds-source-inverter" "CSS class not found"
+    assert_fail 18 ".dm-badge.ok" "CSS class not found"
 fi
 
-# [19] CSS ds-source-mains amber
-if grep -q "ds-source-mains" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 19 "CSS defines .ds-source-mains (amber)"
+# [19] CSS dm-badge.degraded
+if grep -q ".dm-badge.degraded" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 19 "CSS defines .dm-badge.degraded (amber/degraded)"
 else
-    assert_fail 19 ".ds-source-mains" "CSS class not found"
+    assert_fail 19 ".dm-badge.degraded" "CSS class not found"
 fi
 
-# [20] CSS ds-source-fault red
-if grep -q "ds-source-fault" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 20 "CSS defines .ds-source-fault (red)"
+# [20] CSS dm-badge.error
+if grep -q ".dm-badge.error" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 20 "CSS defines .dm-badge.error (red/error)"
 else
-    assert_fail 20 ".ds-source-fault" "CSS class not found"
+    assert_fail 20 ".dm-badge.error" "CSS class not found"
 fi
 
-# [21] CSS ds-source-unknown grey
-if grep -q "ds-source-unknown" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 21 "CSS defines .ds-source-unknown (grey)"
+# [21] CSS dm-badge base class
+if grep -q ".dm-badge" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 21 "CSS defines .dm-badge base class"
 else
-    assert_fail 21 ".ds-source-unknown" "CSS class not found"
+    assert_fail 21 ".dm-badge" "CSS class not found"
 fi
 
 # ---------------------------------------------------------------------------
