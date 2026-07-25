@@ -1,18 +1,6 @@
-/* dashboard-patch.js — dessmonitor
- * Патч поверх dashboard.js. Подключается как внешний файл (/static/dashboard-patch.js).
- * Не содержит inline-кода — CSP 'default-src self' совместим.
- *
- * Исправляет:
- *   1. mini-output-power / mini-battery-v — заполнение из ds-output-power / ds-battery-voltage
- *   2. Battery voltage — цветовой класс bat-green / bat-amber / bat-red
- *   3. Toggle switch — фильтрация неактивных строк в таблице loads
- *   4. Timestamp — корректировка timezone (observed_at без Z → UTC → Europe/London)
- */
-
+/* dashboard-patch.js — dessmonitor CSP-clean v2 */
 (function () {
     'use strict';
-
-    /* ── HELPERS ──────────────────────────────────────────────── */
 
     function watchElement(srcId, callback) {
         var el = document.getElementById(srcId);
@@ -23,10 +11,6 @@
         }).observe(el, { childList: true, characterData: true, subtree: true });
     }
 
-    /* ── 1 + 2. MINI OUTPUT POWER ─────────────────────────────
-       dashboard.js пишет inv.output_power в #ds-output-power.
-       Синхронизируем в #mini-output-power.
-    ──────────────────────────────────────────────────────────── */
     function setupMiniOutputPower() {
         watchElement('ds-output-power', function (val) {
             var dst = document.getElementById('mini-output-power');
@@ -35,127 +19,57 @@
         });
     }
 
-    /* ── 2. BATTERY VOLTAGE COLOR + MINI BOX ─────────────────
-       Пороги: >= 26.5 → green, >= 25.3 → amber, < 25.3 → red
-       Применяется к #ds-battery-voltage-wrap (hero) и
-       #mini-battery-v, #mini-bat-icon (мини-бокс).
-    ──────────────────────────────────────────────────────────── */
     function setupMiniBattery() {
         watchElement('ds-battery-voltage', function (val) {
             var v = parseFloat(val);
-            var cls = isNaN(v) ? 'bat-amber'
-                    : v >= 26.5 ? 'bat-green'
-                    : v >= 25.3 ? 'bat-amber'
-                    : 'bat-red';
-            var iconCls = cls === 'bat-green' ? 'green'
-                        : cls === 'bat-red'   ? 'red'
-                        : 'amber';
-
-            /* hero wrap */
+            var cls = isNaN(v) ? 'bat-amber' : v >= 26.5 ? 'bat-green' : v >= 25.3 ? 'bat-amber' : 'bat-red';
+            var iconCls = cls === 'bat-green' ? 'green' : cls === 'bat-red' ? 'red' : 'amber';
             var wrap = document.getElementById('ds-battery-voltage-wrap');
-            if (wrap) {
-                wrap.classList.remove('bat-green', 'bat-amber', 'bat-red');
-                wrap.classList.add(cls);
-            }
-
-            /* mini-battery-v value */
+            if (wrap) { wrap.classList.remove('bat-green','bat-amber','bat-red'); wrap.classList.add(cls); }
             var dst = document.getElementById('mini-battery-v');
-            if (dst) {
-                dst.textContent = (val && val !== 'N/A') ? val + ' V' : '\u2014';
-                dst.classList.remove('green', 'amber', 'red');
-                dst.classList.add(iconCls);
-            }
-
-            /* mini-bat-icon color */
+            if (dst) { dst.textContent = (val && val !== 'N/A') ? val + ' V' : '\u2014'; dst.classList.remove('green','amber','red'); dst.classList.add(iconCls); }
             var icon = document.getElementById('mini-bat-icon');
-            if (icon) {
-                icon.classList.remove('green', 'amber', 'red');
-                icon.classList.add(iconCls);
-            }
+            if (icon) { icon.classList.remove('green','amber','red'); icon.classList.add(iconCls); }
         });
     }
 
-    /* ── 3. TOGGLE SWITCH ─────────────────────────────────────
-       Вместо per-row style.display используем динамический <style>
-       тег — он применяется мгновенно и не мигает при перестройке
-       tbody dashboard.js-ом.
-       Активная строка содержит .dm-state-on.
-       Неактивная — не содержит.
-    ──────────────────────────────────────────────────────────── */
     function setupToggle() {
-        var chk = document.getElementById('loads-show-all');
-        if (!chk) return;
-
-        /* создаём <style> тег один раз */
-        var styleEl = document.createElement('style');
-        styleEl.id = 'dm-toggle-style';
-        document.head.appendChild(styleEl);
-
+        var chk   = document.getElementById('loads-show-all');
+        var tbody = document.getElementById('loads-table-body');
+        if (!chk || !tbody) return;
         function applyFilter() {
-            if (chk.checked) {
-                /* показываем все */
-                styleEl.textContent = '';
-            } else {
-                /* скрываем строки без .dm-state-on */
-                styleEl.textContent =
-                    '#loads-table-body tr:not(:has(.dm-state-on)) { display: none; }';
-            }
+            if (chk.checked) { tbody.classList.remove('dm-active-only'); }
+            else              { tbody.classList.add('dm-active-only'); }
         }
-
         chk.addEventListener('change', applyFilter);
-        /* применяем сразу при загрузке */
         applyFilter();
     }
 
-    /* ── 4. TIMESTAMP TIMEZONE ────────────────────────────────
-       dashboard.js: formatLondonTimestamp(inv.observed_at)
-         → new Date("2026-07-25T13:46:39")   ← без Z
-         → парсится как LOCAL time, не UTC   ← баг
-
-       Патч: если #inv-timestamp содержит ISO-строку без Z —
-       добавляем Z и конвертируем в Europe/London.
-       Если уже в формате dd/mm/yyyy — не трогаем.
-    ──────────────────────────────────────────────────────────── */
     function fixTs(raw) {
-        if (!raw || raw === 'N/A' || raw === '-' || raw === '\u2014') return raw;
-        /* уже отформатировано en-GB: "25/07/2026, 14:06:20" */
+        if (!raw || raw === 'N/A' || raw === '-') return raw;
         if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) return raw;
         try {
-            /* "2026-07-25T13:46:39" → добавляем Z → явный UTC */
-            var iso = (raw.indexOf('T') !== -1 && raw.slice(-1) !== 'Z')
-                ? raw + 'Z' : raw;
+            var iso = (raw.indexOf('T') !== -1 && raw.slice(-1) !== 'Z') ? raw + 'Z' : raw;
             var d = new Date(iso);
             if (isNaN(d.getTime())) return raw;
-            return d.toLocaleString('en-GB', {
-                timeZone: 'Europe/London',
-                day: '2-digit', month: '2-digit', year: 'numeric',
-                hour: '2-digit', minute: '2-digit', second: '2-digit',
-                hour12: false
-            });
-        } catch (e) { return raw; }
+            return d.toLocaleString('en-GB', { timeZone: 'Europe/London', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false });
+        } catch(e) { return raw; }
     }
 
     function setupTimestampFix() {
-        ['inv-timestamp', 'footer-inv-time'].forEach(function (id) {
+        ['inv-timestamp','footer-inv-time'].forEach(function(id) {
             var el = document.getElementById(id);
             if (!el) return;
             var busy = false;
-            new MutationObserver(function () {
+            new MutationObserver(function() {
                 if (busy) return;
                 var raw = el.textContent.trim();
                 var fixed = fixTs(raw);
-                if (fixed !== raw) {
-                    busy = true;
-                    el.textContent = fixed;
-                    busy = false;
-                }
+                if (fixed !== raw) { busy = true; el.textContent = fixed; busy = false; }
             }).observe(el, { childList: true, characterData: true, subtree: true });
         });
     }
 
-    /* ── INIT ─────────────────────────────────────────────────
-       MutationObserver реактивен — ждать первого poll не нужно.
-    ──────────────────────────────────────────────────────────── */
     function init() {
         setupMiniOutputPower();
         setupMiniBattery();
@@ -163,10 +77,6 @@
         setupTimestampFix();
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
-
+    if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); }
+    else { init(); }
 }());

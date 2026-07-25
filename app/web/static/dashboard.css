@@ -939,3 +939,4 @@ html, body {
   .dm-stats-strip      { grid-template-columns: 1fr 1fr; }
   .dm-summary-row      { grid-template-columns: 1fr; }
 }
+#loads-table-body.dm-active-only tr{display:none}#loads-table-body.dm-active-only tr:has(.dm-state-on){display:table-row}
