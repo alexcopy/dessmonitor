@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dessmonitor — Analytics</title>
+    <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script defer src="/static/dashboard.js"></script>
+</head>
+<body>
+
+<!-- ════════════════════ NAV ════════════════════ -->
+<nav class="dm-nav" role="banner">
+    <div class="dm-nav-brand">dess<span>monitor</span></div>
+    <div class="dm-nav-links">
+        <a href="/" class="dm-nav-link">
+            <span class="nav-icon">&#9632;</span> Dashboard
+        </a>
+        <a href="/analytics" class="dm-nav-link active">
+            <span class="nav-icon">&#9776;</span> Analytics
+        </a>
+        <a href="#" class="dm-nav-link disabled">
+            <span class="nav-icon">&#9881;</span> Controls
+        </a>
+        <a href="#" class="dm-nav-link disabled">
+            <span class="nav-icon">&#9874;</span> Settings
+        </a>
+    </div>
+    <div class="dm-nav-right">
+        <span class="dm-badge degraded" id="nav-status-badge">System</span>
+        <span class="nav-username">Authenticated as <strong>{{ username }}</strong></span>
+        <form method="post" action="/logout" class="logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="logout-btn">Sign Out</button>
+        </form>
+    </div>
+</nav>
+
+<!-- ════════════════════ MAIN ════════════════════ -->
+<main class="dm-main">
+
+    <!-- PAGE HEADER + DATE RANGE -->
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; flex-wrap:wrap; gap:0.75rem;">
+        <div>
+            <h1 style="font-family:var(--mono); font-size:1.2rem; font-weight:700; color:var(--text);">Energy Analytics</h1>
+            <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.2rem;">Historical performance</div>
+        </div>
+        <div class="dm-daterange">
+            <button class="dm-range-btn">6H</button>
+            <button class="dm-range-btn">12H</button>
+            <button class="dm-range-btn active">24H</button>
+            <button class="dm-range-btn">7D</button>
+            <button class="dm-range-btn">30D</button>
+        </div>
+    </div>
+
+    <!-- SUMMARY STRIP -->
+    <div class="dm-summary-row">
+        <div class="dm-summary-card" style="border-top: 2px solid var(--teal);">
+            <div class="dm-summary-label">&#9788; PV Generated</div>
+            <div class="dm-summary-val" style="color:var(--teal);">— <span style="font-size:0.9rem; color:var(--text-dim);">kWh</span></div>
+            <div class="dm-summary-sub">Placeholder data</div>
+        </div>
+        <div class="dm-summary-card" style="border-top: 2px solid var(--green);">
+            <div class="dm-summary-label">&#9889; Load Consumed</div>
+            <div class="dm-summary-val" style="color:var(--green);">— <span style="font-size:0.9rem; color:var(--text-dim);">kWh</span></div>
+            <div class="dm-summary-sub">Placeholder data</div>
+        </div>
+        <div class="dm-summary-card" style="border-top: 2px solid var(--amber);">
+            <div class="dm-summary-label">&#9889; Battery &Delta; SOC</div>
+            <div class="dm-summary-val" style="color:var(--amber);">— <span style="font-size:0.9rem; color:var(--text-dim);">%</span></div>
+            <div class="dm-summary-sub">Placeholder data</div>
+        </div>
+        <div class="dm-summary-card" style="border-top: 2px solid var(--blue);">
+            <div class="dm-summary-label">&#127760; Grid Import</div>
+            <div class="dm-summary-val" style="color:var(--blue);">— <span style="font-size:0.9rem; color:var(--text-dim);">kWh</span></div>
+            <div class="dm-summary-sub">Placeholder data</div>
+        </div>
+        <div class="dm-summary-card" style="border-top: 2px solid #9966ff;">
+            <div class="dm-summary-label">&#128161; Self-Sufficiency</div>
+            <div class="dm-summary-val" style="color:#9966ff;">— <span style="font-size:0.9rem; color:var(--text-dim);">%</span></div>
+            <div class="dm-summary-sub">Placeholder data</div>
+        </div>
+    </div>
+
+    <!-- SECTION: Power Generation & Storage -->
+    <div class="dm-section-label">Power Generation &amp; Storage</div>
+    <div class="dm-grid-2" style="margin-bottom:1rem;">
+
+        <!-- PV power chart container -->
+        <div class="dm-card accent-teal">
+            <div class="dm-kpi-label" style="margin-bottom:1rem;">&#9788; PV Power — 24h</div>
+            <div class="dm-chart-wrap tall">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#9788;</div>
+                    <div>PV Power Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SOC chart container -->
+        <div class="dm-card accent-amber">
+            <div class="dm-kpi-label" style="margin-bottom:0.5rem;">&#9889; Battery SOC — 24h</div>
+            <div class="dm-chart-wrap" style="height:220px;">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#9889;</div>
+                    <div>Battery SOC Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECTION: Load & Grid Analysis -->
+    <div class="dm-section-label">Load &amp; Grid Analysis</div>
+    <div class="dm-grid-2" style="margin-bottom:1rem;">
+
+        <!-- Device energy chart container -->
+        <div class="dm-card accent-green">
+            <div class="dm-kpi-label" style="margin-bottom:1rem;">&#9881; Daily Energy by Device (Wh)</div>
+            <div class="dm-chart-wrap tall">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#9776;</div>
+                    <div>Device Energy Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hourly load profile chart container -->
+        <div class="dm-card accent-blue" style="border-top: 2px solid var(--blue);">
+            <div class="dm-kpi-label" style="margin-bottom:1rem;">&#128202; Hourly Load Profile — 24h</div>
+            <div class="dm-chart-wrap tall">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#128202;</div>
+                    <div>Hourly Load Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECTION: Energy Flow & Sensors -->
+    <div class="dm-section-label">Energy Flow &amp; Sensors</div>
+    <div class="dm-grid-chart" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom:1rem;">
+
+        <!-- Energy source donut chart container -->
+        <div class="dm-card" style="border-top: 2px solid #9966ff;">
+            <div class="dm-kpi-label" style="margin-bottom:0.75rem;">&#128259; Energy Sources — today</div>
+            <div class="dm-chart-wrap" style="height:200px;">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#128259;</div>
+                    <div>Energy Source Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Self-sufficiency chart container -->
+        <div class="dm-card">
+            <div class="dm-kpi-label" style="margin-bottom:1rem;">&#128161; Self-Sufficiency — 7 days</div>
+            <div class="dm-chart-wrap" style="height:200px;">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#128200;</div>
+                    <div>Self-Sufficiency Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Water temp chart container -->
+        <div class="dm-card accent-teal">
+            <div class="dm-kpi-label" style="margin-bottom:0.5rem;">&#127777; Water Temperature — 24h</div>
+            <div class="dm-chart-wrap" style="height:200px;">
+                <div class="dm-chart-placeholder">
+                    <div class="chart-icon">&#127777;</div>
+                    <div>Water Temperature Chart</div>
+                    <div style="font-size:0.7rem;">Chart.js not available — static placeholder</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECTION: System Events -->
+    <div class="dm-section-label">System Events — Last 24h</div>
+    <div class="dm-card" style="margin-bottom:1.5rem;">
+        <table class="dm-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Event</th>
+                    <th>Device</th>
+                    <th>Value</th>
+                    <th>Severity</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="dm-mono" style="color:var(--text-dim); font-size:0.78rem;">—</td>
+                    <td>Events data not available — backend deferred</td>
+                    <td class="dm-mono">system</td>
+                    <td class="dm-mono" style="color:var(--text-dim);">—</td>
+                    <td><span class="dm-tag amber">INFO</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</main>
+
+<script>
+/* Date range button toggle */
+document.querySelectorAll('.dm-range-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('.dm-range-btn').forEach(function(b) { b.classList.remove('active'); });
+        this.classList.add('active');
+    });
+});
+</script>
+
+</body>
+</html>

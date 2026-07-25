@@ -9,257 +9,250 @@
     <script defer src="/static/dashboard.js"></script>
 </head>
 <body>
-    <header class="navbar is-dark" role="banner">
-        <div class="navbar-brand">
-            <span class="navbar-item has-text-weight-bold">dessmonitor</span>
-        </div>
-        <div class="navbar-end">
-            <div class="navbar-item" id="operator-area">
-                <span class="mr-3">Authenticated as <strong>{{ username }}</strong></span>
-                <form method="post" action="/logout" class="is-flex is-align-items-center">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="button is-small is-light">Sign Out</button>
-                </form>
-            </div>
-        </div>
-    </header>
 
-    <main id="dashboard-main" class="section">
-        <h1 class="title is-4 mb-2">dessmonitor Dashboard</h1>
+<!-- ════════════════════ NAV ════════════════════ -->
+<nav class="dm-nav" role="banner">
+    <div class="dm-nav-brand">dess<span>monitor</span></div>
+    <div class="dm-nav-links">
+        <a href="/" class="dm-nav-link active">
+            <span class="nav-icon">&#9632;</span> Dashboard
+        </a>
+        <a href="/analytics" class="dm-nav-link">
+            <span class="nav-icon">&#9776;</span> Analytics
+        </a>
+        <a href="#" class="dm-nav-link disabled">
+            <span class="nav-icon">&#9881;</span> Controls
+        </a>
+        <a href="#" class="dm-nav-link disabled">
+            <span class="nav-icon">&#9874;</span> Settings
+        </a>
+    </div>
+    <div class="dm-nav-right">
+        <span class="dm-badge degraded" id="nav-status-badge">System</span>
+        <span class="nav-username">Authenticated as <strong>{{ username }}</strong></span>
+        <form method="post" action="/logout" class="logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="logout-btn">Sign Out</button>
+        </form>
+    </div>
+</nav>
 
-        <!-- Connection state badge -->
-        <div class="level mb-3">
-            <div class="level-left">
-                <div class="level-item">
-                    <div class="tags has-addons" id="connection-state-tags" aria-live="polite" aria-atomic="true">
-                        <span class="tag is-dark">Status</span>
-                        <span class="tag is-info is-connecting" id="connection-state-badge">Connecting&hellip;</span>
-                    </div>
-                </div>
-                <div class="level-item">
-                    <span id="last-refresh" class="is-size-7 has-text-grey"></span>
-                </div>
-            </div>
-        </div>
+<!-- ════════════════════ MAIN ════════════════════ -->
+<main class="dm-main" id="dashboard-main">
+
+    <!-- ALERT STRIP -->
+    <div class="dm-alert hidden" id="dashboard-alert">
+        <span class="alert-icon">&#9888;</span>
+        <div class="dm-alert-text" id="alert-text">—</div>
+        <div class="dm-alert-time" id="alert-time"></div>
+    </div>
+
+    <!-- Unavailable state -->
+    <div id="dashboard-unavailable" class="dm-card is-hidden" style="text-align:center; padding:3rem;">
+        <p style="color:var(--text-dim); font-family:var(--mono);">
+            No data available. The control state snapshot is currently unavailable.
+        </p>
+        <p style="color:var(--text-dim); font-size:0.75rem; margin-top:0.5rem;">
+            Data will appear when the system provides a snapshot.
+        </p>
+    </div>
+
+    <!-- Dashboard content -->
+    <div id="dashboard-content" class="is-hidden">
 
         <!-- Startup reset badge -->
-        <div class="level mb-3">
-            <div class="level-left">
-                <div class="level-item">
-                    <span id="startup-reset-badge" class="tag is-hidden"></span>
+        <div style="margin-bottom:1rem;">
+            <span id="startup-reset-badge" class="dm-badge is-hidden"></span>
+            <span id="startup-reset-info-text" class="dm-mono" style="font-size:0.72rem; color:var(--text-dim);"></span>
+        </div>
+
+        <!-- INVERTER HERO -->
+        <div class="dm-inverter-hero">
+            <div class="dm-inverter-title">
+                <div class="dm-inverter-name">
+                    <div class="dm-pulse"></div>
+                    <span>Inverter</span>
                 </div>
-                <div class="level-item" id="startup-reset-info">
-                    <span id="startup-reset-info-text" class="is-size-7 has-text-grey"></span>
+                <div class="dm-inverter-meta">
+                    <span id="source-indicator" class="dm-badge ok">&#8212; N/A</span>
+                    &nbsp;
+                    <span id="inv-freshness" class="dm-badge">unavailable</span>
+                </div>
+                <div style="margin-top:0.5rem; font-size:0.72rem; color:var(--text-dim); font-family:var(--mono);">
+                    AC In: <span id="inv-detail-ac-voltage">N/A</span> &nbsp;&middot;&nbsp;
+                    Last sync: <span id="inv-timestamp">N/A</span>
+                    &nbsp;&middot;&nbsp; Dis: <span id="inv-detail-dis">N/A</span>
+                    &nbsp;&middot;&nbsp; Chg: <span id="inv-detail-chg">N/A</span>
+                </div>
+            </div>
+
+            <div class="dm-inverter-metrics">
+                <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#9788; PV Power</div>
+                    <div class="dm-inv-metric-val pv-color">
+                        <span id="ds-pv-power">N/A</span><span class="unit"> W</span>
+                    </div>
+                    <div class="dm-kpi-sub" id="ds-pv-status">&mdash;</div>
+                </div>
+                <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#9889; Battery</div>
+                    <div class="dm-inv-metric-val bat-color">
+                        <span id="ds-battery-voltage">N/A</span><span class="unit"> V</span>
+                    </div>
+                    <div class="dm-kpi-sub" id="ds-battery-sub">&mdash;</div>
+                </div>
+                <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#128268; Output</div>
+                    <div class="dm-inv-metric-val load-color">
+                        <span id="ds-output-voltage">N/A</span><span class="unit"> V</span>
+                    </div>
+                    <div class="dm-kpi-sub">
+                        Load: <span id="inv-detail-load">N/A</span>
+                    </div>
+                </div>
+                <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#128229; Power</div>
+                    <div class="dm-inv-metric-val load-color">
+                        <span id="ds-output-power">N/A</span><span class="unit"> W</span>
+                    </div>
+                    <div class="dm-kpi-sub" id="ds-load-sub">&mdash;</div>
+                </div>
+                <div class="dm-inv-metric">
+                    <div class="dm-inv-metric-label">&#128225; AC In</div>
+                    <div class="dm-inv-metric-val" style="font-size:1.3rem">
+                        <span id="ds-ac-input">N/A</span><span class="unit"> V</span>
+                    </div>
+                    <div class="dm-kpi-sub">Grid input</div>
+                </div>
+            </div>
+
+            <!-- SOC GAUGE -->
+            <div class="dm-gauge-wrap">
+                <div class="dm-gauge-label">SOC</div>
+                <svg class="dm-gauge-svg" id="socGaugeSvg" width="130" height="80" viewBox="0 0 130 80">
+                    <path id="socGaugeTrack" d="M 11 70 A 54 54 0 0 1 119 70"
+                          fill="none" stroke="#30363d" stroke-width="10" stroke-linecap="round"/>
+                    <path id="socGaugeFill" d="M 11 70 A 54 54 0 0 1 65 16"
+                          fill="none" stroke="#f5a623" stroke-width="10" stroke-linecap="round"/>
+                </svg>
+                <div class="dm-gauge-pct" id="socPct" style="color:var(--amber);">—</div>
+            </div>
+        </div>
+
+        <!-- MINI STATS STRIP -->
+        <div class="dm-stats-strip">
+            <div class="dm-stat-mini">
+                <div class="dm-stat-mini-icon teal">&#9788;</div>
+                <div>
+                    <div class="dm-stat-mini-label">PV Generation</div>
+                    <div class="dm-stat-mini-val" id="mini-pv">—</div>
+                </div>
+            </div>
+            <div class="dm-stat-mini">
+                <div class="dm-stat-mini-icon amber">&#9889;</div>
+                <div>
+                    <div class="dm-stat-mini-label">Battery SOC</div>
+                    <div class="dm-stat-mini-val" id="mini-soc">—</div>
+                </div>
+            </div>
+            <div class="dm-stat-mini">
+                <div class="dm-stat-mini-icon green">&#9889;</div>
+                <div>
+                    <div class="dm-stat-mini-label">Active Loads</div>
+                    <div class="dm-stat-mini-val" id="mini-loads">—</div>
+                </div>
+            </div>
+            <div class="dm-stat-mini">
+                <div class="dm-stat-mini-icon red">&#127777;</div>
+                <div>
+                    <div class="dm-stat-mini-label">Water Temp</div>
+                    <div class="dm-stat-mini-val" id="mini-watertemp">—</div>
                 </div>
             </div>
         </div>
 
-        <!-- Unavailable state -->
-        <div id="dashboard-unavailable" class="notification is-warning is-hidden">
-            <p><strong>No data available.</strong> The control state snapshot is currently unavailable. Data will appear when the system provides a snapshot.</p>
+        <!-- Hidden elements for dashboard.js compatibility -->
+        <div style="display:none;">
+            <span id="connection-state-badge"></span>
+            <span id="last-refresh"></span>
+            <span id="summary-status"></span>
+            <span id="summary-api-status"></span>
+            <span id="summary-total-loads"></span>
+            <span id="summary-on-count"></span>
+            <span id="summary-off-count"></span>
+            <span id="summary-unknown-count"></span>
+            <span id="snapshot-timestamp"></span>
+            <span id="ds-working-mode"></span>
         </div>
 
-        <!-- Dashboard content -->
-        <div id="dashboard-content" class="is-hidden">
+        <!-- Dashboard warnings (hidden by default) -->
+        <div id="dashboard-warnings" class="is-hidden">
+            <div id="warnings-body"></div>
+        </div>
 
-            <!-- Compact operator/inverter summary (NEW — first content section) -->
-            <div id="operator-summary" class="columns is-multiline is-vcentered mb-4">
-                <!-- Source indicator badge -->
-                <div class="column is-narrow">
-                    <span id="source-indicator" class="tag is-medium ds-source-indicator ds-source-unknown">— N/A</span>
-                </div>
-                <!-- Inverter freshness badge -->
-                <div class="column is-narrow">
-                    <span id="inv-freshness" class="tag is-light">unavailable</span>
-                </div>
-                <!-- Output power -->
-                <div class="column is-narrow">
-                    <div class="ds-compact-card">
-                        <p class="heading">Output</p>
-                        <p class="ds-compact-value" id="ds-output-power">N/A</p>
-                    </div>
-                </div>
-                <!-- Output voltage -->
-                <div class="column is-narrow">
-                    <div class="ds-compact-card">
-                        <p class="heading">Voltage</p>
-                        <p class="ds-compact-value" id="ds-output-voltage">N/A</p>
-                    </div>
-                </div>
-                <!-- Battery -->
-                <div class="column is-narrow">
-                    <div class="ds-compact-card">
-                        <p class="heading">Battery</p>
-                        <p class="ds-compact-value" id="ds-battery-voltage">N/A</p>
-                    </div>
-                </div>
-                <!-- PV total power -->
-                <div class="column is-narrow" id="ds-pv-col">
-                    <div class="ds-compact-card">
-                        <p class="heading">PV</p>
-                        <p class="ds-compact-value" id="ds-pv-power">N/A</p>
-                    </div>
-                </div>
-                <!-- Battery SOC -->
-                <div class="column is-narrow">
-                    <div class="ds-compact-card">
-                        <p class="heading">SOC</p>
-                        <p class="ds-compact-value" id="ds-battery-soc">N/A</p>
-                    </div>
-                </div>
-                <!-- Working mode label -->
-                <div class="column is-narrow">
-                    <span id="ds-working-mode" class="tag is-light">N/A</span>
-                </div>
-            </div>
+        <!-- BOTTOM ROW: LOADS + SENSORS -->
+        <div class="dm-bottom-row">
 
-            <!-- Summary cards (existing — load counts) -->
-            <div class="columns is-multiline mb-4" id="dashboard-summary">
-                <div class="column is-6-tablet is-3-desktop">
-                    <div class="card">
-                        <div class="card-content has-text-centered">
-                            <p class="heading">System Status</p>
-                            <p class="title is-4" id="summary-status">-</p>
-                            <p class="subtitle is-6" id="summary-api-status">-</p>
-                        </div>
+            <!-- LOADS TABLE -->
+            <div class="dm-card">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
+                    <div class="dm-kpi-label">&#9881; Current Loads</div>
+                    <div style="display:flex; gap:0.5rem;">
+                        <span class="dm-badge ok" id="loads-on-badge">ON</span>
+                        <span class="dm-badge" style="background:rgba(139,148,158,0.1); color:var(--text-dim);" id="loads-off-badge">OFF</span>
+                        <span class="dm-badge" style="background:rgba(139,148,158,0.08); color:var(--text-dim);" id="loads-unknown-badge">UNK</span>
                     </div>
                 </div>
-                <div class="column is-6-tablet is-3-desktop">
-                    <div class="card">
-                        <div class="card-content has-text-centered">
-                            <p class="heading">Total Loads</p>
-                            <p class="title is-4" id="summary-total-loads">-</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="column is-6-tablet is-3-desktop">
-                    <div class="card">
-                        <div class="card-content has-text-centered">
-                            <p class="heading">ON</p>
-                            <p class="title is-4 has-text-success" id="summary-on-count">-</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="column is-6-tablet is-3-desktop">
-                    <div class="card">
-                        <div class="card-content has-text-centered">
-                            <p class="heading">OFF</p>
-                            <p class="title is-4 has-text-grey" id="summary-off-count">-</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="column is-6-tablet is-3-desktop">
-                    <div class="card">
-                        <div class="card-content has-text-centered">
-                            <p class="heading">UNKNOWN</p>
-                            <p class="title is-4 has-text-grey-light" id="summary-unknown-count">-</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            <!-- Warnings -->
-            <div id="dashboard-warnings" class="is-hidden mb-4">
-                <article class="message is-warning">
-                    <div class="message-body" id="warnings-body"></div>
-                </article>
-            </div>
-
-            <!-- Snapshot timestamp -->
-            <p id="snapshot-timestamp" class="is-size-7 has-text-grey mb-3"></p>
-
-            <!-- Loads tabs -->
-            <h2 class="title is-5">Current Loads</h2>
-            <div class="tabs is-toggle is-small mb-2" id="loads-tabs">
-                <ul>
-                    <li id="loads-tab-active" class="is-active">
-                        <a id="loads-active-tab">
-                            <span>Active</span>
-                        </a>
-                    </li>
-                    <li id="loads-tab-inactive">
-                        <a id="loads-inactive-tab">
-                            <span>Inactive / Off / Unknown</span>
-                        </a>
-                    </li>
-                </ul>
-            </div>
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped is-hoverable">
+                <table class="dm-table">
                     <thead>
                         <tr>
-                            <th>Device Name</th>
-                            <th>Description</th>
+                            <th>Device</th>
                             <th>State</th>
-                            <th>Load (W)</th>
-                            <th>Controllable</th>
-                            <th>Status</th>
-                            <th>Mapping</th>
-                            <th>Reset</th>
+                            <th>Power</th>
                             <th>Roles</th>
                         </tr>
                     </thead>
-                    <tbody id="loads-active-body">
+                    <tbody id="loads-table-body">
                         <tr>
-                            <td colspan="9" class="has-text-centered has-text-grey">Loading&hellip;</td>
+                            <td colspan="4" style="text-align:center; color:var(--text-dim);">Loading&hellip;</td>
                         </tr>
                     </tbody>
-                    <tbody id="loads-inactive-body" class="is-hidden">
+                    <tfoot>
                         <tr>
-                            <td colspan="9" class="has-text-centered has-text-grey">No inactive loads</td>
+                            <td colspan="2" style="padding-top:0.75rem; color:var(--text-dim); font-size:0.75rem;">Total active load</td>
+                            <td colspan="2" style="padding-top:0.75rem;">
+                                <span style="font-family:var(--mono); font-weight:700; font-size:1.05rem; color:var(--teal);" id="total-load-watts">—</span>
+                            </td>
                         </tr>
-                    </tbody>
+                    </tfoot>
                 </table>
             </div>
 
-            <!-- Sensors table -->
-            <h2 class="title is-5 mt-5">Sensors</h2>
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped is-hoverable">
-                    <thead>
-                        <tr>
-                            <th>Sensor</th>
-                            <th>Description</th>
-                            <th>Value</th>
-                            <th>Observed</th>
-                            <th>Freshness</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="sensors-table-body">
-                        <tr>
-                            <td colspan="6" class="has-text-centered has-text-grey">No sensors available</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Inverter detail (compact row — remaining fields not in summary) -->
-            <div id="inverter-detail-section" class="is-hidden mt-4">
-                <div class="columns is-multiline is-gapless">
-                    <div class="column is-narrow">
-                        <span class="is-size-7 has-text-grey">Inv time:</span>
-                        <span class="is-size-7 ml-1" id="inv-timestamp">N/A</span>
-                    </div>
-                    <div class="column is-narrow ml-3">
-                        <span class="is-size-7 has-text-grey">AC In:</span>
-                        <span class="is-size-7 ml-1" id="inv-detail-ac-voltage">N/A</span>
-                    </div>
-                    <div class="column is-narrow ml-3">
-                        <span class="is-size-7 has-text-grey">Load:</span>
-                        <span class="is-size-7 ml-1" id="inv-detail-load">N/A</span>
-                    </div>
-                    <div class="column is-narrow ml-3">
-                        <span class="is-size-7 has-text-grey">Chg:</span>
-                        <span class="is-size-7 ml-1" id="inv-detail-chg">N/A</span>
-                    </div>
-                    <div class="column is-narrow ml-3">
-                        <span class="is-size-7 has-text-grey">Dis:</span>
-                        <span class="is-size-7 ml-1" id="inv-detail-dis">N/A</span>
+            <!-- SENSORS PANEL -->
+            <div class="dm-card">
+                <div class="dm-kpi-label" style="margin-bottom:0.75rem;">&#127777; Sensors</div>
+                <div id="sensors-panel">
+                    <div class="dm-sensor">
+                        <div class="dm-sensor-body">
+                            <div class="dm-sensor-desc" style="text-align:center; padding:1rem;">No sensors available</div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </main>
+
+        <!-- FOOTER BAR -->
+        <div class="dm-footer-bar">
+            <span>&#128340; Inv: <span id="footer-inv-time">—</span></span>
+            <span>&#128246; AC In: <span id="footer-ac-in">—</span></span>
+            <span>&#9889; Load: <span id="footer-load">—</span></span>
+            <span>&darr; Dis: <span id="footer-dis">—</span></span>
+            <span>&uarr; Chg: <span id="footer-chg">—</span></span>
+            <span style="margin-left:auto;">Updated <span id="footer-updated">—</span></span>
+        </div>
+    </div>
+</main>
+
 </body>
 </html>

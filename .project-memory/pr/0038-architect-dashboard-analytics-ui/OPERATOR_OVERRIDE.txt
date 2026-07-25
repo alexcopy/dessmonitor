@@ -1,0 +1,26 @@
+OPERATOR OVERRIDE — PR 0038: Architect Dashboard and Analytics UI
+====================================================================
+
+PLAN / PLAN-REVIEW skipped by direct operator decision.
+
+Scope:
+  - UI/UX template integration only (dashboard.html, analytics.html).
+  - No backend data-flow changes.
+  - No control semantics changes.
+
+Deferred:
+  - output_power data-flow fix (UI renders N/A for output_power; this is a known
+    backend issue — not fixed in this PR).
+  - Weather/prediction data source (backend not added).
+  - Real analytics data backend (charts use static/deterministic placeholders).
+  - Chart.js / Lucide asset integration (not vendored; chart containers use
+    CSS-only placeholders).
+
+No backend control semantics are changed.
+/control/state remains read-only.
+Authentication behavior is unchanged.
+Startup reset behavior is unchanged.
+Tuya polling is unchanged.
+DESS signing/API behavior is unchanged.
+Device classification is unchanged.
+Sensor telemetry pipeline is unchanged.

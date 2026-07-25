@@ -212,6 +212,27 @@ def create_auth_router(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    # -- /analytics GET --------------------------------------------------
+
+    @router.get("/analytics")
+    async def analytics_get(request: Request) -> Any:
+        """Render the authenticated analytics page.
+
+        Unauthenticated users are redirected to ``/login``.
+        """
+        valid, user = _check_auth(request)
+        if not valid:
+            return RedirectResponse("/login", status_code=303)
+
+        csrf = generate_csrf_token(request.session)
+        response = templates.TemplateResponse(
+            request=request,
+            name="analytics.html",
+            context={"username": user, "csrf_token": csrf},
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     return router
 
 

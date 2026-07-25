@@ -250,11 +250,11 @@ else
     assert_fail 15 "#snapshot-timestamp" "Element not found"
 fi
 
-# [16] sensors-table-body still present
-if grep -q 'id="sensors-table-body"' app/web/templates/index.html 2>/dev/null; then
-    assert_pass 16 "index.html contains #sensors-table-body (existing — not removed)"
+# [16] sensors-panel present (architect replacement for sensors-table-body)
+if grep -q 'id="sensors-panel"' app/web/templates/index.html 2>/dev/null; then
+    assert_pass 16 "index.html contains #sensors-panel (architect sensors section)"
 else
-    assert_fail 16 "#sensors-table-body" "Sensors section removed"
+    assert_fail 16 "#sensors-panel" "Sensors section not found in index.html"
 fi
 
 # [17] Inverter detail fields still present (chg, dis)
@@ -272,12 +272,11 @@ else
     assert_fail 18 "source indicator" "Source indicator element missing"
 fi
 
-# [19] Load tabs still present
-if grep -q 'id="loads-active-tab"' app/web/templates/index.html 2>/dev/null && \
-   grep -q 'id="loads-inactive-tab"' app/web/templates/index.html 2>/dev/null; then
-    assert_pass 19 "Load tabs still present (active/inactive)"
+# [19] Single loads table present (architect consolidated layout)
+if grep -q 'id="loads-table-body"' app/web/templates/index.html 2>/dev/null; then
+    assert_pass 19 "Loads table body present (#loads-table-body — architect single table)"
 else
-    assert_fail 19 "load tabs" "Load tab elements missing"
+    assert_fail 19 "loads table" "loads-table-body element missing"
 fi
 
 # [20] No weather section added
@@ -296,11 +295,11 @@ fi
 echo ""
 echo "=== BLOCK 5: Static asset checks ==="
 
-# [21] dashboard.js contains renderInverterTimestamp
-if grep -q "renderInverterTimestamp" app/web/static/dashboard.js 2>/dev/null; then
-    assert_pass 21 "dashboard.js contains renderInverterTimestamp function"
+# [21] dashboard.js contains renderOperatorSummary (consolidated timestamp rendering)
+if grep -q "renderOperatorSummary" app/web/static/dashboard.js 2>/dev/null; then
+    assert_pass 21 "dashboard.js contains renderOperatorSummary (consolidated inverter rendering)"
 else
-    assert_fail 21 "renderInverterTimestamp" "Function not found in dashboard.js"
+    assert_fail 21 "renderOperatorSummary" "Function not found in dashboard.js"
 fi
 
 # [22] dashboard.js contains renderInverterFreshness
@@ -310,11 +309,11 @@ else
     assert_fail 22 "renderInverterFreshness" "Function not found in dashboard.js"
 fi
 
-# [23] dashboard.js contains computePowerSeverity
-if grep -q "computePowerSeverity" app/web/static/dashboard.js 2>/dev/null; then
-    assert_pass 23 "dashboard.js contains computePowerSeverity function"
+# [23] dashboard.js applies dm-badge classes for severity/status rendering
+if grep -q 'dm-badge' app/web/static/dashboard.js 2>/dev/null; then
+    assert_pass 23 "dashboard.js uses dm-badge class system for severity rendering"
 else
-    assert_fail 23 "computePowerSeverity" "Function not found in dashboard.js"
+    assert_fail 23 "dm-badge severity" "dm-badge not referenced in dashboard.js"
 fi
 
 # [24] No innerHTML for API values
@@ -324,23 +323,23 @@ else
     assert_pass 24 "dashboard.js uses safe DOM APIs (no innerHTML)"
 fi
 
-# [25] CSS power severity classes defined
-if grep -q "ds-power-severity-green" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 25 "CSS defines .ds-power-severity-green"
+# [25] CSS dm-badge severity classes (architect replacement for ds-power-severity-*)
+if grep -q ".dm-badge.ok" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 25 "CSS defines .dm-badge.ok (replaces ds-power-severity-green)"
 else
-    assert_fail 25 ".ds-power-severity-green" "CSS class not found"
+    assert_fail 25 ".dm-badge.ok" "CSS class not found"
 fi
 
-if grep -q "ds-power-severity-amber" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 26 "CSS defines .ds-power-severity-amber"
+if grep -q ".dm-badge.degraded" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 26 "CSS defines .dm-badge.degraded (replaces ds-power-severity-amber)"
 else
-    assert_fail 26 ".ds-power-severity-amber" "CSS class not found"
+    assert_fail 26 ".dm-badge.degraded" "CSS class not found"
 fi
 
-if grep -q "ds-power-severity-red" app/web/static/dashboard.css 2>/dev/null; then
-    assert_pass 27 "CSS defines .ds-power-severity-red"
+if grep -q ".dm-badge.error" app/web/static/dashboard.css 2>/dev/null; then
+    assert_pass 27 "CSS defines .dm-badge.error (replaces ds-power-severity-red)"
 else
-    assert_fail 27 ".ds-power-severity-red" "CSS class not found"
+    assert_fail 27 ".dm-badge.error" "CSS class not found"
 fi
 
 # [26] run.py zoneinfo import

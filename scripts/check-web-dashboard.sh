@@ -224,10 +224,10 @@ if login(cj):
     html = body.decode("utf-8", errors="replace")
     # Save HTML headers for later CSP check
     dashboard_headers = headers
-    if status == 200 and "navbar" in html:
-        ok("Auth GET / -> 200, Bulma classes present")
+    if status == 200 and "dm-nav" in html:
+        ok("Auth GET / -> 200, architect dm-nav present")
     else:
-        fail(f"Auth GET / -> {status}, has-navbar={'navbar' in html}")
+        fail(f"Auth GET / -> {status}, has-dm-nav={'dm-nav' in html}")
 else:
     fail("Login for [2]")
 
@@ -458,12 +458,12 @@ else:
 css_path = os.path.join(PROJECT_DIR, "app", "web", "static", "dashboard.css")
 with open(css_path) as f:
     css_content = f.read()
-css_states = ["is-connecting", "is-online", "is-stale", "is-degraded", "is-offline"]
+css_states = [".dm-badge.ok", ".dm-badge.degraded", ".dm-badge.error"]
 found_css = [s for s in css_states if s in css_content]
-if len(found_css) >= 5:
-    ok(f"All 5 CSS state classes present: {found_css}")
+if len(found_css) >= 3:
+    ok(f"All 3 dm-badge state classes present: {found_css}")
 else:
-    fail(f"Missing CSS states: {set(css_states) - set(found_css)}")
+    fail(f"Missing dm-badge states: {set(css_states) - set(found_css)}")
 
 # ================================================================
 # ACCESSIBILITY (3 tests)
@@ -475,17 +475,17 @@ if 'name="viewport"' in html:
 else:
     fail("Viewport meta tag missing")
 
-# [30] <header> landmark
-if "<header" in html:
-    ok("<header> landmark present")
+# [30] nav banner landmark
+if 'role="banner"' in html:
+    ok("nav role=banner landmark present")
 else:
-    fail("<header> landmark missing")
+    fail("nav role=banner landmark missing")
 
-# [31] <h1> heading
-if "<h1" in html:
-    ok("<h1> heading present")
+# [31] dm-inverter-name as primary heading
+if "dm-inverter-name" in html:
+    ok("dm-inverter-name heading present")
 else:
-    fail("<h1> heading missing")
+    fail("dm-inverter-name heading missing")
 
 # ================================================================
 # ADDITIONAL CHECKS (no eval, no localStorage)
