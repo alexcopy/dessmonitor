@@ -1,0 +1,301 @@
+PLAN REVIEW COMPLETE
+
+TITLE
+PR 0036 — Compact Operator Dashboard Layout
+
+REPOSITORY STATE
+- Branch: pr-0036-compact-operator-dashboard (confirmed via git branch --show-current)
+- HEAD: 1ec54c12e93f7cd93a519e1b826a17cba793a3e8 (confirmed via git rev-parse HEAD)
+- Working tree: clean, only untracked .project-memory/pr/0036-compact-operator-dashboard/
+  (confirmed via git status --short)
+- Staging area: empty (confirmed via git diff --cached --name-only)
+- Last commit: "Project inverter telemetry into control plane (#58)" (confirmed via git show --stat --oneline HEAD)
+- Previous PR: 0034l (inverter electrical telemetry projection) — complete.
+  InverterReadSnapshot, _parse_inverter, inverter_provider wiring confirmed present.
+
+PLAN READ
+.project-memory/pr/0036-compact-operator-dashboard/PLAN.txt — read completely.
+
+INDEPENDENT FILES READ
+- app/web/templates/index.html (read completely)
+- app/web/static/dashboard.js (read completely)
+- app/web/static/dashboard.css (read completely)
+- app/control/control_state_snapshot.py (read completely — InverterReadSnapshot confirmed)
+- scripts/check-web-dashboard.sh (read for existing test contract)
+- app/control/runtime_snapshot_adapter.py (confirmed inverter parsing)
+- app/web_control_state_provider.py (confirmed inverter support)
+
+INDEPENDENT UI DATA-FLOW TRACE
+
+INVERTER SNAPSHOT -> /control/state -> DASHBOARD
+
+CONFIRMED: InverterReadSnapshot exists at app/control/control_state_snapshot.py
+lines 140-165. Fields include: battery_voltage, output_power, pv_total_power,
+output_voltage, battery_soc, working_mode, ac_input_voltage, mains_status, and
+more. All nullable float or str.
+
+CONFIRMED: ControlStateSnapshot (line 210-225) has inverter field:
+inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
+
+CONFIRMED: /control/state endpoint serializes inverter via FastAPI nested
+dataclass auto-serialization (same mechanism as loads, sensors).
+
+CONFIRMED: dashboard.js renderSnapshot() calls renderInverter(snapshot) at
+line ~295 AFTER rendering loads. renderInverter() reads inverter[0] fields
+and sets textContent on DOM elements (inv-battery-voltage, inv-output-power,
+etc.).
+
+CURRENT RENDER ORDER (confirmed from index.html and dashboard.js):
+1. Connection state badge (top)
+2. Startup reset badge
+3. Unavailable state (hidden when data present)
+4. Summary cards: System Status, Total Loads, ON/OFF/UNKNOWN (is-6-tablet is-3-desktop, title is-4)
+5. Warnings
+6. Snapshot timestamp
+7. Current Loads table (9 columns, ALL devices intermixed — no filter/tab)
+8. Sensors table (6 columns)
+9. Inverter cards (8 oversized card, title is-4, LAST section with mt-5)
+
+CONFIRMED: No source indicator element (#source-indicator) exists in index.html.
+inv-working-mode and inv-mains-status are rendered as plain text cards with no
+color/symbol distinction.
+
+CONFIRMED: No load tab structure exists. All ON, OFF, and UNKNOWN loads render
+in one table body (#loads-table-body).
+
+CONFIRMED: No weather forecast data exists in the pipeline. InverterReadSnapshot
+has no weather fields. No weather API or provider is wired.
+
+CONFIRMED: The proposed layout work (reorder sections, add source indicator, add
+load tabs, compact inverter layout) requires NO changes to:
+- Backend telemetry semantics (InverterReadSnapshot, ControlStateSnapshot)
+- /control/state contract
+- Sensor or load domain models
+- Authentication, commands, or write paths
+
+ROOT CAUSE ASSESSMENT
+
+Root cause: "The dashboard layout reflects implementation order rather than
+operator priority." — CONFIRMED.
+
+The inverter section was added last (PR0034l) and placed at the bottom of the
+page, below even Sensors. The first viewport shows generic counts (System Status,
+Total Loads) that are less useful than inverter metrics. All loads are rendered
+in one table with no active/inactive separation. No source indicator exists
+despite working_mode and mains_status being available in every InverterReadSnapshot.
+
+This is a UI hierarchy and rendering issue, not a telemetry or data-flow issue:
+- All required data already flows through the pipeline (InverterReadSnapshot has
+  working_mode, mains_status, and all voltage/power fields).
+- The /control/state endpoint serializes inverter, loads, and sensors correctly.
+- The dashboard receives the data but presents it in suboptimal order and format.
+
+The plan preserves existing telemetry and contract semantics: no backend types
+are modified, no new fields are added to any snapshot, no /control/state contract
+changes occur.
+
+Weather forecast is correctly deferred: the plan explicitly states weather
+integration "is a separate data-source feature requiring backend ingestion
+(OpenWeather API) and typed contract work" and excludes it from scope.
+CONFIRMED: no weather data, no weather contract, no weather API in this plan.
+
+SCOPE ASSESSMENT
+
+IN SCOPE (correctly bounded — UI/rendering only):
+1. index.html: reorder sections (inverter summary first); add load tab buttons
+   (Active/Inactive); compact inverter detail row; source indicator badge.
+2. dashboard.js: new renderSourceIndicator(), renderOperatorSummary(), load tab
+   filtering logic; updated renderInverter() for compact detail row.
+3. dashboard.css: source indicator badge styles; compact card styles; load tab
+   styles; responsive adjustments.
+
+OUT OF SCOPE (correctly excluded):
+- Weather forecast integration (deferred to separate PR).
+- New external data sources.
+- Tuya fallback fixes, polling changes, isolation changes.
+- ML changes, logger redesign.
+- Authentication redesign.
+- Control commands or write API.
+- Route-backed multipage redesign (deferred to PR0039 per roadmap).
+- Backend runtime_state changes.
+- GitOps, Kubernetes, Docker image changes.
+- Device classification or observation changes.
+- configured_load_watts vs output_power distinction (existing, unchanged).
+
+EXPECTED FILES TO MODIFY (confirmed: UI files only):
+- app/web/templates/index.html
+- app/web/static/dashboard.js
+- app/web/static/dashboard.css
+
+SOURCE-INDICATOR ASSESSMENT
+
+The plan defines a deterministic state mapping exclusively from existing
+InverterReadSnapshot fields:
+
+State         Trigger                                          Visual
+"inverter"    working_mode in ("Battery Mode", "PV Mode",      Green badge
+              "Invert Mode", "Power Saving Mode",              + battery/solar icon
+              "Standby Mode", "Bypass Mode")
+
+"mains"       working_mode == "Line Mode"                      Amber/blue badge
+                                                                + lightning/plug icon
+
+"fault"       working_mode == "Fault Mode"                     Red badge
+                                                                + warning icon
+
+"unknown"     Inverter array empty or working_mode == ""       Grey badge
+                                                                + dash icon
+
+This mapping uses ONLY controlled working_mode strings from the typed snapshot.
+No device names, descriptions, or external heuristics. Each state maps to a
+distinct CSS class (.source-indicator-inverter green, .source-indicator-mains
+amber, .source-indicator-fault red, .source-indicator-unknown grey).
+
+The source indicator is rendered as a compact badge/tag with a unicode character
+and one word of text, set via textContent (not innerHTML). The unicode characters
+used are: lightning bolt (⚡) for mains, sun (☀) or battery (🔋) for inverter,
+warning sign (⚠) for fault, em dash (—) for unknown.
+
+ACCEPTABLE: Deterministic, safe, and purely derived from existing typed fields.
+
+TEST-FIRST ASSESSMENT
+
+The plan requires scripts/check-compact-operator-dashboard.sh written BEFORE
+implementation, expected to FAIL on current code.
+
+Test A — compact operator summary section missing:
+  Current: #operator-summary does NOT exist in index.html. Summary cards row
+  at top shows generic counts, not inverter metrics. Expected to fail.
+
+Test B — source indicator absent:
+  Current: No #source-indicator element exists in index.html. Expected to fail.
+
+Test C — active tab default absent:
+  Current: No tab structure exists — all loads in one table. Expected to fail.
+
+Test D — active loads rendered separately from inactive:
+  Current: All loads rendered in same #loads-table-body. ON and OFF intermixed.
+  Expected to fail.
+
+Test E — source indicator derivation logic:
+  Current: No getSourceState() function exists in dashboard.js. Expected to fail.
+
+All tests use deterministic fake data and exercise real Python objects or
+authenticated HTTP requests against a minimal server. No Tuya, no production
+config, no browser automation. ACCEPTABLE.
+
+FOCUSED VALIDATOR ASSESSMENT
+
+The validator design:
+- 21+ numbered assertions
+- Python-based source indicator derivation verification (pure function from
+  working_mode to source state)
+- Authenticated HTTP requests against minimal serve (same pattern as existing
+  check-web-dashboard.sh)
+- Asserts: section presence, tab structure, sensor preservation, CSS class
+  definitions, textContent safety, source indicator state mapping
+- Does NOT consist only of grep — uses Python execution for derivation logic
+  and HTTP responses for HTML structure
+- Exit non-zero on any failure
+- No Tuya, no hardware, no production config, no browser automation
+
+This is NOT a grep-only or compileall-only validator. ACCEPTABLE.
+
+END-TO-END ACCEPTANCE ASSESSMENT
+
+The acceptance criteria reach the served dashboard contract and rendered
+section behavior:
+1. Dashboard first viewport contains compact operator summary (#operator-summary)
+   with source indicator, output power, output voltage, battery voltage/SOC.
+2. Source indicator renders correct color/symbol per working_mode.
+3. Source indicator uses only working_mode — no heuristics.
+4. Current Loads Active tab shows only ON devices by default.
+5. Device rows not duplicated across tabs.
+6. Sensors section remains visible with water temperature.
+7. Missing inverter data renders N/A, never 0.
+8. Connection state badge, warnings, timestamp, startup reset all function.
+9. No control actions added.
+
+All 36 existing check-web-dashboard.sh checks must still pass. All existing
+dashboard.js invariants (textContent, AbortController, visibilitychange,
+setTimeout recursion, 5-state connection machine, bounded retry) preserved.
+
+SECURITY ASSESSMENT
+
+- All API-derived values rendered via textContent (existing invariant, confirmed
+  in current dashboard.js). CONFIRMED: no innerHTML for any API value.
+- Source indicator state derived from controlled working_mode string. No raw
+  device IDs, Tuya IDs, parent IDs, tokens, credentials, or signed URLs.
+  CONFIRMED.
+- _FORBIDDEN_DEVICE_ATTRS continue to block tuya_device_id, control_key,
+  api_key, email, password, token, secret at the web boundary. CONFIRMED.
+- No new write endpoints, routes, or authentication bypasses. CONFIRMED.
+- No operational devices.yaml, config.json, or secrets in the web layer.
+  CONFIRMED.
+- No new backend data sources or polling loops. CONFIRMED.
+- Unicode characters for source indicator set via textContent — safe.
+  CONFIRMED.
+- CSS class naming uses `dash-` or `ds-` prefix to avoid Bulma conflicts
+  (noted in plan). CONFIRMED.
+
+VALIDATION ASSESSMENT
+
+bash scripts/check-project-memory.sh — PASSED (45 PR directories, 0 errors)
+
+Additional planned validators:
+- scripts/check-compact-operator-dashboard.sh (NEW — primary behavioral validator)
+- scripts/check-web-dashboard.sh (must still pass — 36 existing checks)
+- scripts/check-web-authentication.sh (must still pass)
+- scripts/check-electrical-telemetry-flow.sh (must still pass)
+- scripts/check-canonical-sensor-snapshot-pipeline.sh (must still pass)
+- Bash: compileall app run.py (must still pass)
+
+BLOCKERS
+None. All approval criteria are satisfied.
+
+WARNINGS
+1. scripts/check-compact-operator-dashboard.sh does not yet exist (will be
+   created during test-first implementation). Expected.
+2. The plan notes response about PV total power showing only if non-null.
+   This is correct behavior (null N/A, not hidden zero). Acceptable.
+3. If the new JS fails to load, the default HTML is the new layout which
+   may have reordered sections. The plan mitigates by ensuring content
+   renders even without JS (all sections present, just unfiltered).
+4. Load tab filtering is JS-only DOM visibility. If JS fails, the Active
+   tab renders all devices — acceptable fallback.
+
+REQUIRED CORRECTIONS
+None. The plan is narrow, implementable, and correctly defers weather.
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+PLAN REVIEW CREATED
+/Users/alexred/Projects/Python/dessmonitor/.project-memory/pr/0036-compact-operator-dashboard/reviews/PLAN_REVIEW.txt
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+ROOT CAUSE CONFIRMED
+Dashboard layout reflects implementation order (inverter last, no source indicator, all loads intermixed) rather than operator priority. All required data fields already flow through the typed pipeline — this is a UI hierarchy and rendering issue only.
+
+SCOPE DECISION
+Narrow UI-only scope: reorder sections, add source indicator badge, add Active/Inactive load tabs, compact inverter layout. Weather correctly deferred. No backend contracts changed.
+
+BLOCKERS
+NONE
+
+WARNINGS
+- scripts/check-compact-operator-dashboard.sh does not yet exist (will be created during test-first implementation). Expected.
+- PV total power shown only if non-null (null = N/A, correct behavior).
+- JS failure fallback (Active tab shows all devices if JS fails — acceptable).
+- Unicode characters for source indicator set via textContent (safe).
+
+REQUIRED CORRECTIONS
+NONE

@@ -1,0 +1,575 @@
+PLAN COMPLETE
+
+TITLE
+PR 0036 — Compact Operator Dashboard Layout
+
+INCIDENT
+The authenticated dashboard now successfully shows inverter telemetry (battery
+voltage, output power, PV power, etc.) after PR 0034l.  However, the operator
+surface is not readable enough.
+
+Observed operator complaints:
+- Inverter metrics are rendered as 8 oversized KPI cards at the bottom of the
+  page, below Current Loads and Sensors sections.
+- The first viewport (above the fold) shows generic summary cards (System
+  Status, Total Loads, ON/OFF/UNKNOWN counts) that do not convey the most
+  important system state.
+- Current Loads table occupies excessive visual weight and shows ALL devices
+  (ON, OFF, UNKNOWN, stale) with no default active-device filter.
+- OFF/unavailable devices distract from currently active devices.
+- The operator wants a compact, transparent layout similar to a clean control
+  console.
+- No source indicator tells the operator whether the system is running on
+  inverter/green energy or mains/grid.
+
+Weather forecast was requested but is a separate data-source feature and must
+not be bundled into this PR.
+
+REPOSITORY STATE
+- Branch: pr-0036-compact-operator-dashboard
+- HEAD: 1ec54c12e93f7cd93a519e1b826a17cba793a3e8
+- Working tree: clean (confirmed by git status --short)
+- Previous PR: 0034l (inverter electrical telemetry projection) — complete.
+  The inverter pipeline (InverterReadSnapshot, _parse_inverter,
+  inverter_provider wiring) is fully implemented.
+- HEAD commit: Project inverter telemetry into control plane (#58)
+
+FILES READ
+app/web/static/dashboard.js
+app/web/static/dashboard.css
+app/web/templates/index.html
+app/control/control_state_snapshot.py
+app/control/runtime_snapshot_adapter.py
+app/control/web_ui_read_contract.py
+app/control/web_ui_read_endpoint.py
+app/web_control_state_provider.py
+app/web_runtime_integration.py
+app/web_host.py
+app/web_auth.py
+app/web_routes.py
+service/inverter_monitor.py
+app/api.py (DeviceData summary/summary method)
+app/monitoring/inverter_logger.py
+run.py
+scripts/check-electrical-telemetry-flow.sh
+scripts/check-web-dashboard.sh
+
+CURRENT UI DATA FLOW
+
+INVERTER SNAPSHOT PATH:
+
+InverterMonitor.last_data (DeviceData) -> _inverter_provider()
+  -> build_runtime_read_model() emits runtime_state["inverter"]
+  -> [list with one dict]
+  -> build_control_state_snapshot_from_runtime_state()
+     calls _parse_inverter(runtime_state.get("inverter"))
+  -> _parse_inverter() returns tuple[InverterReadSnapshot, ...]
+  -> RuntimeControlSnapshotAdapterInput.inverter
+  -> ControlStateSnapshotInput.inverter
+  -> ControlStateSnapshot.inverter
+  -> FastAPI serializes InverterReadSnapshot frozen dataclass fields
+  -> GET /control/state JSON contains "inverter" array
+  -> dashboard.js renderSnapshot() calls renderInverter(snapshot)
+  -> renderInverter() reads inverter[0] fields and sets textContent on DOM
+     elements: inv-battery-voltage, inv-output-power, inv-pv-total-power,
+     inv-output-voltage, inv-battery-soc, inv-working-mode,
+     inv-ac-input-voltage, inv-mains-status
+
+CURRENT LOADS PATH:
+
+Device initializer -> dev_mgr.get_devices()
+  -> _device_to_load_dict() per LOAD-classified device
+  -> runtime_state["loads"] list of dicts
+  -> _parse_loads() -> list[RuntimeLoadState]
+  -> _to_load_candidate() -> LoadCandidate tuple
+  -> ControlStateSnapshotInput.load_metadata + loads
+  -> _convert_load() -> tuple[LoadControlSnapshot, ...]
+  -> ControlStateSnapshot.loads
+  -> FastAPI serialization
+  -> dashboard.js renderSnapshot() iterates loads array, builds rows with
+     ON/OFF/UNKNOWN badges, description, watts, controllable, status,
+     mapping, reset, roles columns
+
+SENSORS PATH:
+
+TelemetryRegistry -> get_all_readings_dict()
+  -> runtime_state["sensors"]
+  -> _parse_sensors() -> tuple[SensorReadSnapshot, ...]
+  -> ControlStateSnapshot.sensors
+  -> dashboard.js renderSensors(snapshot) builds sensor rows
+
+CURRENT OPERATOR SURFACE
+
+Page layout order (top to bottom):
+1. Title: "dessmonitor Dashboard"
+2. Connection state badge (Status: Online/Stale/Offline)
+3. Startup reset badge (hidden when idle)
+4. "No data available" unavailable state (hidden when data present)
+5. Dashboard content wrapper:
+   5a. Summary cards row (5 cards, is-6-tablet is-3-desktop):
+       - System Status (title is-4)
+       - Total Loads (title is-4)
+       - ON (title is-4, has-text-success)
+       - OFF (title is-4, has-text-grey)
+       - UNKNOWN (title is-4, has-text-grey-light)
+   5b. Warnings section (hidden when empty)
+   5c. Snapshot timestamp (is-size-7)
+   5d. Current Loads table (9 columns, heading "title is-5")
+       - ALL devices rendered in one table: ON, OFF, and UNKNOWN all visible
+       - No default filter or tab for active-only view
+       - 9 columns: Device Name, Description, State, Load (W), Controllable,
+         Status, Mapping, Reset, Roles
+   5e. Sensors table (6 columns, heading "title is-5 mt-5")
+       - Renders sensor descriptors, values, freshness badges
+   5f. Inverter summary section ("title is-5", extra mt-5)
+       - 8 cards in is-multiline columns:
+         Battery Voltage, Output Power, PV Total Power, Output Voltage,
+         Battery SOC, Working Mode, AC Input Voltage, Mains Status
+       - Each card uses "title is-4" (large heading)
+       - Cards are arranged at the BOTTOM of the page, last section
+
+What is visually dominant:
+- The summary cards row at top uses large is-4 title text but shows generic
+  metrics (Total Loads 0/ON 0/OFF 0) that are not the operator's primary
+  concern.
+- The Current Loads table shows 9 columns with full detail for every device,
+  dominating the middle of the page regardless of how many devices are ON.
+- OFF and UNKNOWN devices are intermixed with ON devices — no visual grouping
+  or separation.
+- Inverter metrics (the most important operational data) are rendered last,
+  below even the sensors table, requiring the operator to scroll.
+- No source indicator (inverter/green energy vs mains/grid) is present.
+- Mains Status text exists but is rendered as plain text in a card — no icon,
+  no color distinction, no "lightning" or "green energy" cue.
+
+EVIDENCE
+
+1. Inverter section is rendered after Sensors, at bottom of page:
+   index.html lines 138-184: inverter-summary-section div class="mt-5"
+     follows sensors-table div class="mt-5".  "mt-5" adds top margin.
+   The page reads top-to-bottom: summary cards -> loads table -> sensors table
+     -> inverter cards.
+
+2. Inverter cards use oversized is-4 heading:
+   index.html lines 147, 152, 157, 162, 167, 172, 177, 182:
+     <p class="title is-4"> ... </p>
+   Compare: summary cards also use is-4 — same size, but inverter is more
+   detailed and visually heavier.
+
+3. No active/inactive load separation:
+   dashboard.js lines 265-375: renderSnapshot() iterates ALL loads and renders
+   every row.  OFF (is-light) and UNKNOWN (---) rows are intermixed with ON
+   (is-success).  No tab, filter, or grouping exists.
+
+4. No source indicator in dashboard:
+   dashboard.js renderInverter() (lines 130-155): reads inv.mains_status and
+   sets textContent on dom.invMainsStatus.  No icon, no color class, no
+   lightning/green-energy cue distinguishes "mains" from "inverter" from
+   "unknown".
+
+5. inverter_logger.py lines 35-49: DeviceData.summary() uses mode_icons with
+   unicode/emoji symbols: ⚡ for Line Mode, 🔋 for Battery Mode, ☀ for PV Mode,
+   💤 for Power Saving.  This is the intended operator visual language but is
+   absent from the dashboard.
+
+6. The InverterReadSnapshot (control_state_snapshot.py) has working_mode and
+   mains_status fields available.  The dashboard receives them but renders only
+   as plain text.
+
+7. DeviceData.summary() uses fmt() helper to format V and W values with units
+   and alignment — the dashboard's formatValue() in renderInverter does the
+   same but per value.
+
+8. Existing dashboard tests (check-web-dashboard.sh 36 checks) validate
+   authentication, Bulma integrity, allowlist, CSP, fetch, AbortController,
+   connection states, textContent usage, no eval, no localStorage.  These
+   must all continue to pass after layout changes.
+
+ROOT CAUSE
+The dashboard layout reflects implementation order rather than operator
+priority:
+- Inverter metrics (the most important operational data — output power,
+  inverter voltage, battery state, PV production, source indicator) are
+  rendered at the BOTTOM of the page as oversized KPI cards.
+- The first viewport shows generic count cards (System Status, Total Loads,
+  ON/OFF/UNKNOWN) that provide no actual inverter or source state.
+- Current Loads table shows all devices (ON, OFF, UNKNOWN) with no default
+  active-device filter, forcing visual scanning.
+- No source indicator (inverter/green energy vs mains/grid) is implemented
+  despite working_mode and mains_status being available in the data.
+
+TARGET UI FLOW
+
+RENDER ORDER (top to bottom):
+1. Title and connection state (unchanged)
+2. Startup reset badge (unchanged)
+3. Compact inverter/operator summary (NEW — first content section)
+   Four compact cards in a single row:
+   - Source indicator (inverter/green vs mains/lightning vs unknown)
+   - Output power in W (or N/A)
+   - Output voltage in V (or N/A)
+   - Battery voltage/SOC in V / % (or N/A)
+   - Optional: PV total power in W (or N/A) — only if non-null
+   Cards use is-6 or smaller heading, compact layout.
+4. Warnings (unchanged)
+5. Snapshot timestamp (unchanged)
+6. Current Loads — Active tab (NEW — default view)
+   Table shows only ON/active devices.  Same columns as current table.
+7. Current Loads — Inactive tab (NEW — second tab)
+   Shows OFF + UNKNOWN + stale devices.
+8. Sensors table (unchanged)
+9. Full inverter detail row (compact — NEW)
+   Below sensors, a collapsed or small row showing remaining inverter fields
+   (AC input voltage, battery currents, load %, etc.) — only the fields not
+   already shown in the compact summary.
+
+SOURCE-INDICATOR SEMANTICS
+
+The source indicator is derived exclusively from existing proven fields
+(snapshot.inverter[0].working_mode and snapshot.inverter[0].mains_status).
+
+Source states:
+- "inverter" — system is running on battery/PV (green energy)
+  Triggered by working_mode in ("Battery Mode", "PV Mode", "Invert Mode",
+  "Power Saving Mode", "Standby Mode", "Bypass Mode")
+  Visual: green color, tree/leaf or battery icon (unicode/text)
+  Label: "Inverter" or "Battery" or "Solar" depending on working_mode
+
+- "mains" — system is connected to grid/utility power (line mode)
+  Triggered by working_mode == "Line Mode"
+  Visual: amber/blue color, lightning/plug icon (unicode/text)
+  Label: "Mains" or "Grid"
+
+- "unknown" — no inverter data or no working_mode available
+  Triggered by empty inverter array or working_mode == ""
+  Visual: grey color, dash icon
+  Label: "N/A"
+
+- "fault" — inverter reports fault mode
+  Triggered by working_mode == "Fault Mode"
+  Visual: red color, warning icon
+  Label: "Fault"
+
+The indicator is rendered as a colored badge/tag with an icon character and
+one word of text.  No emoji, no oversized graphic — compact text + CSS class
+(background color, text color, optional border).
+
+APPROVED SCOPE
+Only dashboard layout and rendering changes:
+- index.html: reorder sections (inverter summary first); add load tab buttons
+  (Active/Inactive); compact inverter detail row; source indicator badge.
+- dashboard.js: new compact renderOperatorSummary() function; new
+  renderSourceIndicator() function; load tab filtering logic (Active vs
+  Inactive); updated renderInverter() for compact detail row.
+- dashboard.css: source indicator badge styles (inverter/green, mains/amber,
+  fault/red, unknown/grey); compact card styles; load tab styles; responsive
+  adjustments for new layout.
+- No backend type changes needed — all data already flows through
+  ControlStateSnapshot.inverter[0].
+
+OUT OF SCOPE
+- Weather forecast integration.
+- New external data sources (weather provider, DESS API changes).
+- Tuya fallback fixes, polling changes, isolation changes.
+- ML changes, logger redesign.
+- Authentication redesign.
+- Control commands or write API.
+- Route-backed multipage redesign (tabs as separate routes — deferred to
+  PR0039+ per the PR0034k roadmap).
+- Backend runtime_state changes (all needed data already flows).
+- GitOps, Kubernetes, Docker image changes.
+- Device classification or observation changes.
+- configured_load_watts vs output_power distinction (existing, unchanged).
+
+EXPECTED FILES TO MODIFY
+
+Production files:
+- app/web/templates/index.html
+    Reorder sections: compact inverter summary before loads table.
+    Add load tab bar (Active / Inactive).
+    Replace oversized inverter cards with compact summary + detail row.
+    Add source indicator badge placeholder.
+    Remove or reduce summary card size if it becomes redundant.
+
+- app/web/static/dashboard.js
+    New: renderSourceIndicator(snapshot.inverter) — derives source from
+      working_mode and mains_status, updates DOM badge element.
+    New: renderOperatorSummary(snapshot.inverter) — compact card row with
+      key inverter metrics.
+    Update: renderSnapshot() — call new render functions before loads.
+    Update: renderInverter() — compact detail row (remaining fields not in
+      summary).
+    New: load tab switching — Active tab renders ON rows only; Inactive tab
+      renders OFF + UNKNOWN + stale rows.  Default: Active.
+    Update: handleSuccessfulResponse() unchanged — poll/render cycle same.
+
+- app/web/static/dashboard.css
+    New: source indicator badge styles (.source-indicator-inverter green,
+      .source-indicator-mains amber, .source-indicator-fault red,
+      .source-indicator-unknown grey).
+    New: compact card styles (smaller title, reduced padding).
+    New: load tab bar styles (Bulma tabs or tag-based).
+    New: active/inactive rows visibility controlled by tab class.
+
+Tests:
+- scripts/check-compact-operator-dashboard.sh (new file)
+
+Project-memory:
+- .project-memory/pr/0036-compact-operator-dashboard/CODER_REPORT.txt
+
+TEST-FIRST STRATEGY
+Write a focused failing test BEFORE any implementation changes.
+
+File: scripts/check-compact-operator-dashboard.sh
+
+The test must verify the CURRENT layout contract fails to meet the required
+scope.  It uses deterministic fake inverter data and checks served HTML/JS
+behavior (no grep-only, no browser screenshot, no production access).
+
+Test A — compact operator summary section missing (CURRENT: FAIL expected):
+  Input: Authenticated GET / returning HTML
+  Assert: #operator-summary exists and contains inverter metrics
+  CURRENT: Section does NOT exist — page begins with summary cards row.
+
+Test B — source indicator absent (CURRENT: FAIL expected):
+  Input: Authenticated GET / returning HTML
+  Assert: #source-indicator exists
+  CURRENT: No source indicator element exists in index.html.
+
+Test C — active tab default absent (CURRENT: FAIL expected):
+  Input: GET / with active-tab class expectation
+  Assert: #loads-active-tab has class "is-active" by default
+  CURRENT: No tab structure exists — all loads render in one table.
+
+Test D — active loads rendered separately from inactive (CURRENT: FAIL expected):
+  Input: ControlStateSnapshot JSON with ON and OFF loads
+  Expected after fix: only ON loads visible in Active tab
+  CURRENT: All loads rendered in same table.
+
+Test E — source indicator derived correctly from inverter data (validates
+  deterministic derivation logic, not browser rendering):
+  Input: InverterReadSnapshot with working_mode="Line Mode"
+  Assert: source indicator state = "mains"
+  Input: InverterReadSnapshot with working_mode="Battery Mode"
+  Assert: source indicator state = "inverter"
+  Input: InverterReadSnapshot with working_mode=""
+  Assert: source indicator state = "unknown"
+  CURRENT: No derivation function exists.
+
+FOCUSED VALIDATOR
+scripts/check-compact-operator-dashboard.sh
+
+The validator must:
+1. Execute Python code to verify source indicator derivation logic
+   (deterministic pure function from working_mode to source state).
+2. Execute authenticated HTTP requests against a minimal serve of the
+   index.html to verify section presence and structure.
+3. Use numbered assertions [1] through [20+].
+4. Print PASS/FAIL per assertion.
+5. Exit non-zero on any failure.
+6. Avoid: Tuya Cloud, hardware, real credentials, real operational IDs,
+   long sleeps, browser automation.
+7. Not consist only of grep.
+
+Minimum assertions:
+[1]  Source indicator derivation function returns "inverter" for
+     "Battery Mode", "PV Mode", "Invert Mode", "Power Saving Mode",
+     "Standby Mode", "Bypass Mode".
+[2]  Source indicator derivation returns "mains" for "Line Mode".
+[3]  Source indicator derivation returns "unknown" for "".
+[4]  Source indicator derivation returns "fault" for "Fault Mode".
+[5]  Source indicator derivation returns "unknown" for None input.
+[6]  Inverter metric formatting: null values render as "N/A".
+[7]  Inverter metric formatting: numeric 25.7 renders as "25.7 V".
+[8]  Inverter metric formatting: numeric 800 renders as "800 W".
+[9]  index.html contains #source-indicator element.
+[10] index.html contains #operator-summary section with inverter fields.
+[11] index.html contains #loads-active-tab and #loads-inactive-tab.
+[12] index.html contains #loads-active-body and #loads-inactive-body.
+[13] Sensors section still present.
+[14] Connection state badge still present.
+[15] dashboard.js contains renderSourceIndicator function.
+[16] dashboard.js contains renderOperatorSummary function.
+[17] No innerHTML for API-derived values (textContent preserved).
+[18] CSS defines .source-indicator-inverter (green).
+[19] CSS defines .source-indicator-mains (amber).
+[20] CSS defines .source-indicator-fault (red).
+[21] CSS defines .source-indicator-unknown (grey).
+
+END-TO-END ACCEPTANCE
+All of the following must work with deterministic fakes:
+
+1. Dashboard first viewport contains a compact inverter/operator summary
+   section (#operator-summary) showing at least: source indicator badge,
+   output power, output voltage, battery voltage/SOC.
+
+2. Source indicator renders one of: "inverter" (green), "mains" (amber),
+   "fault" (red), "unknown" (grey).  Styling is distinguishable by color
+   and icon character.
+
+3. Source indicator derivation uses only working_mode field.  No device
+   names, descriptions, or external heuristics.
+
+4. Current Loads default tab shows only ON/active devices.  Inactive tab
+   shows OFF + UNKNOWN + stale devices.
+
+5. Device rows are not duplicated across tabs.  No ON device appears in
+   Inactive tab.  No OFF device appears in Active tab.
+
+6. Sensors section remains visible and renders water temperature correctly.
+
+7. Missing inverter values (inverter array empty or null fields) render
+   all inverter sections as N/A, never 0.
+
+8. Connection state badge, warnings, snapshot timestamp, startup reset
+   badge all function as before.
+
+9. sensors still render.
+
+10. No control actions are added — no write endpoints, no POST routes.
+
+11. Authenticated dashboard and GET /control/state continue to function
+    (all 36 existing check-web-dashboard.sh checks still pass).
+
+REGRESSION PRESERVATION
+- All existing dashboard.js invariants preserved:
+  - textContent for API values (no innerHTML)
+  - AbortController for request lifecycle
+  - visibilitychange handling
+  - setTimeout recursive scheduling (no setInterval)
+  - 5-state connection state machine
+  - Bounded retry, stale/offline timers
+- All existing index.html sections preserved or reordered only:
+  - Connection state badge (moved to stay at top, unchanged)
+  - Startup reset badge (unchanged position)
+  - Warnings (unchanged position, after summary)
+  - Sensors table (moved below load tabs, unchanged content)
+  - Snapshot timestamp (unchanged)
+- Existing load fields preserved: all 9 columns still flow through the
+  typed pipeline, just filtered by tab visibility.
+- Existing sensor columns preserved.
+- Authentication unchanged.
+- /control/state endpoint unchanged.
+
+SECURITY BOUNDARIES
+- All API-derived values rendered via textContent (existing invariant).
+- No innerHTML is used for any API value (verified in existing tests).
+- Source indicator state derived from controlled working_mode string.
+  No raw device IDs, Tuya IDs, parent IDs, tokens, credentials, or
+  signed URLs are exposed.
+- _FORBIDDEN_DEVICE_ATTRS continue to block tuya_device_id, control_key,
+  api_key, email, password, token, secret at the web_runtime_integration
+  boundary.
+- No new write endpoints, routes, or authentication bypasses.
+- No operational devices.yaml, config.json, or secrets in the web layer.
+- No new backend data sources or polling loops.
+
+ROLLBACK
+1. Revert changes to index.html, dashboard.js, dashboard.css.
+2. Remove scripts/check-compact-operator-dashboard.sh.
+3. No stored data, database migrations, or configuration to revert.
+4. No authentication or session changes.
+5. No backend contract changes to revert (all data flows unchanged).
+6. Dashboard backward-compatible: without the new JS, default HTML still
+   renders in the old layout order (but with new sections added as
+   is-hidden placeholders).  If the JS fails to load, the default HTML
+   is the new layout which still renders content — not broken.
+
+VALIDATION COMMANDS
+bash scripts/check-compact-operator-dashboard.sh     # NEW — focused validator
+bash scripts/check-web-dashboard.sh                  # MUST PASS (36 existing checks)
+bash scripts/check-web-authentication.sh             # MUST PASS
+bash scripts/check-electrical-telemetry-flow.sh      # MUST PASS (23 existing checks)
+bash scripts/check-canonical-sensor-snapshot-pipeline.sh  # MUST PASS
+bash scripts/check-project-memory.sh                 # MUST PASS
+bash scripts/check-runtime-read-only-web-host.sh     # MUST PASS
+python3 -m compileall -q app run.py                  # MUST PASS
+
+RISKS
+1. Moving inverter summary to the top changes the page layout that existing
+   operators expect.  Mitigation: the compact summary replaces the oversized
+   inverter cards, preserving the full inverter detail row below sensors for
+   operators who want all fields.
+
+2. Load tab filtering is a JS-only behavior change.  If JS fails to load,
+   all rows render in the Active tab only.  Mitigation: The backend still
+   serves all loads; the tab filter is pure DOM visibility.  The default
+   Active tab shows all devices if JS fails — not broken.
+
+3. Source indicator requires working_mode to be available.  If inverter data
+   is missing (array empty), the source indicator defaults to "unknown"
+   (grey, N/A).  No false positive "inverter" or "mains" is shown.
+
+4. Existing check-web-dashboard.sh requires a live test server (uvicorn).
+   The new validator should also use a live server to verify section presence.
+   Mitigation: Use the same pattern as check-web-dashboard.sh with
+   WEB_AUTH_TEST_HTTP=1.
+
+5. CSS class naming collision.  Use prefix `dash-` or `ds-` for new classes
+   to avoid Bulma conflicts.  Existing CSS uses `.tag.is-*` Bulma patterns.
+
+OPEN QUESTIONS
+- Should the compact inverter summary cards replace the existing summary
+  cards (System Status, Total Loads, ON/OFF/UNKNOWN) entirely, or should
+  they be a new row above?  Decision: Add a new compact operator summary
+  row (#operator-summary) ABOVE the existing summary cards row.  The
+  existing summary cards remain for quick load counts.  A future PR may
+  remove or redesign the generic cards.
+
+- Should the load tabs use Bulma `.tabs` component or custom tag-based
+  buttons?  Decision: Bulma `.tabs` component with `class="tabs is-toggle"`.
+  This provides consistent styling and responsive behavior.  Active tab
+  uses `li.is-active`, inactive tab uses `li`.
+
+- Should the source indicator icon be an HTML entity/unicode character
+  or a CSS-generated pseudo-element?  Decision: Text content set via
+  textContent (existing invariant).  Use unicode characters: "⚡" for
+  mains/grid, "☀" or "🔋" for inverter, "⚠" for fault, "—" for
+  unknown.  The character is set in JS via textContent, not innerHTML.
+
+- Should PV total power be shown in the compact summary?  Decision: Yes,
+  if non-null.  It's an important green-energy indicator.  If null, the
+  card shows "N/A" and may be hidden on small screens via CSS responsive
+  classes.
+
+IMPLEMENTATION HANDOFF
+
+Implementation order:
+1. Write failing tests in scripts/check-compact-operator-dashboard.sh
+   (Tests A-E all expected to fail on current code).
+2. Source indicator derivation: implement a pure JS function
+   getSourceState(working_mode) that returns "inverter", "mains",
+   "fault", or "unknown".
+3. Add #source-indicator element to index.html.
+4. Add #operator-summary section to index.html with compact card
+   placeholders for source indicator, output power, output voltage,
+   battery voltage/SOC, PV total power.
+5. Add load tab bar (#loads-active-tab, #loads-inactive-tab and
+   corresponding table bodies #loads-active-body, #loads-inactive-body)
+   to index.html.
+6. Move inverter detail row below sensors table (compact card row for
+   remaining fields).
+7. Implement renderSourceIndicator() in dashboard.js: read inverter[0],
+   derive source state, set textContent and className on #source-indicator.
+8. Implement renderOperatorSummary() in dashboard.js: read inverter[0],
+   format compact metrics, set textContent on summary cards.
+9. Update renderSnapshot() to call renderSourceIndicator() and
+   renderOperatorSummary() before rendering loads.
+10. Implement tab switching in dashboard.js: click handler on Active and
+    Inactive tabs, show/hide corresponding table bodies, toggle is-active
+    class on the tab bar.
+11. Add CSS for source indicator badges, compact cards, tab bar, and load
+    row visibility.
+12. Run check-compact-operator-dashboard.sh — all tests pass.
+13. Run full regression suite.
+14. Code review.
+
+Steps 2-6 (source indicator, summary section, load tab HTML) must precede
+step 7-11 (JS rendering and CSS).  The JS will query DOM elements by ID;
+those IDs must exist in the HTML first.
+
+DEPLOYED WEATHER PR
+Weather forecast integration is noted as a separately requested feature but
+is not part of this PR.  Weather is a separate data-source feature requiring
+backend ingestion (OpenWeather API) and typed contract work.  It will
+require its own PR with a dedicated plan.
