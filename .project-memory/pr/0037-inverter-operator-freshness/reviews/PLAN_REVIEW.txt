@@ -1,0 +1,306 @@
+PLAN REVIEW COMPLETE
+
+TITLE
+PR 0037 — Inverter Operator Metrics and Freshness
+
+REPOSITORY STATE
+- Branch: pr-0037-inverter-operator-freshness (confirmed via git branch --show-current)
+- HEAD: 7af28155c2f6b31931d3c33a9bd12d797b85f1d0 (confirmed via git rev-parse HEAD)
+- Working tree: clean, only untracked .project-memory/pr/0037-inverter-operator-freshness/
+  (confirmed via git status --short)
+- Staging area: empty (confirmed via git diff --cached --name-only)
+- Last commit: "Compact operator dashboard layout (#59)" (confirmed via git show --stat --oneline HEAD)
+- Previous PR: 0036 (compact operator dashboard layout) — complete. Confirmed: source indicator,
+  load tabs, inverter detail row with charge/discharge currents all implemented.
+
+PLAN READ
+.project-memory/pr/0037-inverter-operator-freshness/PLAN.txt — read completely.
+
+INDEPENDENT FILES READ
+- app/web/static/dashboard.js (read completely)
+- app/web/static/dashboard.css (read completely)
+- app/web/templates/index.html (read completely)
+- app/control/control_state_snapshot.py (read completely — InverterReadSnapshot confirmed)
+- service/inverter_monitor.py (read completely — last_data confirmed)
+- scripts/check-compact-operator-dashboard.sh (read completely)
+- scripts/check-electrical-telemetry-flow.sh (read for contract reference)
+
+INDEPENDENT INVERTER DATA-FLOW TRACE
+
+output_power:
+  DESS API -> DeviceData.output_power -> inverter_mon.last_data.output_power
+  -> _inverter_provider() -> runtime_state["inverter"][0]["output_power"]
+  -> _parse_inverter() -> InverterReadSnapshot(output_power=float|None)
+  -> ControlStateSnapshot.inverter[0].output_power
+  -> FastAPI JSON serialization -> "inverter"[0].output_power
+  -> dashboard.js dom.dsOutputPower.textContent = formatCompact(val, "W")
+  CONFIRMED: Value preserved. Rendered as plain text. NO severity class assigned.
+  No className modification on dsOutputPower anywhere in dashboard.js.
+
+battery_current_chg / battery_current_dis:
+  Same path as output_power. Keys: "Battery Charging Current", "Battery Discharge Current"
+  -> InverterReadSnapshot.battery_current_chg, battery_current_dis
+  -> dashboard.js renderInverterDetail(): dom.invDetailChg.textContent, dom.invDetailDis.textContent
+  CONFIRMED: Already rendered in inverter detail row (index.html lines 146-157,
+  dashboard.js renderInverterDetail() lines ~200-210). No additional work needed.
+
+inverter-reported timestamp:
+  DESS API response has "Timestamp" -> DeviceData.timestamp (naive str).
+  -> inverter_mon.last_data.timestamp
+  -> _inverter_provider() emits "observed_at": dd.timestamp
+  -> InverterReadSnapshot.observed_at: str | None
+  CONFIRMED: NOT currently rendered. No #inv-timestamp element in index.html.
+  No renderInverterTimestamp() function in dashboard.js.
+  formatTimestamp() is called only for snapshot.created_at, never for inverter.observed_at.
+
+snapshot timestamp:
+  build_runtime_read_model() -> datetime.now(timezone.utc).isoformat()
+  -> ControlStateSnapshot.created_at (ISO 8601 UTC)
+  -> dashboard.js formatTimestamp(snapshot.created_at) -> toLocaleString()
+  CONFIRMED: Rendered as "Snapshot: <localized time>". Present.
+
+freshness field:
+  InverterReadSnapshot has freshness: str = "" (field present at line 163)
+  CONFIRMED: NEVER populated. _parse_inverter() does not set it.
+  _inverter_provider() does not emit it. Defaults to empty string.
+  No freshness rendering exists for inverter data.
+
+ROOT CAUSE ASSESSMENT
+
+Root cause: "The operator surface does not yet expose inverter-native freshness,
+timestamp context, and metric emphasis despite the existing inverter telemetry
+pipeline." — CONFIRMED.
+
+This is an operator-read-model / UI emphasis problem, not a backend telemetry
+failure. All required data already flows through the pipeline:
+- output_power reaches dashboard.js but has no severity color.
+- observed_at reaches InverterReadSnapshot but is not rendered.
+- freshness field exists on InverterReadSnapshot but is never populated or rendered.
+- battery_current_chg and battery_current_dis are already rendered in the detail
+  row (confirmed in current code) — no additional visibility work needed for them.
+
+Weather forecast is correctly deferred: the plan explicitly states weather
+"requires a new backend data source (OpenWeather API), a typed weather contract,
+and potentially a new inverter-neutral section in the dashboard." No weather
+data exists in the pipeline. CONFIRMED.
+
+POWER SEVERITY ASSESSMENT
+
+The plan explicitly defines the threshold contract:
+
+Threshold               output_power range      Severity        Visual
+<= 1700 W               <= 1700                  green           has-text-success or equivalent
+> 1700 and <= 2600 W    > 1700, <= 2600          amber           has-text-warning or equivalent
+> 2600 W                > 2600                   red             has-text-danger or equivalent
+null / absent           null or undefined        unknown         grey, N/A
+
+Thresholds are derived from typical 3-3.5 kVA inverter ratings (1700W ≈ 50%,
+2600W ≈ 80%). The severity is applied only to the output power element
+(#ds-output-power) via className. No other metric receives severity coloring.
+ACCEPTABLE: Explicit, bounded, hardcoded (not left to implementation discretion).
+
+TIMESTAMP CONTRACT ASSESSMENT
+
+The plan defines:
+
+Canonical inverter timestamp field: InverterReadSnapshot.observed_at (already exists).
+Source: DeviceData.timestamp — currently a naive local-time string.
+Snapshot timestamp field: ControlStateSnapshot.created_at (already rendered).
+
+Normalization strategy (Option B selected):
+- _inverter_provider() in run.py reads dd.timestamp.
+- If string is already ISO-like (contains "T", "Z", or offset), pass as-is.
+- If naive, assume Europe/London local time using zoneinfo.ZoneInfo("Europe/London")
+  to produce ISO 8601 aware string with offset (e.g., "2026-07-25T12:00:00+01:00").
+- Requires from zoneinfo import ZoneInfo (stdlib, Python 3.9+).
+
+Display contract:
+- Snapshot timestamp: labeled "Snapshot:" (existing), Europe/London formatted.
+- Inverter timestamp: labeled "Inverter:" (new #inv-timestamp element),
+  Europe/London formatted.
+- Both use toLocaleString("en-GB", {timeZone: "Europe/London"}).
+- Elements placed: compact timestamp/freshness badge in operator summary row;
+  full timestamp label in inverter detail section.
+
+ACCEPTABLE: Explicit, unambiguous, standard-library-based.
+
+FRESHNESS CONTRACT ASSESSMENT
+
+The plan defines:
+
+Freshness is computed client-side in dashboard.js from inverter.observed_at.
+
+Thresholds (based on 60s inverter poll interval):
+- observed_at null or undefined -> "unavailable" (grey badge)
+- Current time - observed_at <= 150s (2.5x poll) -> "fresh" (green badge)
+- Current time - observed_at <= 600s (10x poll) -> "stale" (amber badge)
+- Current time - observed_at > 600s -> "unavailable" (grey badge)
+
+Visual: Reuses existing sensor freshness pattern (tag.is-success.is-light,
+tag.is-warning.is-light, tag.is-light). Consistent with the Sensors table.
+
+Freshness is computed each render cycle (5s dashboard poll), no separate timer.
+ACCEPTABLE: Explicit, consistent, well-documented.
+
+SCOPE ASSESSMENT
+
+IN SCOPE (correctly bounded):
+1. Output power severity coloring (JS rendering layer, CSS classes).
+2. Inverter-reported timestamp display (new element, JS function).
+3. Inverter freshness indicator (new element, JS computation).
+4. Timezone normalization in run.py (zoneinfo for ISO 8601 Europe/London offset).
+5. Dashboard CSS for severity classes and freshness badge.
+6. Focused validator (check-inverter-operator-freshness.sh).
+
+OUT OF SCOPE (correctly excluded):
+- Weather forecast integration (separate PR).
+- Prediction/ML features (separate PR).
+- New external data sources.
+- DESS signing/API changes unrelated to timestamp format.
+- Tuya fallback changes, ML changes, logger redesign.
+- Route redesign, control commands, authentication changes.
+- Startup reset, load/sensor classification changes.
+- GitOps, Docker, Kubernetes changes.
+- Changing inverter poll interval.
+- Charge/discharge current visibility (already present from PR0036).
+
+EXPECTED FILES TO MODIFY:
+- run.py (zoneinfo timestamp normalization)
+- app/web/static/dashboard.js (3 new functions, 1 update)
+- app/web/templates/index.html (2 new elements)
+- app/web/static/dashboard.css (severity and freshness classes)
+
+TEST-FIRST ASSESSMENT
+
+Test A — output power severity absent (CURRENT EXPECTED: FAIL):
+  InverterReadSnapshot with output_power=800 -> severity should be "green".
+  InverterReadSnapshot with output_power=2000 -> severity should be "amber".
+  InverterReadSnapshot with output_power=3000 -> severity should be "red".
+  InverterReadSnapshot with output_power=None -> severity should be "unknown".
+  CURRENT: No severity function exists.
+
+Test B — inverter timestamp element absent (CURRENT EXPECTED: FAIL):
+  Assert: index.html contains #inv-timestamp element.
+  CURRENT: No such element.
+
+Test C — inverter freshness element absent (CURRENT EXPECTED: FAIL):
+  Assert: index.html contains #inv-freshness element.
+  CURRENT: No such element.
+
+Test D — timestamp Europe/London formatting (CURRENT EXPECTED: FAIL):
+  ISO 8601 with +01:00 offset -> toLocaleString("en-GB", {timeZone: "Europe/London"})
+  produces correct London-formatted output.
+
+Test E — freshness computation (CURRENT EXPECTED: FAIL):
+  Input observed_at <150s ago -> "fresh".
+  Input observed_at 300s ago -> "stale".
+  Input observed_at null -> "unavailable".
+
+All tests use deterministic fake data. No Tuya, production config, or browser. ACCEPTABLE.
+
+FOCUSED VALIDATOR ASSESSMENT
+
+The validator design (scripts/check-inverter-operator-freshness.sh):
+- 20+ numbered assertions
+- Python code for severity derivation logic (pure function from output_power to severity string)
+- Python code for freshness computation logic from observed_at
+- HTML element presence checks (grep-based for element IDs in static HTML)
+- CSS class presence checks
+- dashboard.js function name checks
+- No Tuya, no hardware, no production config, no browser automation
+- Not grep-only: uses Python for deterministic derivation logic and formatting verification
+
+This exercises real behavior through Python reimplementations of the severity and
+freshness algorithms. ACCEPTABLE.
+
+END-TO-END ACCEPTANCE ASSESSMENT
+
+Acceptance reaches the served dashboard contract and rendered operator section:
+1. Output power <=1700 W shows green severity; >1700 and <=2600 shows amber;
+   >2600 shows red; null shows N/A without severity.
+2. Inverter-reported timestamp displayed in Europe/London timezone.
+3. Inverter freshness badge (fresh green / stale amber / unavailable grey).
+4. Snapshot timestamp still present (existing).
+5. Charge/discharge currents remain visible in inverter detail row (no regression).
+6. Sensors section remains visible with water temperature.
+7. Source indicator, load tabs, working mode badge remain functional.
+8. Missing numeric values render N/A, never 0.
+9. No weather section or prediction block added.
+10. /control/state remains read-only.
+11. All existing dashboard validators still pass.
+
+SECURITY ASSESSMENT
+
+- All API-derived values rendered via textContent (existing invariant, confirmed in
+  current dashboard.js: all render functions use textContent). CONFIRMED.
+- Severity classes are hardcoded CSS class strings — no untrusted input. CONFIRMED.
+- Freshness computation is client-side only — no new backend exposure. CONFIRMED.
+- Inverter timestamp conversion uses zoneinfo stdlib — no network access. CONFIRMED.
+- No raw device IDs, Tuya IDs, parent IDs, tokens, credentials, or signed URLs
+  exposed. CONFIRMED.
+- _FORBIDDEN_DEVICE_ATTRS continues to block sensitive device attributes. CONFIRMED.
+- No new write endpoints, routes, or authentication changes. CONFIRMED.
+- No operational devices.yaml or secrets in the web layer. CONFIRMED.
+
+VALIDATION ASSESSMENT
+
+bash scripts/check-project-memory.sh — PASSED (46 PR directories, 0 errors)
+
+Planned validators:
+- scripts/check-inverter-operator-freshness.sh (NEW)
+- scripts/check-compact-operator-dashboard.sh (must still pass — PR0036 regression)
+- scripts/check-web-dashboard.sh (must still pass — 36 existing checks)
+- scripts/check-web-authentication.sh (must still pass)
+- scripts/check-electrical-telemetry-flow.sh (must still pass)
+- scripts/check-canonical-sensor-snapshot-pipeline.sh (must still pass)
+- python3 -m compileall -q app run.py (must still pass)
+
+BLOCKERS
+None. All approval criteria are satisfied.
+
+WARNINGS
+1. scripts/check-inverter-operator-freshness.sh does not yet exist (will be
+   created during test-first implementation). Expected.
+2. The zoneinfo import requires tzdata to be present in the Docker image.
+   Debian/Ubuntu Python 3.12+ images include it by default. Document as
+   a dependency in the run.py comment.
+3. If the inverter poll interval changes from 60s, freshness thresholds
+   (150s/600s) must be reviewed. Document this dependency in the code.
+4. The severity thresholds (1700W/2600W) represent typical 3-3.5 kVA inverter
+   ratings. If the inverter model changes, thresholds must be updated.
+
+REQUIRED CORRECTIONS
+None. The plan is narrow, implementable, and correctly defers weather.
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+PLAN REVIEW CREATED
+/Users/alexred/Projects/Python/dessmonitor/.project-memory/pr/0037-inverter-operator-freshness/reviews/PLAN_REVIEW.txt
+
+VERDICT
+approved
+
+APPROVED FOR IMPLEMENTATION
+true
+
+ROOT CAUSE CONFIRMED
+The operator surface does not yet expose inverter-native freshness (freshness field on InverterReadSnapshot is never populated or rendered), timestamp context (inverter.observed_at is not displayed), and metric emphasis (output_power rendered as plain text with no severity coloring). This is a UI/read-model refinement problem — all backend data already flows through the pipeline.
+
+SCOPE DECISION
+Narrow UI/rendering scope: output power severity coloring, inverter timestamp display, inverter freshness indicator, zoneinfo timezone normalization in run.py. Charge/discharge currents already rendered (PR0036). Weather correctly deferred.
+
+BLOCKERS
+NONE
+
+WARNINGS
+- scripts/check-inverter-operator-freshness.sh does not yet exist (will be created during test-first implementation). Expected.
+- zoneinfo requires tzdata in Docker image (present by default on Debian/Ubuntu Python 3.12+).
+- Freshness thresholds (150s/600s) depend on 60s inverter poll interval — document dependency.
+- Severity thresholds (1700W/2600W) represent 3-3.5 kVA inverter — may need review if model changes.
+
+REQUIRED CORRECTIONS
+NONE
