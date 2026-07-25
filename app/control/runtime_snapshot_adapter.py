@@ -368,7 +368,9 @@ def _parse_inverter(
                     pv2_power=_safe_inverter_float(item.get("pv2_power")),
                     pv_total_power=_safe_inverter_float(item.get("pv_total_power")),
                     output_voltage=_safe_inverter_float(item.get("output_voltage")),
-                    output_power=_safe_inverter_float(item.get("output_power")),
+                    output_power=_safe_inverter_float(
+                        item.get("output_power") or item.get("out_w")
+                    ),
                     output_apparent_power=_safe_inverter_float(item.get("output_apparent_power")),
                     ac_input_voltage=_safe_inverter_float(item.get("ac_input_voltage")),
                     ac_input_frequency=_safe_inverter_float(item.get("ac_input_frequency")),
