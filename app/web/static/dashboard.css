@@ -51,6 +51,9 @@ html, body {
 .red-text       { color: var(--red); }
 .muted-text     { color: var(--text-dim); }
 
+/* ── GLOBAL FONT SIZE — крупнее для читабельности ─────────────── */
+html, body { font-size: 15px; }
+
 /* ── SCROLLBAR ────────────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
@@ -457,8 +460,8 @@ html, body {
 .pv-color   { color: var(--teal); }
 .bat-color  { color: var(--amber); }
 .load-color { color: var(--text); }
-.dis-color  { color: var(--red); }
-.chg-color  { color: var(--green); }
+.dis-color  { color: var(--text); }
+.chg-color  { color: var(--text); }
 
 /* AC In is slightly smaller */
 .ac-in-size { font-size: 1.3rem; }
@@ -906,6 +909,53 @@ html, body {
 .dm-tag.amber { background: var(--amber-dim); color: var(--amber); }
 .dm-tag.red   { background: var(--red-dim);   color: var(--red); }
 
+/* ── TABLE FONT SIZE — крупнее ───────────────────────────────── */
+.dm-table { font-size: 0.9rem; }
+.dm-table th { font-size: 0.72rem; }
+.dm-device-name { font-size: 0.9rem; }
+.dm-device-desc { font-size: 0.82rem; }
+
+/* ── GAUGE SUBLABEL ──────────────────────────────────────────── */
+.dm-gauge-sublabel {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-top: -0.2rem;
+}
+
+/* ── GREEN/RED TEXT UTILITIES ────────────────────────────────── */
+.green-text { color: var(--green); }
+.red-text   { color: var(--red); }
+
+/* ── STALE FOOTER — красный если данные устарели > 10 мин ───── */
+.dm-footer-bar.dm-footer-stale {
+  border-top-color: var(--red);
+  color: var(--amber);
+}
+.dm-footer-bar.dm-footer-stale #footer-updated {
+  color: var(--red);
+  font-weight: 700;
+}
+
+/* ── LOADS TABLE TOGGLE ───────────────────────────────────────── */
+/* Когда tbody имеет класс dm-active-only — скрываем неактивные строки.
+   Активные строки содержат .dm-state-on.
+   Класс переключается через dashboard-patch.js без inline styles. */
+#loads-table-body.dm-active-only tr { display: none; }
+#loads-table-body.dm-active-only tr:has(.dm-state-on) { display: table-row; }
+
+/* mini-battery-v наследует цвет от состояния батареи */
+#ds-battery-voltage-wrap.bat-green ~ * #mini-battery-v,
+.bat-green #mini-battery-v { color: var(--green); }
+.bat-amber #mini-battery-v { color: var(--amber); }
+.bat-red   #mini-battery-v { color: var(--red); }
+
+/* цвет значения в мини-боксе battery следует за иконкой */
+#mini-battery-v.green { color: var(--green); }
+#mini-battery-v.amber { color: var(--amber); }
+#mini-battery-v.red   { color: var(--red); }
+
 /* ═══════════════════════════════════════════════════════════════
    is-hidden (Bulma compat)
    ═══════════════════════════════════════════════════════════════ */
@@ -939,4 +989,3 @@ html, body {
   .dm-stats-strip      { grid-template-columns: 1fr 1fr; }
   .dm-summary-row      { grid-template-columns: 1fr; }
 }
-#loads-table-body.dm-active-only tr{display:none}#loads-table-body.dm-active-only tr:has(.dm-state-on){display:table-row}

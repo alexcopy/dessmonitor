@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dessmonitor — Settings</title>
+    <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script defer src="/static/dashboard.js"></script>
+</head>
+<body>
+
+<nav class="dm-nav" role="banner">
+    <div class="dm-nav-brand">dess<span>monitor</span></div>
+    <div class="dm-nav-links">
+        <a href="/" class="dm-nav-link"><span class="nav-icon">&#9632;</span> Dashboard</a>
+        <a href="/analytics" class="dm-nav-link"><span class="nav-icon">&#9776;</span> Analytics</a>
+        <a href="/controls" class="dm-nav-link"><span class="nav-icon">&#9881;</span> Controls</a>
+        <a href="/settings" class="dm-nav-link active"><span class="nav-icon">&#9874;</span> Settings</a>
+    </div>
+    <div class="dm-nav-right">
+        <span class="dm-badge degraded" id="nav-status-badge">&#9888; API</span>
+        <span class="nav-username">Authenticated as <strong>{{ username }}</strong></span>
+        <form method="post" action="/logout" class="logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="logout-btn">Sign Out</button>
+        </form>
+    </div>
+</nav>
+
+<main class="dm-main">
+
+    <div class="dm-analytics-header">
+        <div>
+            <h1 class="dm-analytics-title dm-mono">Settings</h1>
+            <div class="dm-analytics-sub">System configuration</div>
+        </div>
+    </div>
+
+    <div class="dm-grid-2">
+
+        <div class="dm-card accent-teal">
+            <div class="dm-kpi-label dm-card-title-gap">&#9881; System Information</div>
+            <table class="dm-table">
+                <tbody>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim); width:50%">Application</td>
+                        <td class="dm-mono">dessmonitor</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Battery type</td>
+                        <td class="dm-mono">LiFePO4 24V</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Voltage range</td>
+                        <td class="dm-mono">24.0V — 29.2V</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Poll interval</td>
+                        <td class="dm-mono">5s (normal), 10s (offline)</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Timezone</td>
+                        <td class="dm-mono">Europe/London (BST/GMT)</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Stale threshold</td>
+                        <td class="dm-mono">15s stale, 60s offline</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="dm-card accent-amber">
+            <div class="dm-kpi-label dm-card-title-gap">&#9888; Alert Thresholds</div>
+            <table class="dm-table">
+                <tbody>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim); width:50%">Battery green</td>
+                        <td class="dm-mono green-text">&ge; 27.2 V (&ge; 80%)</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Battery amber</td>
+                        <td class="dm-mono amber-text">25.6 — 27.2 V (20–80%)</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Battery red</td>
+                        <td class="dm-mono red-text">&lt; 25.6 V (&lt; 20%)</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Battery cutoff</td>
+                        <td class="dm-mono red-text">24.0 V (0%)</td>
+                    </tr>
+                    <tr>
+                        <td class="dm-mono" style="color:var(--text-dim)">Data stale warning</td>
+                        <td class="dm-mono amber-text">&gt; 10 min no update</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="dm-card">
+            <div class="dm-kpi-label dm-card-title-gap">&#128274; Security</div>
+            <div class="dm-chart-placeholder" style="min-height:80px;">
+                <div class="chart-icon">&#128274;</div>
+                <div>Security settings not yet configurable via UI</div>
+                <div class="chart-note">Managed via environment variables</div>
+            </div>
+        </div>
+
+        <div class="dm-card">
+            <div class="dm-kpi-label dm-card-title-gap">&#128268; Integrations</div>
+            <div class="dm-chart-placeholder" style="min-height:80px;">
+                <div class="chart-icon">&#128268;</div>
+                <div>Integration settings coming in future release</div>
+                <div class="chart-note">Tuya, DESS API, weather service</div>
+            </div>
+        </div>
+
+    </div>
+
+</main>
+</body>
+</html>

@@ -20,15 +20,15 @@
         <a href="/analytics" class="dm-nav-link">
             <span class="nav-icon">&#9776;</span> Analytics
         </a>
-        <a href="#" class="dm-nav-link disabled">
+        <a href="/controls" class="dm-nav-link">
             <span class="nav-icon">&#9881;</span> Controls
         </a>
-        <a href="#" class="dm-nav-link disabled">
+        <a href="/settings" class="dm-nav-link">
             <span class="nav-icon">&#9874;</span> Settings
         </a>
     </div>
     <div class="dm-nav-right">
-        <span class="dm-badge degraded" id="nav-status-badge">System</span>
+        <span class="dm-badge degraded" id="nav-status-badge">&#9888; API</span>
         <span class="nav-username">Authenticated as <strong>{{ username }}</strong></span>
         <form method="post" action="/logout" class="logout-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -85,7 +85,7 @@
             </div>
 
             <div class="dm-inverter-metrics">
-                <!-- 1. Battery voltage — цветовая кодировка через JS: bat-green / bat-amber / bat-red -->
+                <!-- 1. Battery voltage -->
                 <div class="dm-inv-metric">
                     <div class="dm-inv-metric-label">&#9889; Battery</div>
                     <div class="dm-inv-metric-val" id="ds-battery-voltage-wrap">
@@ -93,7 +93,7 @@
                     </div>
                     <div class="dm-kpi-sub" id="ds-battery-sub">&mdash;</div>
                 </div>
-                <!-- 2. Output power (load W) -->
+                <!-- 2. Output power -->
                 <div class="dm-inv-metric dm-inv-metric-sep">
                     <div class="dm-inv-metric-label">&#128229; Power</div>
                     <div class="dm-inv-metric-val load-color">
@@ -101,21 +101,21 @@
                     </div>
                     <div class="dm-kpi-sub" id="ds-load-sub">&mdash;</div>
                 </div>
-                <!-- 3. Discharge current -->
+                <!-- 3. Discharge current — убрана лишняя A -->
                 <div class="dm-inv-metric">
                     <div class="dm-inv-metric-label">&#8595; Discharge</div>
                     <div class="dm-inv-metric-val dis-color">
                         <span id="inv-detail-dis">N/A</span><span class="unit"> A</span>
                     </div>
-                    <div class="dm-kpi-sub">Current out</div>
+                    <div class="dm-kpi-sub">Out</div>
                 </div>
-                <!-- 4. Charge current -->
+                <!-- 4. Charge current — убрана лишняя A -->
                 <div class="dm-inv-metric">
                     <div class="dm-inv-metric-label">&#8593; Charge</div>
                     <div class="dm-inv-metric-val chg-color">
                         <span id="inv-detail-chg">N/A</span><span class="unit"> A</span>
                     </div>
-                    <div class="dm-kpi-sub">Current in</div>
+                    <div class="dm-kpi-sub">In</div>
                 </div>
                 <!-- 5. Output voltage -->
                 <div class="dm-inv-metric dm-inv-metric-sep">
@@ -129,7 +129,7 @@
                 </div>
                 <!-- 6. PV power -->
                 <div class="dm-inv-metric">
-                    <div class="dm-inv-metric-label">&#9788; PV Power</div>
+                    <div class="dm-inv-metric-label">&#9788; PV</div>
                     <div class="dm-inv-metric-val pv-color">
                         <span id="ds-pv-power">N/A</span><span class="unit"> W</span>
                     </div>
@@ -141,20 +141,24 @@
                     <div class="dm-inv-metric-val ac-in-size">
                         <span id="ds-ac-input">N/A</span><span class="unit"> V</span>
                     </div>
-                    <div class="dm-kpi-sub">Grid input</div>
+                    <div class="dm-kpi-sub">Grid</div>
                 </div>
             </div>
 
-            <!-- SOC GAUGE -->
+            <!-- BATTERY GAUGE (LiFePO4 24V: 24.0V=0% .. 29.2V=100%) -->
             <div class="dm-gauge-wrap">
-                <div class="dm-gauge-label">SOC</div>
+                <div class="dm-gauge-label">Battery</div>
                 <svg class="dm-gauge-svg" id="socGaugeSvg" width="130" height="80" viewBox="0 0 130 80">
                     <path id="socGaugeTrack" d="M 11 70 A 54 54 0 0 1 119 70"
                           fill="none" stroke="#30363d" stroke-width="10" stroke-linecap="round"/>
                     <path id="socGaugeFill" d="M 11 70 A 54 54 0 0 1 65 16"
                           fill="none" stroke="#f5a623" stroke-width="10" stroke-linecap="round"/>
+                    <!-- LiFePO4 tick marks: 24V 25V 26V 27V 28V 29V -->
+                    <line x1="11" y1="70" x2="16" y2="70" stroke="#30363d" stroke-width="1.5"/>
+                    <line x1="119" y1="70" x2="114" y2="70" stroke="#30363d" stroke-width="1.5"/>
                 </svg>
-                <div class="dm-gauge-pct amber-text" id="socPct">—</div>
+                <div class="dm-gauge-pct" id="socPct">—</div>
+                <div class="dm-gauge-sublabel">LiFePO4 24V</div>
             </div>
         </div>
 

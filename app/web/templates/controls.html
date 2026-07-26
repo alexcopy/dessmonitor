@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dessmonitor — Controls</title>
+    <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script defer src="/static/dashboard.js"></script>
+</head>
+<body>
+
+<nav class="dm-nav" role="banner">
+    <div class="dm-nav-brand">dess<span>monitor</span></div>
+    <div class="dm-nav-links">
+        <a href="/" class="dm-nav-link"><span class="nav-icon">&#9632;</span> Dashboard</a>
+        <a href="/analytics" class="dm-nav-link"><span class="nav-icon">&#9776;</span> Analytics</a>
+        <a href="/controls" class="dm-nav-link active"><span class="nav-icon">&#9881;</span> Controls</a>
+        <a href="/settings" class="dm-nav-link"><span class="nav-icon">&#9874;</span> Settings</a>
+    </div>
+    <div class="dm-nav-right">
+        <span class="dm-badge degraded" id="nav-status-badge">&#9888; API</span>
+        <span class="nav-username">Authenticated as <strong>{{ username }}</strong></span>
+        <form method="post" action="/logout" class="logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="logout-btn">Sign Out</button>
+        </form>
+    </div>
+</nav>
+
+<main class="dm-main">
+
+    <div class="dm-analytics-header">
+        <div>
+            <h1 class="dm-analytics-title dm-mono">Controls</h1>
+            <div class="dm-analytics-sub">Device control panel</div>
+        </div>
+    </div>
+
+    <div class="dm-grid-2">
+
+        <div class="dm-card accent-teal">
+            <div class="dm-kpi-label dm-card-title-gap">&#9881; Load Scheduling</div>
+            <div class="dm-chart-placeholder" style="min-height:120px;">
+                <div class="chart-icon">&#9881;</div>
+                <div>Load scheduling not yet implemented</div>
+                <div class="chart-note">Coming in a future release</div>
+            </div>
+        </div>
+
+        <div class="dm-card accent-amber">
+            <div class="dm-kpi-label dm-card-title-gap">&#9889; Inverter Mode</div>
+            <div class="dm-chart-placeholder" style="min-height:120px;">
+                <div class="chart-icon">&#9889;</div>
+                <div>Inverter mode control not yet implemented</div>
+                <div class="chart-note">Coming in a future release</div>
+            </div>
+        </div>
+
+        <div class="dm-card accent-green">
+            <div class="dm-kpi-label dm-card-title-gap">&#128268; Manual Overrides</div>
+            <div class="dm-chart-placeholder" style="min-height:120px;">
+                <div class="chart-icon">&#128268;</div>
+                <div>Manual device overrides not yet implemented</div>
+                <div class="chart-note">Coming in a future release</div>
+            </div>
+        </div>
+
+        <div class="dm-card accent-blue">
+            <div class="dm-kpi-label dm-card-title-gap">&#128337; Schedules</div>
+            <div class="dm-chart-placeholder" style="min-height:120px;">
+                <div class="chart-icon">&#128337;</div>
+                <div>Time-based schedules not yet implemented</div>
+                <div class="chart-note">Coming in a future release</div>
+            </div>
+        </div>
+
+    </div>
+
+</main>
+</body>
+</html>
