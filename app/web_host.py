@@ -44,6 +44,7 @@ _STATIC_ALLOWLIST: frozenset[str] = frozenset({
     "dashboard.css",
     "dashboard.js",
     "dashboard-patch.js",
+    "analytics.js",
 })
 
 # ---------------------------------------------------------------------------
