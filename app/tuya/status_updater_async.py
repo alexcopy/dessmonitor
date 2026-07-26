@@ -18,12 +18,13 @@ logger = logging.getLogger("TuyaStatusUpdater")
 class ParentCommState:
     """In-memory communication state for a single Tuya parent device."""
 
-    __slots__ = ("status", "retry_at", "retry_interval")
+    __slots__ = ("status", "retry_at", "retry_interval", "reconnect_attempted")
 
     def __init__(self):
         self.status: str = "active"  # active | permission_denied | transient_error | disabled
         self.retry_at: float = 0.0
         self.retry_interval: float = PERMISSION_DENIED_RETRY_SECONDS
+        self.reconnect_attempted: bool = False
 
 
 class TuyaStatusUpdaterAsync:
@@ -293,7 +294,12 @@ class TuyaStatusUpdaterAsync:
 
     # -------------------------------------------------------------
     def _mark_permission_denied(self, parent_id: str) -> None:
-        """Mark a parent as permission_denied with exponential backoff."""
+        """Mark a parent as permission_denied with exponential backoff.
+
+        Calls openapi.connect() once per episode to refresh the Tuya
+        access token. The reconnect_attempted flag prevents hammering
+        the auth endpoint on every failed retry.
+        """
         state = self._parent_states.get(parent_id)
         if state is None:
             state = ParentCommState()
@@ -305,6 +311,22 @@ class TuyaStatusUpdaterAsync:
             state.retry_interval * 2,
             PERMISSION_DENIED_MAX_RETRY_SECONDS,
         )
+        # Reconnect once per permission_denied episode — not on every retry
+        if (not state.reconnect_attempted
+                and self.auth is not None
+                and getattr(self.auth, "openapi", None) is not None):
+            state.reconnect_attempted = True
+            try:
+                self.auth.openapi.connect()
+                logger.info(
+                    "[Updater] Tuya token refreshed after permission_denied"
+                    " for parent %s", parent_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[Updater] Tuya token refresh failed for parent %s: %s",
+                    parent_id, exc,
+                )
 
     # -------------------------------------------------------------
     def _process_result(

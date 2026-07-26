@@ -173,6 +173,58 @@ async def main() -> None:
         status_updater=updater,
     )
 
+
+    def _make_sensors_provider(registry):
+        """Sensors provider with shared_state fallback.
+        
+        TelemetryRegistry gets data only when Tuya polling succeeds.
+        If Tuya is in permission_denied, registry has no fresh data.
+        Fallback reads water_temp directly from shared_state (written
+        by ML collector every 5 min regardless of Tuya state).
+        """
+        from datetime import datetime, timezone
+        from shared_state.shared_state import shared_state as _ss
+
+        def _provider():
+            readings = registry.get_all_readings_dict()
+            # Check if any reading is fresh
+            has_fresh = any(r.get("freshness") == "fresh" for r in readings)
+            if has_fresh:
+                return readings
+
+            # Fallback: build sensor dict from shared_state
+            water_temp = _ss.get("water_temp")
+            if water_temp is None:
+                # Return registry readings as-is (may be unavailable)
+                return readings
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            fallback = [{
+                "sensor_id": "watertemp_fallback",
+                "display_name": "watertemp",
+                "description": "Water Thermometer",
+                "device_type": "thermo",
+                "metric": "water_temperature",
+                "value": float(water_temp),
+                "unit": "celsius",
+                "observed_at": now_iso,
+                "source": "shared_state",
+                "freshness": "fresh",
+                "status": "valid",
+                "communication_status": "active",
+            }]
+            # Merge: use fallback for sensors without fresh readings
+            result = []
+            fallback_ids = {r["sensor_id"] for r in fallback}
+            for r in readings:
+                if r["freshness"] != "fresh" and r.get("display_name", "").lower() in ("watertemp", "pond thermo", "water temperature"):
+                    continue  # replace with fallback
+                result.append(r)
+            result.extend(fallback)
+            return result
+
+        return _provider
+
     # Start web host before reset so dashboard shows progress
     try:
         web_host_handle = await start_runtime_read_only_web_host(
@@ -181,7 +233,7 @@ async def main() -> None:
             startup_reset_status_provider=lambda: reset_coordinator.reset_status,
             startup_reset_gate_open_provider=lambda: reset_coordinator.is_gate_open,
             per_device_results_provider=reset_coordinator.get_per_device_results,
-            sensors_provider=telemetry_registry.get_all_readings_dict,
+            sensors_provider=_make_sensors_provider(telemetry_registry),
             inverter_provider=_inverter_provider,
         )
     except Exception as exc:
