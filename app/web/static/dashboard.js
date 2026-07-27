@@ -725,12 +725,12 @@
 
             var nameDiv = document.createElement("div");
             nameDiv.className = "dm-sensor-name";
-            nameDiv.textContent = displayName;
+            nameDiv.textContent = rawDescription || displayName;
             bodyDiv.appendChild(nameDiv);
 
             var descDiv = document.createElement("div");
             descDiv.className = "dm-sensor-desc";
-            descDiv.textContent = rawDescription || "\u2014";
+            descDiv.textContent = displayName;
             bodyDiv.appendChild(descDiv);
 
             /* Freshness/status row */
