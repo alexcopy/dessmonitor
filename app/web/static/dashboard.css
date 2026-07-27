@@ -989,3 +989,17 @@ html, body { font-size: 15px; }
   .dm-stats-strip      { grid-template-columns: 1fr 1fr; }
   .dm-summary-row      { grid-template-columns: 1fr; }
 }
+
+/* ── LOAD ROW FRESHNESS DOT ──────────────────────────────────── */
+.dm-obs-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+  cursor: help;
+  margin-left: 2px;
+}
+.dm-obs-dot.fresh { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.dm-obs-dot.stale { background: var(--amber); }
+.dm-obs-dot.old   { background: var(--red);   box-shadow: 0 0 4px var(--red); }

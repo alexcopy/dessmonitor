@@ -549,6 +549,34 @@
             nameSpan.className = "dm-device-name";
             nameSpan.textContent = displayName;
             tdName.appendChild(nameSpan);
+
+            /* Freshness dot + age */
+            var observedAt = load.observed_at || null;
+            var ageSeconds = null;
+            if (observedAt) {
+                try {
+                    ageSeconds = Math.floor((Date.now() - new Date(observedAt).getTime()) / 1000);
+                } catch(e) {}
+            }
+            if (ageSeconds !== null) {
+                var ageDot = document.createElement("span");
+                ageDot.className = "dm-obs-dot";
+                var ageText = ageSeconds < 60
+                    ? ageSeconds + "s ago"
+                    : ageSeconds < 3600
+                        ? Math.floor(ageSeconds/60) + "m ago"
+                        : Math.floor(ageSeconds/3600) + "h ago";
+                if (ageSeconds < 30) {
+                    ageDot.classList.add("fresh");
+                } else if (ageSeconds < 120) {
+                    ageDot.classList.add("stale");
+                } else {
+                    ageDot.classList.add("old");
+                }
+                ageDot.title = "Last observed: " + ageText + " (" + observedAt + ")";
+                tdName.appendChild(document.createTextNode(" "));
+                tdName.appendChild(ageDot);
+            }
             if (isLifeSupport) {
                 tdName.appendChild(document.createTextNode(" "));
                 var lsTag = document.createElement("span");
