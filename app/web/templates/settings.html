@@ -39,32 +39,50 @@
 
     <div class="dm-grid-2">
 
+        <!-- Device Editor — primary action card -->
+        <div class="dm-card accent-teal dm-settings-full-width">
+            <div class="dm-kpi-label dm-card-title-gap">&#9881; Device Configuration</div>
+            <div class="dm-settings-editor-row">
+                <div>
+                    <div class="dm-settings-editor-title">Device Editor</div>
+                    <div class="dm-settings-editor-desc">
+                        Add, edit or remove devices. Changes are saved to
+                        <span class="dm-mono">devices.yaml</span> and applied immediately
+                        without restarting the service.
+                    </div>
+                </div>
+                <a href="/settings/devices" class="dm-settings-editor-btn">
+                    &#9998; Open Editor
+                </a>
+            </div>
+        </div>
+
         <div class="dm-card accent-teal">
             <div class="dm-kpi-label dm-card-title-gap">&#9881; System Information</div>
             <table class="dm-table">
                 <tbody>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim); width:50%">Application</td>
+                        <td class="dm-mono dm-table-key">Application</td>
                         <td class="dm-mono">dessmonitor</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Battery type</td>
+                        <td class="dm-mono dm-table-key">Battery type</td>
                         <td class="dm-mono">LiFePO4 24V</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Voltage range</td>
+                        <td class="dm-mono dm-table-key">Voltage range</td>
                         <td class="dm-mono">24.0V — 29.2V</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Poll interval</td>
+                        <td class="dm-mono dm-table-key">Poll interval</td>
                         <td class="dm-mono">5s (normal), 10s (offline)</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Timezone</td>
+                        <td class="dm-mono dm-table-key">Timezone</td>
                         <td class="dm-mono">Europe/London (BST/GMT)</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Stale threshold</td>
+                        <td class="dm-mono dm-table-key">Stale threshold</td>
                         <td class="dm-mono">15s stale, 60s offline</td>
                     </tr>
                 </tbody>
@@ -76,23 +94,23 @@
             <table class="dm-table">
                 <tbody>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim); width:50%">Battery green</td>
+                        <td class="dm-mono dm-table-key">Battery green</td>
                         <td class="dm-mono green-text">&ge; 27.2 V (&ge; 80%)</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Battery amber</td>
+                        <td class="dm-mono dm-table-key">Battery amber</td>
                         <td class="dm-mono amber-text">25.6 — 27.2 V (20–80%)</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Battery red</td>
+                        <td class="dm-mono dm-table-key">Battery red</td>
                         <td class="dm-mono red-text">&lt; 25.6 V (&lt; 20%)</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Battery cutoff</td>
+                        <td class="dm-mono dm-table-key">Battery cutoff</td>
                         <td class="dm-mono red-text">24.0 V (0%)</td>
                     </tr>
                     <tr>
-                        <td class="dm-mono" style="color:var(--text-dim)">Data stale warning</td>
+                        <td class="dm-mono dm-table-key">Data stale warning</td>
                         <td class="dm-mono amber-text">&gt; 10 min no update</td>
                     </tr>
                 </tbody>
@@ -101,7 +119,7 @@
 
         <div class="dm-card">
             <div class="dm-kpi-label dm-card-title-gap">&#128274; Security</div>
-            <div class="dm-chart-placeholder" style="min-height:80px;">
+            <div class="dm-chart-placeholder dm-placeholder-sm">
                 <div class="chart-icon">&#128274;</div>
                 <div>Security settings not yet configurable via UI</div>
                 <div class="chart-note">Managed via environment variables</div>
@@ -110,7 +128,7 @@
 
         <div class="dm-card">
             <div class="dm-kpi-label dm-card-title-gap">&#128268; Integrations</div>
-            <div class="dm-chart-placeholder" style="min-height:80px;">
+            <div class="dm-chart-placeholder dm-placeholder-sm">
                 <div class="chart-icon">&#128268;</div>
                 <div>Integration settings coming in future release</div>
                 <div class="chart-note">Tuya, DESS API, weather service</div>
