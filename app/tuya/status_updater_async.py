@@ -200,16 +200,22 @@ class TuyaStatusUpdaterAsync:
         if success is False:
             code = result.get("code")
             msg = result.get("msg", "")
-            if code == 1106 and len(parent_ids) > 1:
-                # Permission deny on multi-parent batch — bisect
-                await self._bisect_failed(parent_ids, parent_to_devices, now_utc, now_ts)
-            elif code == 1106 and len(parent_ids) == 1:
-                # Single parent permission denied
-                self._mark_permission_denied(parent_ids[0])
-                logger.warning(
-                    "[Updater] Parent %s: permission denied",
-                    parent_ids[0],
-                )
+            if code == 1106:
+                # Attempt token refresh FIRST before bisect or quarantine.
+                # 1106 on a full batch usually means the token expired for
+                # the whole account — reconnect once, then retry the full
+                # batch before falling back to bisection.
+                self._try_reconnect_once()
+                if len(parent_ids) > 1:
+                    # Permission deny on multi-parent batch — bisect
+                    await self._bisect_failed(parent_ids, parent_to_devices, now_utc, now_ts)
+                else:
+                    # Single parent permission denied
+                    self._mark_permission_denied(parent_ids[0])
+                    logger.warning(
+                        "[Updater] Parent %s: permission denied",
+                        parent_ids[0],
+                    )
             else:
                 logger.warning(
                     "[Updater] Batch failed: success=false code=%s msg=%s",
@@ -293,6 +299,20 @@ class TuyaStatusUpdaterAsync:
                         state.retry_interval = PERMISSION_DENIED_RETRY_SECONDS
 
     # -------------------------------------------------------------
+    def _try_reconnect_once(self) -> None:
+        """Attempt Tuya token refresh once. Safe to call multiple times —
+        uses a process-level flag to avoid hammering the auth endpoint.
+        """
+        if not getattr(self, "_global_reconnect_done", False):
+            self._global_reconnect_done = True
+            if self.auth is not None and getattr(self.auth, "openapi", None) is not None:
+                try:
+                    self.auth.openapi.connect()
+                    self._global_reconnect_done = False  # reset after success
+                    logger.info("[Updater] Tuya token refreshed (global reconnect)")
+                except Exception as exc:
+                    logger.warning("[Updater] Tuya global reconnect failed: %s", exc)
+
     def _mark_permission_denied(self, parent_id: str) -> None:
         """Mark a parent as permission_denied with exponential backoff.
 
