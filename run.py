@@ -175,52 +175,46 @@ async def main() -> None:
 
 
     def _make_sensors_provider(registry):
-        """Sensors provider with shared_state fallback.
-        
+        """Sensors provider with per-device shared_state fallback.
+
         TelemetryRegistry gets data only when Tuya polling succeeds.
-        If Tuya is in permission_denied, registry has no fresh data.
-        Fallback reads water_temp directly from shared_state (written
-        by ML collector every 5 min regardless of Tuya state).
+        Falls back to shared_state per-device keys when registry stale.
+        Multiple sensors use water_temp_{name} keys to avoid collisions.
         """
         from datetime import datetime, timezone
         from shared_state.shared_state import shared_state as _ss
 
         def _provider():
             readings = registry.get_all_readings_dict()
-            # Check if any reading is fresh
-            has_fresh = any(r.get("freshness") == "fresh" for r in readings)
-            if has_fresh:
-                return readings
-
-            # Fallback: build sensor dict from shared_state
-            water_temp = _ss.get("water_temp")
-            if water_temp is None:
-                # Return registry readings as-is (may be unavailable)
-                return readings
-
-            now_iso = datetime.now(timezone.utc).isoformat()
-            fallback = [{
-                "sensor_id": "watertemp_fallback",
-                "display_name": "watertemp",
-                "description": "Water Thermometer",
-                "device_type": "thermo",
-                "metric": "water_temperature",
-                "value": float(water_temp),
-                "unit": "celsius",
-                "observed_at": now_iso,
-                "source": "shared_state",
-                "freshness": "fresh",
-                "status": "valid",
-                "communication_status": "active",
-            }]
-            # Merge: use fallback for sensors without fresh readings
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
             result = []
-            fallback_ids = {r["sensor_id"] for r in fallback}
+
             for r in readings:
-                if r["freshness"] != "fresh" and r.get("display_name", "").lower() in ("watertemp", "pond thermo", "water temperature"):
-                    continue  # replace with fallback
-                result.append(r)
-            result.extend(fallback)
+                if r.get("freshness") == "fresh":
+                    result.append(r)
+                    continue
+
+                # Try per-device key first, then generic fallback
+                name = r.get("display_name", "")
+                dev_temp = (
+                    _ss.get(f"water_temp_{name}")
+                    or _ss.get(f"water_temp_{r.get('sensor_id','')}")
+                    or _ss.get("water_temp")
+                )
+
+                if dev_temp is not None:
+                    result.append({
+                        **r,
+                        "value": float(dev_temp),
+                        "observed_at": now_iso,
+                        "freshness": "fresh",
+                        "status": "valid",
+                        "source": "shared_state",
+                    })
+                else:
+                    result.append(r)
+
             return result
 
         return _provider

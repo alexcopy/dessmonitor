@@ -498,7 +498,10 @@ class TuyaStatusUpdaterAsync:
 
         # Backward-compatible shared_state keys for ML collector
         from shared_state.shared_state import shared_state
-        shared_state["water_temp"] = normalized
+        shared_state["water_temp"] = normalized  # last-write (compat)
+        # Per-device key so multiple sensors don't overwrite each other
+        shared_state[f"water_temp_{dev.id}"] = normalized
+        shared_state[f"water_temp_{display_name}"] = normalized
 
     def _schedule_sensor_individual_fallback(
         self,
