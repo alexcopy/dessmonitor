@@ -300,18 +300,38 @@ class TuyaStatusUpdaterAsync:
 
     # -------------------------------------------------------------
     def _try_reconnect_once(self) -> None:
-        """Attempt Tuya token refresh once. Safe to call multiple times —
-        uses a process-level flag to avoid hammering the auth endpoint.
+        """Attempt Tuya token refresh once.
+
+        Uses a flag + cooldown to avoid hammering the auth endpoint.
+        Resets after PERMISSION_DENIED_RETRY_SECONDS so a new attempt
+        is made if the problem persists across multiple backoff cycles.
         """
-        if not getattr(self, "_global_reconnect_done", False):
-            self._global_reconnect_done = True
-            if self.auth is not None and getattr(self.auth, "openapi", None) is not None:
-                try:
-                    self.auth.openapi.connect()
-                    self._global_reconnect_done = False  # reset after success
-                    logger.info("[Updater] Tuya token refreshed (global reconnect)")
-                except Exception as exc:
-                    logger.warning("[Updater] Tuya global reconnect failed: %s", exc)
+        now = datetime.now(timezone.utc).timestamp()
+        last = getattr(self, "_last_reconnect_at", 0.0)
+        # Allow reconnect at most once per PERMISSION_DENIED_RETRY_SECONDS
+        if now - last < PERMISSION_DENIED_RETRY_SECONDS:
+            logger.debug(
+                "[Updater] Skipping reconnect — last attempt %.0fs ago",
+                now - last,
+            )
+            return
+        self._last_reconnect_at = now
+        if self.auth is None or getattr(self.auth, "openapi", None) is None:
+            return
+        try:
+            # Clear access_token so SDK does full re-auth on next request
+            if self.auth.openapi.token_info is not None:
+                self.auth.openapi.token_info.access_token = ""
+            response = self.auth.openapi.connect()
+            if response.get("success"):
+                logger.info("[Updater] Tuya token refreshed successfully")
+            else:
+                logger.warning(
+                    "[Updater] Tuya reconnect response: code=%s msg=%s",
+                    response.get("code"), response.get("msg"),
+                )
+        except Exception as exc:
+            logger.warning("[Updater] Tuya reconnect failed: %s", exc)
 
     def _mark_permission_denied(self, parent_id: str) -> None:
         """Mark a parent as permission_denied with exponential backoff.
