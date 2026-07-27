@@ -29,6 +29,7 @@ from app.web_auth import (
     validate_session,
     verify_password,
 )
+from app.device_initializer import DeviceInitializer
 
 # ---------------------------------------------------------------------------
 # Templates — use absolute path so working-directory changes are safe
@@ -267,6 +268,69 @@ def create_auth_router(
         )
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    # -- /settings/devices GET ------------------------------------------
+
+    @router.get("/settings/devices")
+    async def devices_editor_get(request: Request) -> Any:
+        """Render the device editor page."""
+        valid, user = _check_auth(request)
+        if not valid:
+            return RedirectResponse("/login", status_code=303)
+        csrf = generate_csrf_token(request.session)
+        response = templates.TemplateResponse(
+            request=request,
+            name="devices_editor.html",
+            context={"username": user, "csrf_token": csrf},
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    # -- /api/devices GET -----------------------------------------------
+
+    @router.get("/api/devices")
+    async def api_devices_get(request: Request) -> Any:
+        """Return only devices block from config — no credentials."""
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        try:
+            import os
+            config_path = os.environ.get("DEVICE_CONFIG_PATH", "devices.yaml")
+            devices = DeviceInitializer.read_devices_config(config_path)
+            return JSONResponse({"devices": devices})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
+    # -- /api/devices POST ----------------------------------------------
+
+    @router.post("/api/devices")
+    async def api_devices_post(request: Request) -> Any:
+        """Save devices block and hot-reload dev_mgr."""
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+
+        # CSRF check
+        body = await request.json()
+        form_csrf = body.get("csrf_token", "")
+        if not validate_csrf_token(request.session, form_csrf):
+            return JSONResponse({"detail": "Invalid CSRF token"}, status_code=403)
+
+        devices = body.get("devices")
+        if not isinstance(devices, list):
+            return JSONResponse({"detail": "devices must be a list"}, status_code=400)
+
+        try:
+            import os
+            config_path = os.environ.get("DEVICE_CONFIG_PATH", "devices.yaml")
+            DeviceInitializer.write_devices_config(config_path, devices)
+            # Hot-reload
+            initializer = DeviceInitializer(config_path)
+            result = initializer.reload()
+            return JSONResponse({"ok": True, "added": result["added"], "errors": result["errors"]})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
 
     return router
 

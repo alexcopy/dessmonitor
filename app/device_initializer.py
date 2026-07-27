@@ -222,6 +222,60 @@ class DeviceInitializer:
         except Exception as exc:
             logging.error(f"[single_device] init {cfg.get('id')} failed: {exc}", exc_info=True)
 
+
+    def reload(self) -> dict:
+        """Hot-reload devices from config file into existing dev_mgr.
+
+        Clears all current devices and re-initialises from YAML.
+        Does NOT touch Tuya credentials or other config sections.
+        Returns summary: {"added": N, "errors": [...]}
+        """
+        if not os.path.exists(self._config_path):
+            raise DeviceConfigNotFoundError(
+                f"Device config file not found: {self._config_path}"
+            )
+
+        with open(self._config_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+
+        # Clear existing devices
+        for dev in list(self.device_manager.get_devices()):
+            try:
+                self.device_manager.remove_device(dev)
+            except Exception:
+                pass
+
+        errors = []
+        added = 0
+
+        for dev_cfg in cfg.get("devices", []):
+            try:
+                if dev_cfg.get("device_type") == "multi_switch":
+                    self._process_multi_switch(dev_cfg)
+                else:
+                    self._process_single_device(dev_cfg)
+                added += 1
+            except Exception as exc:
+                errors.append(f"{dev_cfg.get('id', '?')}: {exc}")
+
+        logging.info("[DeviceInitializer] Reloaded %d devices, %d errors", added, len(errors))
+        return {"added": added, "errors": errors}
+
+    @staticmethod
+    def read_devices_config(config_path: str) -> list:
+        """Read only devices block — never exposes credentials."""
+        with open(config_path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        return raw.get("devices", [])
+
+    @staticmethod
+    def write_devices_config(config_path: str, devices: list) -> None:
+        """Patch only devices key, preserve everything else verbatim."""
+        with open(config_path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+        raw["devices"] = devices
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(raw, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     @property
     def device_controller(self) -> RelayDeviceManager:
         return self.device_manager
