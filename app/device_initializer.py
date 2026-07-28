@@ -2,7 +2,10 @@
 
 import yaml
 import os
+import shutil
 import logging
+import tempfile
+from datetime import datetime
 
 from app.devices.relay_channel_device import RelayChannelDevice, ANALOG_TYPES
 from app.devices.relay_device_manager import RelayDeviceManager
@@ -270,12 +273,56 @@ class DeviceInitializer:
 
     @staticmethod
     def write_devices_config(config_path: str, devices: list) -> None:
-        """Patch only devices key, preserve everything else verbatim."""
+        """Patch only devices key, preserve everything else verbatim.
+
+        Before overwriting:
+        1. Creates a timestamped backup copy in ``<config_dir>/backups/``.
+        2. Aborts if the backup cannot be created — original is never touched.
+        3. Writes the new YAML atomically: temp file -> fsync -> rename.
+        4. Never overwrites an existing backup file.
+        """
+        config_dir = os.path.dirname(config_path) or "."
+        backup_dir = os.path.join(config_dir, "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+
+        # Timestamped backup: never overwrite old backups
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S.%f")
+        backup_path = os.path.join(backup_dir, f"devices.{timestamp}.yaml")
+
+        # Backup current config before touching it
+        if os.path.exists(config_path):
+            try:
+                shutil.copy2(config_path, backup_path)
+            except OSError as exc:
+                raise OSError(
+                    f"Backup failed — config not saved: {exc}"
+                ) from exc
+
+        # Read existing config, patch devices, write atomically
         with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         raw["devices"] = devices
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(raw, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+        # Atomic write: temp file in same directory -> fsync -> rename
+        fd, tmp_path = tempfile.mkstemp(
+            dir=config_dir,
+            prefix=".devices_tmp_",
+            suffix=".yaml",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.dump(raw, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, config_path)
+        except Exception:
+            # Clean up temp file on any failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
     @property
     def device_controller(self) -> RelayDeviceManager:
         return self.device_manager
