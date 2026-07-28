@@ -133,6 +133,10 @@
         var chk   = document.getElementById('loads-show-all');
         var tbody = document.getElementById('loads-table-body');
         if (!chk || !tbody) return;
+
+        /* Operator default: active loads only. All is an explicit operator action. */
+        chk.checked = false;
+
         function applyFilter() {
             if (chk.checked) { tbody.classList.remove('dm-active-only'); }
             else              { tbody.classList.add('dm-active-only'); }
