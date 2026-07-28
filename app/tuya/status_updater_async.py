@@ -201,11 +201,42 @@ class TuyaStatusUpdaterAsync:
             code = result.get("code")
             msg = result.get("msg", "")
             if code == 1106:
-                # Attempt token refresh FIRST before bisect or quarantine.
-                # 1106 on a full batch usually means the token expired for
-                # the whole account — reconnect once, then retry the full
-                # batch before falling back to bisection.
-                self._try_reconnect_once()
+                # Attempt token refresh FIRST.
+                # 1106 on a full batch usually means expired token.
+                reconnected = self._try_reconnect_once()
+                if reconnected:
+                    # Token was just refreshed — retry the FULL batch once
+                    # before falling back to bisection. This avoids wasting
+                    # the isolation budget on a token-expiry false positive.
+                    logger.info(
+                        "[Updater] Retrying full batch after token refresh (%d parents)",
+                        len(parent_ids),
+                    )
+                    try:
+                        retry_result = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                self.auth.device_manager.get_device_list_status,
+                                parent_ids,
+                            ),
+                            timeout=TUYA_RPC_TIMEOUT,
+                        )
+                        if (isinstance(retry_result, dict)
+                                and retry_result.get("success") is not False
+                                and "result" in retry_result):
+                            # Full batch succeeded after token refresh
+                            self._process_result(retry_result, parent_to_devices, now_utc, now_ts)
+                            for pid in parent_ids:
+                                st = self._parent_states.get(pid)
+                                if st is not None:
+                                    st.status = "active"
+                                    st.retry_at = 0.0
+                                    st.retry_interval = PERMISSION_DENIED_RETRY_SECONDS
+                                    st.reconnect_attempted = False
+                            logger.info("[Updater] Full batch recovered after token refresh")
+                            return
+                    except Exception as retry_exc:
+                        logger.warning("[Updater] Retry after reconnect failed: %s", retry_exc)
+                    # Retry failed — fall through to bisect
                 if len(parent_ids) > 1:
                     # Permission deny on multi-parent batch — bisect
                     await self._bisect_failed(parent_ids, parent_to_devices, now_utc, now_ts)
@@ -314,10 +345,10 @@ class TuyaStatusUpdaterAsync:
                 "[Updater] Skipping reconnect — last attempt %.0fs ago",
                 now - last,
             )
-            return
+            return False
         self._last_reconnect_at = now
         if self.auth is None or getattr(self.auth, "openapi", None) is None:
-            return
+            return False
         try:
             # Clear access_token so SDK does full re-auth on next request
             if self.auth.openapi.token_info is not None:
@@ -325,13 +356,16 @@ class TuyaStatusUpdaterAsync:
             response = self.auth.openapi.connect()
             if response.get("success"):
                 logger.info("[Updater] Tuya token refreshed successfully")
+                return True
             else:
                 logger.warning(
                     "[Updater] Tuya reconnect response: code=%s msg=%s",
                     response.get("code"), response.get("msg"),
                 )
+                return False
         except Exception as exc:
             logger.warning("[Updater] Tuya reconnect failed: %s", exc)
+            return False
 
     def _mark_permission_denied(self, parent_id: str) -> None:
         """Mark a parent as permission_denied with exponential backoff.
