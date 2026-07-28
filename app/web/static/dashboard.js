@@ -218,60 +218,6 @@
         } catch (e) { return "N/A"; }
     }
 
-    function nonEmptyString(value) {
-        if (value === null || value === undefined) { return ""; }
-        var s = String(value).trim();
-        return s === "-" ? "" : s;
-    }
-
-    function sensorTechnicalKey(sensor) {
-        return nonEmptyString(sensor.sensor_id) ||
-               nonEmptyString(sensor.display_name) ||
-               nonEmptyString(sensor.metric) ||
-               "sensor";
-    }
-
-    function sensorHumanDescription(sensor) {
-        return nonEmptyString(sensor.description) ||
-               nonEmptyString(sensor.display_name) ||
-               nonEmptyString(sensor.sensor_id) ||
-               "—";
-    }
-
-    function loadOperatorLabel(load) {
-        return nonEmptyString(load.description) ||
-               nonEmptyString(load.display_name) ||
-               nonEmptyString(load.load_id) ||
-               "—";
-    }
-
-    function loadTechnicalKey(load) {
-        return nonEmptyString(load.display_name) ||
-               nonEmptyString(load.load_id) ||
-               "load";
-    }
-
-    function isWaterTemperatureSensor(sensor) {
-        var parts = [
-            sensor.sensor_id,
-            sensor.display_name,
-            sensor.metric,
-            sensor.device_type
-        ].map(function(value) {
-            return nonEmptyString(value).toLowerCase();
-        });
-
-        return parts.some(function(part) {
-            return part === "watertemp" ||
-                   part === "water_temp" ||
-                   part === "water-temperature" ||
-                   part.indexOf("watertemp") !== -1 ||
-                   part.indexOf("water_temp") !== -1 ||
-                   part.indexOf("water-temperature") !== -1 ||
-                   part === "thermo";
-        });
-    }
-
     /* -----------------------------------------------------------------------
      * Source indicator derivation
      * -----------------------------------------------------------------------
@@ -583,8 +529,7 @@
         for (var i = 0; i < loads.length; i++) {
             var load = loads[i];
             if (!load || typeof load !== "object") { continue; }
-            var displayName = loadOperatorLabel(load);
-            var technicalName = loadTechnicalKey(load);
+            var displayName = safeText(load.display_name);
             var currentlyOn = load.currently_on;
             var configuredWatts = load.configured_load_watts || 0;
             var isLifeSupport = load.is_life_support === true;
@@ -651,7 +596,7 @@
             /* Description */
             var descSpan = document.createElement("div");
             descSpan.className = "dm-device-desc";
-            descSpan.textContent = technicalName;
+            descSpan.textContent = (load.description || "\u2014");
             tdName.appendChild(descSpan);
             tr.appendChild(tdName);
 
@@ -758,8 +703,8 @@
             var sensor = sensors[i];
             if (!sensor || typeof sensor !== "object") { continue; }
 
-            var displayName = sensorTechnicalKey(sensor);
-            var rawDescription = sensorHumanDescription(sensor);
+            var displayName = safeText(sensor.display_name);
+            var rawDescription = sensor.description || "";
             var rawValue = sensor.value;
             var unit = sensor.unit || "celsius";
             var freshness = sensor.freshness || "";
@@ -780,12 +725,12 @@
 
             var nameDiv = document.createElement("div");
             nameDiv.className = "dm-sensor-name";
-            nameDiv.textContent = displayName;
+            nameDiv.textContent = rawDescription || displayName;
             bodyDiv.appendChild(nameDiv);
 
             var descDiv = document.createElement("div");
             descDiv.className = "dm-sensor-desc";
-            descDiv.textContent = rawDescription;
+            descDiv.textContent = displayName;
             bodyDiv.appendChild(descDiv);
 
             /* Freshness/status row */
@@ -828,7 +773,7 @@
             dom.sensorsPanel.appendChild(sensorDiv);
 
             /* Update watertemp mini stat if this is watertemp */
-            if (isWaterTemperatureSensor(sensor)) {
+            if (displayName.toLowerCase().indexOf("watertemp") !== -1 || displayName.toLowerCase().indexOf("water") !== -1) {
                 if (dom.miniWatertemp && rawValue !== null && rawValue !== undefined) {
                     dom.miniWatertemp.textContent = rawValue + "\u00B0C";
                 } else if (dom.miniWatertemp) {
