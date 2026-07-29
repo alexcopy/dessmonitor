@@ -626,8 +626,12 @@ class TimescaleDataCollector:
             logger.error(f"Failed to log mode change event: {e}")
 
     async def _collect_inverter_metrics(self, timestamp: datetime) -> None:
-        """Записать данные инвертора из shared_state в inverter_metrics."""
+        """Записать данные инвертора из shared_state в inverter_metrics.
+        Always uses UTC timestamp regardless of inverter clock (UTC+8).
+        """
+        from datetime import timezone as _tz
         from shared_state.shared_state import shared_state
+        timestamp = datetime.now(_tz.utc)
         try:
             async with self.pool.acquire() as conn:
                 await conn.execute("""
