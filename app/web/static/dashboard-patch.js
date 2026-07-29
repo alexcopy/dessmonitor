@@ -211,3 +211,32 @@
         init();
     }
 }());
+
+/* ── Energy Today ─────────────────────────────────────── */
+function wh2kwh(wh) {
+    return wh == null ? "—" : (wh / 1000).toFixed(2) + " kWh";
+}
+
+function loadEnergyToday() {
+    fetch("/api/energy/daily")
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data || !data.today) return;
+            var t = data.today;
+            var ep = document.getElementById("energy-pv");
+            var eb = document.getElementById("energy-batt");
+            var eg = document.getElementById("energy-grid");
+            var el = document.getElementById("energy-load");
+            if (ep) ep.textContent = wh2kwh(t.pv_wh);
+            if (eb) eb.textContent = wh2kwh(t.battery_wh);
+            if (eg) eg.textContent = t.grid_wh > 0 ? wh2kwh(t.grid_wh) : "0.00 kWh";
+            if (el) el.textContent = wh2kwh(t.load_wh);
+        })
+        .catch(function() {});
+}
+
+/* Load once on page load, then every 5 minutes */
+document.addEventListener("DOMContentLoaded", function() {
+    loadEnergyToday();
+    setInterval(loadEnergyToday, 300000);
+});
