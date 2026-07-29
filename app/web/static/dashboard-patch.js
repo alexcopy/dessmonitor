@@ -228,8 +228,10 @@ function loadEnergyToday() {
             var eg = document.getElementById("energy-grid");
             var el = document.getElementById("energy-load");
             if (ep) {
-                ep.textContent = wh2kwh(t.solar_total_wh);
-                ep.title = "PV: " + wh2kwh(t.pv_wh) + " + Battery: " + wh2kwh(t.battery_wh);
+                var netBatt = (t.battery_wh || 0) - (t.charge_wh || 0);
+                var solarTotal = (t.pv_wh || 0) + Math.max(0, netBatt);
+                ep.textContent = wh2kwh(solarTotal);
+                ep.title = "PV: " + wh2kwh(t.pv_wh) + " + Net Battery: " + wh2kwh(netBatt);
             }
             if (eb) {
                 var selfPct = t.load_wh > 0

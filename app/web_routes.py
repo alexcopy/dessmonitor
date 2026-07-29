@@ -372,7 +372,7 @@ def create_auth_router(
                 SELECT
                     day,
                     ROUND(SUM(pv_wh), 1),
-                    ROUND(SUM(batt_wh), 1),
+                    ROUND(SUM(batt_wh) - SUM(chg_wh), 1),
                     ROUND(SUM(grid_wh), 1),
                     ROUND(SUM(chg_wh), 1),
                     ROUND(SUM(

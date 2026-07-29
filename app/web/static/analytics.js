@@ -26,7 +26,9 @@
 /* ── Daily Energy Table ─────────────────────────────────── */
 (function() {
     function wh2kwh(wh) {
-        return wh == null ? "—" : (wh / 1000).toFixed(2);
+        if (wh == null) return "—";
+        var v = (wh / 1000).toFixed(2);
+        return wh > 0 ? v : '<span class="red-text">' + v + '</span>';
     }
     function selfPct(solar, load) {
         if (!load || load <= 0) return "—";
