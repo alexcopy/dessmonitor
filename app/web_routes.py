@@ -335,7 +335,7 @@ def create_auth_router(
 
     # -- /api/energy/daily GET ------------------------------------------
     @router.get("/api/energy/daily")
-    async def api_energy_daily(request: Request) -> Any:
+    async def api_energy_daily(request: Request, days: int = 7) -> Any:
         """Return daily energy totals for the last 7 days from SQLite."""
         import sqlite3, json as _json, os
         from pathlib import Path
@@ -367,7 +367,7 @@ def create_auth_router(
                         LAG(CAST(json_extract(data_json, '$.unix_ts') AS INTEGER))
                             OVER (ORDER BY unix_ts) as prev_ts
                     FROM ml_points
-                    WHERE timestamp >= date('now', '-7 days')
+                    WHERE timestamp >= date('now', '-' || ? || ' days')
                 )
                 SELECT
                     day,
@@ -385,7 +385,7 @@ def create_auth_router(
                 FROM intervals
                 GROUP BY day
                 ORDER BY day
-            """)
+            """, (days,))
             rows = []
             for day, pv, batt, grid, chg, load in cur.fetchall():
                 pv_val = pv or 0

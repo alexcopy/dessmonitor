@@ -202,6 +202,29 @@
         </table>
     </div>
 
+    <!-- SECTION: Daily Energy Table -->
+    <div class="dm-section-label">Daily Energy — Last 30 Days</div>
+    <div class="dm-card">
+        <table class="dm-table" id="dailyEnergyTable">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th class="dm-mono teal-text">&#9728; PV</th>
+                    <th class="dm-mono amber-text">&#128267; Battery</th>
+                    <th class="dm-mono teal-text">&#9728;+&#128267; Solar Total</th>
+                    <th class="dm-mono blue-text">&#127760; Grid</th>
+                    <th class="dm-mono green-text">&#9889; Load</th>
+                    <th class="dm-mono purple-text">&#128161; Self %</th>
+                </tr>
+            </thead>
+            <tbody id="dailyEnergyBody">
+                <tr>
+                    <td colspan="7" class="dm-mono" id="dailyEnergyLoading">Loading...</td>
+                </tr>
+            </tbody>
+            <tfoot id="dailyEnergyFoot"></tfoot>
+        </table>
+    </div>
 </main>
 
 

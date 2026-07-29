@@ -1077,3 +1077,9 @@ html, body { font-size: 15px; }
     color: var(--text);
     margin-top: 0.1rem;
 }
+
+/* Daily energy table */
+.dm-table-total td {
+    border-top: 1px solid var(--border);
+    font-weight: 700;
+}
