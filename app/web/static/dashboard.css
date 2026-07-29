@@ -1034,3 +1034,9 @@ html, body { font-size: 15px; }
   .dm-stats-strip      { grid-template-columns: 1fr 1fr; }
   .dm-summary-row      { grid-template-columns: 1fr; }
 }
+
+/* observed_power_w states */
+.dm-watt-off { color: var(--text-dim); }
+.dm-watt-idle { color: var(--amber); }
+.dm-watt-cfg { font-size: 0.65rem; color: var(--text-dim); font-family: var(--mono); margin-top: 0.1rem; }
+.dm-watt-bar-fill.dm-watt-bar-idle { background: var(--amber); opacity: 0.5; }

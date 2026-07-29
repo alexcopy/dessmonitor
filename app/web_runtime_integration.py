@@ -298,6 +298,7 @@ def _device_to_load_dict(
         "description": description,
         "device_type": canonical_dt,
         "configured_load_watts": configured_load_watts,
+        "observed_power_w": getattr(device, "observed_power_w", None),
         "currently_on": currently_on,
         "controllable": controllable,
         "is_life_support": is_life_support,

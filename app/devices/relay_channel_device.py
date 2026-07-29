@@ -100,6 +100,7 @@ class RelayChannelDevice:
     coefficient: float = 1.0
     api_key: str = None
     load_in_wt: int = 0
+    observed_power_w: float | None = None
     status: Dict[str, Any] = field(default_factory=dict)
     observation: DeviceObservationState = field(default_factory=make_observation_unavailable)
     property_mapping: DevicePropertyMapping = field(

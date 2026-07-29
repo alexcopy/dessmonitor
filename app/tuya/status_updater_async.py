@@ -479,6 +479,14 @@ class TuyaStatusUpdaterAsync:
                 if value is not None:
                     dev.update_observation_from_tuya(value, now_utc)
 
+                # cur_power is in 0.1W units (Tuya convention)
+                raw_power = status_by_code.get("cur_power")
+                if raw_power is not None:
+                    try:
+                        dev.observed_power_w = float(raw_power) / 10.0
+                    except (TypeError, ValueError):
+                        pass
+
                 parsed = dev.extract_status(status_list)
                 dev.update_status(parsed)
                 dev.tick(now_ts)

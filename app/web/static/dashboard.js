@@ -532,6 +532,7 @@
             var displayName = safeText(load.display_name);
             var currentlyOn = load.currently_on;
             var configuredWatts = load.configured_load_watts || 0;
+            var observedPowerW = (load.observed_power_w != null) ? load.observed_power_w : null;
             var isLifeSupport = load.is_life_support === true;
             var freshness = load.freshness || "";
             var isStale = (freshness === "stale");
@@ -628,19 +629,36 @@
             var tdPower = document.createElement("td");
             var wattSpan = document.createElement("div");
             wattSpan.className = "dm-watt";
-            wattSpan.textContent = configuredWatts + " W";
-            if (currentlyOn !== true) { wattSpan.style.color = "var(--text-dim)"; }
+            if (observedPowerW !== null) {
+                wattSpan.textContent = observedPowerW.toFixed(1) + " W";
+                if (currentlyOn === true && observedPowerW < configuredWatts * 0.1) {
+                    wattSpan.classList.add("dm-watt-idle");
+                }
+            } else {
+                wattSpan.textContent = configuredWatts + " W";
+            }
+            if (currentlyOn !== true) { wattSpan.classList.add("dm-watt-off"); }
             tdPower.appendChild(wattSpan);
-            if (currentlyOn === true && configuredWatts > 0) {
+            var barW = (observedPowerW !== null) ? observedPowerW : configuredWatts;
+            if (currentlyOn === true && barW > 0) {
                 var wattBar = document.createElement("div");
                 wattBar.className = "dm-watt-bar";
                 var wattFill = document.createElement("div");
                 wattFill.className = "dm-watt-bar-fill";
                 var maxW = 2000;
-                var pctW = Math.min(100, (configuredWatts / maxW) * 100);
+                var pctW = Math.min(100, (barW / maxW) * 100);
                 wattFill.style.width = pctW + "%";
+                if (observedPowerW !== null && observedPowerW < configuredWatts * 0.1) {
+                    wattFill.classList.add("dm-watt-bar-idle");
+                }
                 wattBar.appendChild(wattFill);
                 tdPower.appendChild(wattBar);
+            }
+            if (configuredWatts > 0 && observedPowerW !== null) {
+                var cfgNote = document.createElement("div");
+                cfgNote.className = "dm-watt-cfg";
+                cfgNote.textContent = "cfg: " + configuredWatts + " W";
+                tdPower.appendChild(cfgNote);
             }
             tr.appendChild(tdPower);
 
