@@ -237,6 +237,7 @@ class TuyaStatusUpdaterAsync:
                     except Exception as retry_exc:
                         logger.warning("[Updater] Retry after reconnect failed: %s", retry_exc)
                     # Retry failed — fall through to bisect
+                self._isolation_budget = 0
                 if len(parent_ids) > 1:
                     # Permission deny on multi-parent batch — bisect
                     await self._bisect_failed(parent_ids, parent_to_devices, now_utc, now_ts)
