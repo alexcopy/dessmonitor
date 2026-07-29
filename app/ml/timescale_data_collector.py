@@ -184,6 +184,36 @@ class TimescaleDataCollector:
             except Exception as e:
                 logger.debug(f"Hypertable creation: {e}")
 
+            # ========== INVERTER METRICS ==========
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS inverter_metrics (
+                    time                TIMESTAMPTZ NOT NULL,
+                    battery_voltage     DOUBLE PRECISION,
+                    battery_soc         DOUBLE PRECISION,
+                    battery_current_dis DOUBLE PRECISION,
+                    battery_current_chg DOUBLE PRECISION,
+                    pv_power_w          DOUBLE PRECISION,
+                    output_power_w      DOUBLE PRECISION,
+                    output_voltage      DOUBLE PRECISION,
+                    ac_input_voltage    DOUBLE PRECISION,
+                    ac_input_frequency  DOUBLE PRECISION,
+                    ac_output_load_pct  DOUBLE PRECISION,
+                    total_load_w        DOUBLE PRECISION,
+                    working_mode        TEXT,
+                    PRIMARY KEY (time)
+                );
+            """)
+            try:
+                await conn.execute("""
+                    SELECT create_hypertable(
+                        'inverter_metrics', 'time',
+                        if_not_exists => TRUE,
+                        chunk_time_interval => INTERVAL '1 day'
+                    );
+                """)
+            except Exception as e:
+                logger.debug(f"inverter_metrics hypertable: {e}")
+
             # ========== POWER MODE EVENTS ==========
             await conn.execute("""
                                CREATE TABLE IF NOT EXISTS power_mode_events
@@ -595,6 +625,40 @@ class TimescaleDataCollector:
         except Exception as e:
             logger.error(f"Failed to log mode change event: {e}")
 
+    async def _collect_inverter_metrics(self, timestamp: datetime) -> None:
+        """Записать данные инвертора из shared_state в inverter_metrics."""
+        from shared_state.shared_state import shared_state
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO inverter_metrics (
+                        time, battery_voltage, battery_soc,
+                        battery_current_dis, battery_current_chg,
+                        pv_power_w, output_power_w, output_voltage,
+                        ac_input_voltage, ac_input_frequency, ac_output_load_pct,
+                        total_load_w, working_mode
+                    ) VALUES (
+                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+                    ) ON CONFLICT (time) DO NOTHING
+                """,
+                timestamp,
+                shared_state.get("battery_voltage"),
+                shared_state.get("battery_soc"),
+                shared_state.get("battery_current_dis"),
+                shared_state.get("battery_current_chg"),
+                shared_state.get("pv_total_power"),
+                shared_state.get("output_power"),
+                shared_state.get("output_voltage"),
+                shared_state.get("ac_input_voltage"),
+                shared_state.get("ac_input_frequency"),
+                shared_state.get("ac_output_load"),
+                shared_state.get("total_load_watt"),
+                shared_state.get("working_mode"),
+                )
+                logger.debug("[TS] inverter_metrics written at %s", timestamp)
+        except Exception as exc:
+            logger.warning("[TS] inverter_metrics insert failed: %s", exc)
+
     async def collect_data(self, dev_mgr) -> Dict[str, Any]:
         """
         Собирает данные со всех устройств и записывает в БД
@@ -613,6 +677,7 @@ class TimescaleDataCollector:
         records_inserted = 0
         # Определяем текущий режим
         await self._collect_weather_data(timestamp)
+        await self._collect_inverter_metrics(timestamp)
         current_mode = self._detect_power_mode(dev_mgr)
 
         # Детект переключения режима
