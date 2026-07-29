@@ -581,8 +581,15 @@ class MLDataCollector:
                 pv_prev = self._last_collection.pv_total_power or 0.0
                 point.energy_from_pv_wh = ((pv_now + pv_prev) / 2.0) * time_delta_h
 
-                out_now = point.output_power or 0.0
-                out_prev = self._last_collection.output_power or 0.0
+                # In Line Mode output_power is None — use total_load_watt instead
+                is_line_now = str(point.working_mode).upper().startswith("LINE")
+                is_line_prev = str(getattr(self._last_collection, "working_mode", "")).upper().startswith("LINE")
+                if is_line_now or is_line_prev:
+                    out_now = point.total_load_watt or 0.0
+                    out_prev = getattr(self._last_collection, "total_load_watt", None) or 0.0
+                else:
+                    out_now = point.output_power or 0.0
+                    out_prev = self._last_collection.output_power or 0.0
                 point.energy_to_load_wh = ((out_now + out_prev) / 2.0) * time_delta_h
 
                 v_now = point.battery_voltage or self._last_collection.battery_voltage
@@ -597,8 +604,7 @@ class MLDataCollector:
                 dis_prev = self._last_collection.battery_current_dis or 0.0
                 point.energy_from_battery_wh = ((dis_now + dis_prev) / 2.0) * avg_v * time_delta_h
 
-                if (str(point.working_mode).upper().startswith("LINE") or
-                    str(getattr(self._last_collection, "working_mode", "")).upper().startswith("LINE")):
+                if is_line_now or is_line_prev:
                     point.energy_from_grid_wh = point.energy_to_load_wh
 
         self._last_collection = point
