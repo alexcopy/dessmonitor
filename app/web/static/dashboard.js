@@ -537,7 +537,7 @@
             var freshness = load.freshness || "";
             var isStale = (freshness === "stale");
 
-            if (currentlyOn === true) { onCount++; if (configuredWatts) totalActiveW += configuredWatts; }
+            if (currentlyOn === true) { onCount++; totalActiveW += (observedPowerW !== null ? observedPowerW : configuredWatts); }
             else if (currentlyOn === false) { offCount++; }
             else { unknownCount++; }
 
