@@ -355,16 +355,34 @@ def create_auth_router(
             con = sqlite3.connect(db_path)
             cur = con.cursor()
             cur.execute("""
+                WITH intervals AS (
+                    SELECT
+                        substr(timestamp, 1, 10) as day,
+                        CAST(json_extract(data_json, '$.energy_from_pv_wh') AS REAL) as pv_wh,
+                        CAST(json_extract(data_json, '$.energy_from_battery_wh') AS REAL) as batt_wh,
+                        CAST(json_extract(data_json, '$.energy_from_grid_wh') AS REAL) as grid_wh,
+                        CAST(json_extract(data_json, '$.energy_to_battery_wh') AS REAL) as chg_wh,
+                        CAST(json_extract(data_json, '$.total_load_watt') AS REAL) as load_w,
+                        CAST(json_extract(data_json, '$.unix_ts') AS INTEGER) as ts,
+                        LAG(CAST(json_extract(data_json, '$.unix_ts') AS INTEGER))
+                            OVER (ORDER BY unix_ts) as prev_ts
+                    FROM ml_points
+                    WHERE timestamp >= date('now', '-7 days')
+                )
                 SELECT
-                    substr(timestamp, 1, 10) as day,
-                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_from_pv_wh') AS REAL)), 1),
-                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_from_battery_wh') AS REAL)), 1),
-                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_from_grid_wh') AS REAL)), 1),
-                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_to_battery_wh') AS REAL)), 1),
-                    ROUND(SUM(CAST(json_extract(data_json, '$.total_load_watt') AS REAL) *
-                              5.0 / 60.0), 1)
-                FROM ml_points
-                WHERE timestamp >= date('now', '-7 days')
+                    day,
+                    ROUND(SUM(pv_wh), 1),
+                    ROUND(SUM(batt_wh), 1),
+                    ROUND(SUM(grid_wh), 1),
+                    ROUND(SUM(chg_wh), 1),
+                    ROUND(SUM(
+                        CASE
+                            WHEN prev_ts IS NOT NULL AND (ts - prev_ts) BETWEEN 60 AND 7200
+                            THEN load_w * (ts - prev_ts) / 3600.0
+                            ELSE load_w * 5.0 / 60.0
+                        END
+                    ), 1)
+                FROM intervals
                 GROUP BY day
                 ORDER BY day
             """)
