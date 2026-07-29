@@ -227,8 +227,17 @@ function loadEnergyToday() {
             var eb = document.getElementById("energy-batt");
             var eg = document.getElementById("energy-grid");
             var el = document.getElementById("energy-load");
-            if (ep) ep.textContent = wh2kwh(t.pv_wh);
-            if (eb) eb.textContent = wh2kwh(t.battery_wh);
+            if (ep) {
+                ep.textContent = wh2kwh(t.solar_total_wh);
+                ep.title = "PV: " + wh2kwh(t.pv_wh) + " + Battery: " + wh2kwh(t.battery_wh);
+            }
+            if (eb) {
+                var selfPct = t.load_wh > 0
+                    ? Math.round((t.solar_total_wh / t.load_wh) * 100)
+                    : 0;
+                eb.textContent = Math.min(selfPct, 100) + "% self";
+                eb.title = "Self-sufficiency: solar / total load";
+            }
             if (eg) eg.textContent = t.grid_wh > 0 ? wh2kwh(t.grid_wh) : "0.00 kWh";
             if (el) el.textContent = wh2kwh(t.load_wh);
         })

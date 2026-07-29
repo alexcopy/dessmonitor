@@ -370,10 +370,13 @@ def create_auth_router(
             """)
             rows = []
             for day, pv, batt, grid, chg, load in cur.fetchall():
+                pv_val = pv or 0
+                batt_val = batt or 0
                 rows.append({
                     "day": day,
-                    "pv_wh": pv or 0,
-                    "battery_wh": batt or 0,
+                    "pv_wh": pv_val,
+                    "battery_wh": batt_val,
+                    "solar_total_wh": round(pv_val + batt_val, 1),
                     "grid_wh": grid or 0,
                     "charge_wh": chg or 0,
                     "load_wh": load or 0,
