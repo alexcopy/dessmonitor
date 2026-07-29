@@ -332,6 +332,62 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/energy/daily GET ------------------------------------------
+    @router.get("/api/energy/daily")
+    async def api_energy_daily(request: Request) -> Any:
+        """Return daily energy totals for the last 7 days from SQLite."""
+        import sqlite3, json as _json, os
+        from pathlib import Path
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            _sqlite_candidates = [
+                os.getenv("ML_SQLITE_PATH"),
+                "/app/ml_data/data.sqlite",
+                "ml_data/data.sqlite",
+                "/srv/dessmonitor/ml/data.sqlite",
+            ]
+            db_path = next((p for p in _sqlite_candidates if p and Path(p).exists()), None)
+            if db_path is None:
+                return JSONResponse({"detail": "SQLite DB not found"}, status_code=503)
+            con = sqlite3.connect(db_path)
+            cur = con.cursor()
+            cur.execute("""
+                SELECT
+                    substr(timestamp, 1, 10) as day,
+                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_from_pv_wh') AS REAL)), 1),
+                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_from_battery_wh') AS REAL)), 1),
+                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_from_grid_wh') AS REAL)), 1),
+                    ROUND(SUM(CAST(json_extract(data_json, '$.energy_to_battery_wh') AS REAL)), 1),
+                    ROUND(SUM(CAST(json_extract(data_json, '$.total_load_watt') AS REAL) *
+                              5.0 / 60.0), 1)
+                FROM ml_points
+                WHERE timestamp >= date('now', '-7 days')
+                GROUP BY day
+                ORDER BY day
+            """)
+            rows = []
+            for day, pv, batt, grid, chg, load in cur.fetchall():
+                rows.append({
+                    "day": day,
+                    "pv_wh": pv or 0,
+                    "battery_wh": batt or 0,
+                    "grid_wh": grid or 0,
+                    "charge_wh": chg or 0,
+                    "load_wh": load or 0,
+                })
+            con.close()
+            # today summary
+            today = rows[-1] if rows else {}
+            return JSONResponse({
+                "today": today,
+                "week": rows,
+            })
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 
