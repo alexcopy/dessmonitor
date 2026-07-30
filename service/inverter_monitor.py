@@ -48,7 +48,7 @@ class InverterMonitor:
             pv2_power=dd.pv2_power,
             pv_total_power=dd.pv_total_power,
             output_voltage=dd.output_voltage,
-            output_power=dd.output_power or dd.output_apparent_power,
+            output_power=dd.output_power,
             output_apparent_power=dd.output_apparent_power,
             ac_input_voltage=dd.ac_input_voltage,
             ac_input_frequency=dd.ac_input_frequency,
