@@ -84,6 +84,7 @@ class TimescaleDataCollector:
         self._previous_mode = PowerMode.UNKNOWN
         self._mode_change_count = 0
         self._switching_detected_at = None
+        self._last_weather_write: float = 0.0  # throttle weather writes
 
     async def initialize(self) -> bool:
         """Инициализация: подключение к БД и создание таблиц"""
@@ -380,6 +381,11 @@ class TimescaleDataCollector:
             logger.info("✅ Tables created/verified")
 
     async def _collect_weather_data(self, timestamp: datetime) -> None:
+        """Write weather data at most once per hour."""
+        import time as _time
+        if _time.time() - self._last_weather_write < 3600:
+            return
+        self._last_weather_write = _time.time()
         """Собрать и записать данные о погоде из shared_state"""
         if not self.pool:
             return
