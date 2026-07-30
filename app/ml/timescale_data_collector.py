@@ -657,12 +657,12 @@ class TimescaleDataCollector:
                 shared_state.get("battery_current_dis"),
                 shared_state.get("battery_current_chg"),
                 shared_state.get("pv_total_power"),
-                shared_state.get("output_power"),
+                shared_state.get("output_power") or shared_state.get("output_apparent_power"),
                 shared_state.get("output_voltage"),
                 shared_state.get("ac_input_voltage"),
                 shared_state.get("ac_input_frequency"),
                 shared_state.get("ac_output_load"),
-                shared_state.get("total_load_watt"),
+                shared_state.get("output_power") or shared_state.get("output_apparent_power"),
                 shared_state.get("working_mode"),
                 )
                 logger.debug("[TS] inverter_metrics written at %s", timestamp)
