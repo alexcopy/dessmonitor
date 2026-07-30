@@ -90,3 +90,52 @@
 
     document.addEventListener("DOMContentLoaded", loadDailyTable);
 })();
+
+/* ── Inverter Metrics Table (TimescaleDB) ─────────────────── */
+(function() {
+    function fmt(v, dec) {
+        return v == null ? "—" : parseFloat(v).toFixed(dec || 0);
+    }
+    function modeClass(m) {
+        if (!m) return "";
+        if (m.indexOf("Invert") >= 0) return "teal-text";
+        if (m.indexOf("Line") >= 0) return "blue-text";
+        return "amber-text";
+    }
+
+    function loadInverterMetrics() {
+        var tbody = document.getElementById("inverterMetricsBody");
+        if (!tbody) return;
+        fetch("/api/inverter/metrics")
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.rows || !data.rows.length) {
+                    tbody.innerHTML = '<tr><td colspan="9">No data yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.rows.map(function(r) {
+                    var t = new Date(r.time);
+                    var ts = t.toISOString().replace('T',' ').substring(0,19);
+                    return '<tr>' +
+                        '<td class="dm-mono">' + ts + '</td>' +
+                        '<td class="dm-mono ' + modeClass(r.mode) + '">' + (r.mode || '—') + '</td>' +
+                        '<td class="dm-mono teal-text">' + fmt(r.pv_w) + '</td>' +
+                        '<td class="dm-mono amber-text">' + fmt(r.batt_v, 1) + '</td>' +
+                        '<td class="dm-mono amber-text">' + fmt(r.batt_soc) + '</td>' +
+                        '<td class="dm-mono">' + fmt(r.batt_dis, 1) + '</td>' +
+                        '<td class="dm-mono green-text">' + fmt(r.output_w) + '</td>' +
+                        '<td class="dm-mono green-text">' + fmt(r.load_w) + '</td>' +
+                        '<td class="dm-mono">' + fmt(r.load_pct) + '</td>' +
+                        '</tr>';
+                }).join('');
+            })
+            .catch(function() {
+                tbody.innerHTML = '<tr><td colspan="9">Failed to load</td></tr>';
+            });
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        loadInverterMetrics();
+        setInterval(loadInverterMetrics, 120000); // refresh every 2min
+    });
+})();

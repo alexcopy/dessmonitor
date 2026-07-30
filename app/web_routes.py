@@ -409,6 +409,47 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/inverter/metrics GET ------------------------------------------
+    @router.get("/api/inverter/metrics")
+    async def api_inverter_metrics(request: Request) -> Any:
+        """Return last 50 inverter_metrics rows from TimescaleDB."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+            rows = await conn.fetch("""
+                SELECT time, working_mode, pv_power_w, battery_voltage,
+                       battery_soc, battery_current_dis, output_power_w,
+                       total_load_w, ac_output_load_pct
+                FROM inverter_metrics
+                ORDER BY time DESC
+                LIMIT 50
+            """)
+            await conn.close()
+            data = []
+            for r in rows:
+                data.append({
+                    "time": r["time"].isoformat(),
+                    "mode": r["working_mode"],
+                    "pv_w": r["pv_power_w"],
+                    "batt_v": r["battery_voltage"],
+                    "batt_soc": r["battery_soc"],
+                    "batt_dis": r["battery_current_dis"],
+                    "output_w": r["output_power_w"],
+                    "load_w": r["total_load_w"],
+                    "load_pct": r["ac_output_load_pct"],
+                })
+            return JSONResponse({"rows": data})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 

@@ -225,6 +225,28 @@
             <tfoot id="dailyEnergyFoot"></tfoot>
         </table>
     </div>
+    <!-- SECTION: Inverter Metrics (TimescaleDB live) -->
+    <div class="dm-section-label">Inverter Metrics — TimescaleDB Live (last 50)</div>
+    <div class="dm-card">
+        <table class="dm-table" id="inverterMetricsTable">
+            <thead>
+                <tr>
+                    <th>Time (UTC)</th>
+                    <th class="dm-mono">Mode</th>
+                    <th class="dm-mono teal-text">PV W</th>
+                    <th class="dm-mono amber-text">Batt V</th>
+                    <th class="dm-mono amber-text">SOC %</th>
+                    <th class="dm-mono">Dis A</th>
+                    <th class="dm-mono green-text">Output W</th>
+                    <th class="dm-mono green-text">Load W</th>
+                    <th class="dm-mono">Load %</th>
+                </tr>
+            </thead>
+            <tbody id="inverterMetricsBody">
+                <tr><td colspan="9" id="inverterMetricsLoading">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
 </main>
 
 
