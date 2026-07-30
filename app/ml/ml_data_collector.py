@@ -542,10 +542,11 @@ class MLDataCollector:
             except Exception:
                 point.devices_on_count = None
             try:
-                point.total_load_watt = sum(
-                    (d.power_consumption() or 0) for d in devices
-                    if getattr(getattr(d, "observation", None), "is_on", False)
-                )
+                # Use real inverter output_power; fallback to apparent power
+                _op = point.output_power or point.output_apparent_power
+                if _op is not None and _op > 0:
+                    point.total_load_watt = float(_op)
+                # else: leave at default 0.0 — no inverter data yet
             except Exception:
                 pass
             pumps = [d for d in devices if getattr(d, "device_type", "").lower() == "pump"]
