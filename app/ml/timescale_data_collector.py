@@ -814,8 +814,19 @@ class TimescaleDataCollector:
             }
 
     def get_current_interval(self) -> int:
-        """Получить текущий интервал сбора данных (секунды)"""
-        return self.intervals.get(self._current_mode, self.intervals[PowerMode.GRID])
+        """Получить текущий интервал сбора данных (секунды).
+        In grid mode, shorten interval when battery voltage is low.
+        """
+        from shared_state.shared_state import shared_state
+        base = self.intervals.get(self._current_mode, self.intervals[PowerMode.GRID])
+        if self._current_mode == PowerMode.GRID:
+            v = shared_state.get("battery_voltage")
+            if v is not None:
+                if v < 25.0:
+                    return 60    # critical — every minute
+                elif v < 25.5:
+                    return 300   # approaching threshold — every 5 min
+        return base
 
     async def _count_records(self) -> int:
         """Подсчёт общего количества записей"""
