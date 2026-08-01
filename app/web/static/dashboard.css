@@ -1083,3 +1083,19 @@ html, body { font-size: 15px; }
     border-top: 1px solid var(--border);
     font-weight: 700;
 }
+
+/* Overload alert banner */
+.dm-overload-banner {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    text-align: center;
+}
+.dm-hidden { display: none; }
+.dm-overload-soft     { background: rgba(245,166,35,0.15); color: var(--amber); border: 1px solid var(--amber); }
+.dm-overload-hard     { background: rgba(255,56,96,0.15);  color: var(--red);   border: 1px solid var(--red); }
+.dm-overload-critical { background: rgba(255,56,96,0.3);   color: var(--red);   border: 2px solid var(--red); animation: dm-pulse 1s infinite; }
+@keyframes dm-pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }

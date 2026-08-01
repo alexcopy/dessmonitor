@@ -17,6 +17,7 @@ from app.ml.ml_data_collector import MLDataCollector, ml_collection_loop
 from app.ml.timescale_data_collector import TimescaleDataCollector, timescale_collection_loop
 from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
+from app.service.overload_protector import OverloadProtector
 from app.service.startup_reset_coordinator import StartupResetCoordinator
 from app.service.telemetry_registry import TelemetryRegistry
 from app.tuya.relay_tuya_controller import RelayTuyaController
@@ -367,6 +368,11 @@ async def main() -> None:
     # Две отдельные task!
     ml_csv_task = asyncio.create_task(
         ml_collection_loop(ml_collector, dev_mgr, stop_event)
+    )
+    # ─── Overload protection ───────────────────────────────────
+    overload_protector = OverloadProtector(dev_mgr=dev_mgr, tuya_ctrl=tuya_ctrl)
+    overload_task = asyncio.create_task(
+        overload_protector.run(stop_event)
     )
 
     if ts_enabled and ts_collector is not None:

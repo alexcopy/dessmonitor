@@ -450,6 +450,18 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/overload/alert GET ----------------------------------------
+    @router.get("/api/overload/alert")
+    async def api_overload_alert(request: Request) -> Any:
+        """Return current overload alert level from shared_state."""
+        from shared_state.shared_state import shared_state as _ss
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        alert = _ss.get("overload_alert") or {"level": "ok"}
+        return JSONResponse(alert)
+
     return router
 
 

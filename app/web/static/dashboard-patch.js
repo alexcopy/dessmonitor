@@ -251,3 +251,39 @@ document.addEventListener("DOMContentLoaded", function() {
     loadEnergyToday();
     setInterval(loadEnergyToday, 300000);
 });
+
+/* ── Overload Alert Banner ───────────────────────────────── */
+(function() {
+    var LEVELS = {
+        soft:     { cls: "dm-overload-soft",     msg: "⚠ High battery current (>40A) — monitoring" },
+        hard:     { cls: "dm-overload-hard",     msg: "🔴 Battery overload (>50A) — shedding loads" },
+        critical: { cls: "dm-overload-critical", msg: "🚨 Critical overload (>2000W) — emergency shed" },
+    };
+
+    function checkOverload() {
+        fetch("/api/overload/alert")
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data) return;
+                var banner = document.getElementById("overload-banner");
+                if (!banner) return;
+                var level = data.level || "ok";
+                if (level === "ok") {
+                    banner.className = "dm-overload-banner dm-hidden";
+                    banner.textContent = "";
+                    return;
+                }
+                var info = LEVELS[level] || LEVELS.soft;
+                banner.className = "dm-overload-banner " + info.cls;
+                banner.textContent = info.msg +
+                    " | " + (data.battery_current_dis || 0).toFixed(0) + "A" +
+                    " | " + (data.output_power_w || 0).toFixed(0) + "W";
+            })
+            .catch(function() {});
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        checkOverload();
+        setInterval(checkOverload, 30000);
+    });
+})();
