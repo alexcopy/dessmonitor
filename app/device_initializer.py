@@ -303,25 +303,11 @@ class DeviceInitializer:
             raw = yaml.safe_load(f)
         raw["devices"] = devices
 
-        # Atomic write: temp file in same directory -> fsync -> rename
-        fd, tmp_path = tempfile.mkstemp(
-            dir=config_dir,
-            prefix=".devices_tmp_",
-            suffix=".yaml",
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                yaml.dump(raw, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, config_path)
-        except Exception:
-            # Clean up temp file on any failure
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        # Direct write — atomic rename fails across ConfigMap mount boundaries
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(raw, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+            f.flush()
+            os.fsync(f.fileno())
 
     @property
     def device_controller(self) -> RelayDeviceManager:
