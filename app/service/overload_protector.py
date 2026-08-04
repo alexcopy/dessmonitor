@@ -157,17 +157,23 @@ class OverloadProtector:
             d for d in devices
             if getattr(d, "enabled", False)
             and not getattr(getattr(d, "extra", {}), "get", lambda k, v=None: v)("is_life_support", False)
-            and getattr(d, "priority", 0) > 5
+            and getattr(d, "priority", 0) > 1   # never shed priority=1 devices
             and getattr(getattr(d, "observation", None), "is_on", False)
         ]
-        candidates.sort(key=lambda d: -getattr(d, "priority", 0))  # highest priority number first
-        logger.warning("[OverloadProtector] HARD shed: turning off %d devices", len(candidates))
-        for dev in candidates:
-            try:
-                await asyncio.to_thread(self.tuya_ctrl.switch_off_device, dev)
-                logger.info("[OverloadProtector] shed: %s OFF", dev.name)
-            except Exception as exc:
-                logger.error("[OverloadProtector] shed %s failed: %s", dev.name, exc)
+        # Shed highest priority NUMBER first (least important devices first)
+        candidates.sort(key=lambda d: -getattr(d, "priority", 0))
+        if not candidates:
+            logger.info("[OverloadProtector] HARD: no sheddable devices")
+            return
+        # Shed ONE device at a time — highest priority number first
+        dev = candidates[0]
+        logger.warning("[OverloadProtector] HARD shed: turning off %s (priority=%d)",
+                       dev.name, getattr(dev, "priority", 0))
+        try:
+            await asyncio.to_thread(self.tuya_ctrl.switch_off_device, dev)
+            logger.info("[OverloadProtector] shed: %s OFF", dev.name)
+        except Exception as exc:
+            logger.error("[OverloadProtector] shed %s failed: %s", dev.name, exc)
 
     async def _shed_all_non_life_support(self) -> None:
         """Turn off all devices except life_support."""
@@ -176,8 +182,11 @@ class OverloadProtector:
             d for d in devices
             if getattr(d, "enabled", False)
             and not getattr(getattr(d, "extra", {}), "get", lambda k, v=None: v)("is_life_support", False)
+            and getattr(d, "priority", 0) > 1   # never shed priority=1 devices
             and getattr(getattr(d, "observation", None), "is_on", False)
         ]
+        # Shed highest priority NUMBER first (least important devices first)
+        candidates.sort(key=lambda d: -getattr(d, "priority", 0))
         logger.warning("[OverloadProtector] CRITICAL shed: turning off %d devices", len(candidates))
         for dev in candidates:
             try:
