@@ -55,6 +55,7 @@ class OverloadProtector:
         self.tuya_ctrl = tuya_ctrl
         self._stop     = stop_event or asyncio.Event()
         self._state    = OverloadState()
+        self._imp      = logging.getLogger("IMPORTANT")
 
     async def run(self, stop_event: asyncio.Event = None) -> None:
         if stop_event:
@@ -140,14 +141,22 @@ class OverloadProtector:
 
     def _publish_alert(self, level: str, dis: float, pwr: float) -> None:
         if level != self._state.alert_level:
-            logger.info("[OverloadProtector] alert level: %s → %s (dis=%.1fA pwr=%.0fW)",
-                        self._state.alert_level, level, dis, pwr)
+            msg = f"[OVERLOAD] {self._state.alert_level.upper()} → {level.upper()} | dis={dis:.1f}A pwr={pwr:.0f}W"
+            if level == "ok":
+                self._imp.info(msg, extra={"type": "overload", "evt": "cleared"})
+            elif level == "soft":
+                self._imp.warning(msg, extra={"type": "overload", "evt": "soft"})
+            elif level == "hard":
+                self._imp.error(msg, extra={"type": "overload", "evt": "hard"})
+            elif level == "critical":
+                self._imp.critical(msg, extra={"type": "overload", "evt": "critical"})
         self._state.alert_level = level
         shared_state["overload_alert"] = {
-            "level": level,          # ok | soft | hard | critical
+            "level": level,
             "battery_current_dis": dis,
             "output_power_w": pwr,
             "ts": time.time(),
+            "message": f"dis={dis:.1f}A pwr={pwr:.0f}W",
         }
 
     async def _shed_low_priority(self) -> None:
@@ -169,11 +178,19 @@ class OverloadProtector:
         dev = candidates[0]
         logger.warning("[OverloadProtector] HARD shed: turning off %s (priority=%d)",
                        dev.name, getattr(dev, "priority", 0))
+        self._imp.warning(
+            "[OVERLOAD] HARD shed → %s OFF (priority=%d, dis=%.1fA)",
+            dev.name, getattr(dev, "priority", 0),
+            shared_state.get("battery_current_dis") or 0,
+            extra={"type": "overload", "evt": "shed_hard", "device": dev.name},
+        )
         try:
             await asyncio.to_thread(self.tuya_ctrl.switch_off_device, dev)
             logger.info("[OverloadProtector] shed: %s OFF", dev.name)
         except Exception as exc:
             logger.error("[OverloadProtector] shed %s failed: %s", dev.name, exc)
+            self._imp.error("[OVERLOAD] shed %s FAILED: %s", dev.name, exc,
+                           extra={"type": "overload", "evt": "shed_fail"})
 
     async def _shed_all_non_life_support(self) -> None:
         """Turn off all devices except life_support."""
@@ -187,10 +204,18 @@ class OverloadProtector:
         ]
         # Shed highest priority NUMBER first (least important devices first)
         candidates.sort(key=lambda d: -getattr(d, "priority", 0))
+        self._imp.critical(
+            "[OVERLOAD] CRITICAL shed → %d devices | pwr=%.0fW",
+            len(candidates),
+            shared_state.get("output_power") or shared_state.get("output_apparent_power") or 0,
+            extra={"type": "overload", "evt": "shed_critical"},
+        )
         logger.warning("[OverloadProtector] CRITICAL shed: turning off %d devices", len(candidates))
         for dev in candidates:
             try:
                 await asyncio.to_thread(self.tuya_ctrl.switch_off_device, dev)
+                self._imp.warning("[OVERLOAD] critical shed → %s OFF", dev.name,
+                                 extra={"type": "overload", "evt": "shed_critical_device", "device": dev.name})
                 logger.info("[OverloadProtector] critical shed: %s OFF", dev.name)
             except Exception as exc:
                 logger.error("[OverloadProtector] critical shed %s failed: %s", dev.name, exc)
