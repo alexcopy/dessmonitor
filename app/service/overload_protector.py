@@ -19,7 +19,7 @@ from shared_state.shared_state import shared_state
 logger = logging.getLogger("OverloadProtector")
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-SOFT_CURRENT_A      = 40.0   # A
+SOFT_CURRENT_A      = 45.0   # A
 SOFT_DURATION_S     = 300    # 5 min
 
 HARD_CURRENT_A      = 50.0   # A
@@ -167,6 +167,7 @@ class OverloadProtector:
             if getattr(d, "enabled", False)
             and not getattr(getattr(d, "extra", {}), "get", lambda k, v=None: v)("is_life_support", False)
             and getattr(d, "priority", 0) > 1   # never shed priority=1 devices
+            and getattr(d, "load_in_wt", 0) >= 100  # skip low-power devices
             and getattr(getattr(d, "observation", None), "is_on", False)
         ]
         # Shed highest priority NUMBER first (least important devices first)
@@ -200,6 +201,7 @@ class OverloadProtector:
             if getattr(d, "enabled", False)
             and not getattr(getattr(d, "extra", {}), "get", lambda k, v=None: v)("is_life_support", False)
             and getattr(d, "priority", 0) > 1   # never shed priority=1 devices
+            and getattr(d, "load_in_wt", 0) >= 100  # skip low-power devices
             and getattr(getattr(d, "observation", None), "is_on", False)
         ]
         # Shed highest priority NUMBER first (least important devices first)
