@@ -1103,3 +1103,61 @@ html, body { font-size: 15px; }
 /* Overload events card */
 .dm-overload-events-card { margin-top: 0.75rem; }
 .dm-table-compact td, .dm-table-compact th { padding: 0.3rem 0.75rem; }
+
+/* Help button */
+.dm-help-btn {
+    width: 1.4rem; height: 1.4rem;
+    border-radius: 50%;
+    border: 1px solid var(--text-dim);
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: border-color 0.15s, color 0.15s;
+}
+.dm-help-btn:hover { border-color: var(--teal); color: var(--teal); }
+
+/* Modal */
+.dm-modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+}
+.dm-modal.dm-hidden { display: none; }
+.dm-modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    max-width: 640px; width: 90%;
+    max-height: 80vh; overflow-y: auto;
+}
+.dm-modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600; color: var(--text);
+}
+.dm-modal-close {
+    background: transparent; border: none;
+    color: var(--text-dim); cursor: pointer; font-size: 1rem;
+}
+.dm-modal-close:hover { color: var(--text); }
+.dm-modal-body {
+    padding: 1.25rem;
+    color: var(--text-dim);
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+.dm-modal-body h4 {
+    color: var(--text);
+    margin: 1rem 0 0.5rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.dm-modal-body h4:first-child { margin-top: 0; }
+.dm-modal-body p { margin: 0.5rem 0; }

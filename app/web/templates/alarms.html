@@ -60,7 +60,44 @@
     </div>
 
     <!-- Overload events table -->
-    <div class="dm-section-label">Overload Events — Today</div>
+    <div class="dm-section-label" style="display:flex;align-items:center;gap:0.5rem">
+        Overload Events — Today
+        <button id="helpBtn" class="dm-help-btn" title="What do these events mean?">?</button>
+    </div>
+
+    <!-- Help modal -->
+    <div id="helpModal" class="dm-modal dm-hidden">
+        <div class="dm-modal-box">
+            <div class="dm-modal-header">
+                <span>&#9888; Overload Protection — Help</span>
+                <button id="helpClose" class="dm-modal-close">&#10005;</button>
+            </div>
+            <div class="dm-modal-body">
+                <h4>Protection Levels</h4>
+                <table class="dm-table">
+                    <tr><td class="teal-text">OK</td><td>Battery discharge normal (&lt;55A). System running fine.</td></tr>
+                    <tr><td class="amber-text">SOFT</td><td>Battery discharge &gt;55A for &gt;5 min. Alert only — no action taken. Monitor the situation.</td></tr>
+                    <tr><td class="red-text">HARD</td><td>Battery discharge &gt;65A for &gt;2 min. Starts turning off high-power devices one by one (highest priority number first, ≥100W only).</td></tr>
+                    <tr><td class="red-text">CRITICAL</td><td>Output power &gt;2000W for &gt;5 min. Turns off all non-essential devices.</td></tr>
+                </table>
+
+                <h4>Event Format</h4>
+                <table class="dm-table">
+                    <tr><td class="dm-mono amber-text">OK → SOFT</td><td>System entered soft alert. <b>dis</b> = battery discharge current (A), <b>pwr</b> = output power (W).</td></tr>
+                    <tr><td class="dm-mono red-text">SOFT → HARD</td><td>Escalated to hard alert. Device shedding will start.</td></tr>
+                    <tr><td class="dm-mono green-text">HARD → OK</td><td>Overload resolved — current dropped back to normal.</td></tr>
+                    <tr><td class="dm-mono amber-text">HARD shed → X OFF</td><td>Device X was automatically turned off to reduce load. Priority number shown — higher number = less important.</td></tr>
+                </table>
+
+                <h4>Why does it happen?</h4>
+                <p>Usually when solar panels are suddenly shaded by clouds while high loads (heater, pump) are running. The battery compensates but risks overheating.</p>
+
+                <h4>Thresholds</h4>
+                <p>SOFT: &gt;55A | HARD: &gt;65A | CRITICAL: &gt;2000W<br>
+                Priority 1 devices (e.g. main pump) are never shed. Devices &lt;100W are skipped.</p>
+            </div>
+        </div>
+    </div>
     <div class="dm-card">
         <table class="dm-table" id="alarmsTable">
             <thead>

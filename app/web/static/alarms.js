@@ -80,3 +80,17 @@ document.addEventListener("DOMContentLoaded", function() {
     loadAlarms();
     setInterval(loadAlarms, 30000);
 });
+
+/* Help modal */
+document.addEventListener("DOMContentLoaded", function() {
+    var btn   = document.getElementById("helpBtn");
+    var modal = document.getElementById("helpModal");
+    var close = document.getElementById("helpClose");
+    if (btn && modal) {
+        btn.addEventListener("click", function() { modal.classList.remove("dm-hidden"); });
+        close.addEventListener("click", function() { modal.classList.add("dm-hidden"); });
+        modal.addEventListener("click", function(e) {
+            if (e.target === modal) modal.classList.add("dm-hidden");
+        });
+    }
+});
