@@ -7,8 +7,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import matplotlib.pyplot as plt
-import pandas as pd
+try:
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    _ANALYSIS_AVAILABLE = True
+except ImportError:
+    plt = None
+    pd = None
+    _ANALYSIS_AVAILABLE = False
 
 
 class MLDataAnalyzer:
