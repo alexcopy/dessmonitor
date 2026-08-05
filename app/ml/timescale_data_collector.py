@@ -669,6 +669,48 @@ class TimescaleDataCollector:
         except Exception as exc:
             logger.warning("[TS] inverter_metrics insert failed: %s", exc)
 
+    async def _collect_device_energy_counters(self, timestamp: datetime, devices) -> None:
+        """Write add_ele counters to device_energy_counters for daily delta calculation."""
+        try:
+            async with self.pool.acquire() as conn:
+                for device in devices:
+                    raw_ele = getattr(device, 'observed_energy_kwh', None)
+                    if raw_ele is None:
+                        continue
+                    await conn.execute("""
+                        INSERT INTO device_energy_counters (time, device_name, add_ele_raw, add_ele_kwh)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (time, device_name) DO NOTHING
+                    """,
+                    timestamp,
+                    device.name,
+                    raw_ele * 10.0,  # back to raw 0.1 kWh units
+                    raw_ele,
+                    )
+        except Exception as exc:
+            logger.warning("[TS] device_energy_counters insert failed: %s", exc)
+
+    async def _collect_device_energy_counters(self, timestamp: datetime, devices) -> None:
+        """Write add_ele counters to device_energy_counters for daily delta calculation."""
+        try:
+            async with self.pool.acquire() as conn:
+                for device in devices:
+                    raw_ele = getattr(device, 'observed_energy_kwh', None)
+                    if raw_ele is None:
+                        continue
+                    await conn.execute("""
+                        INSERT INTO device_energy_counters (time, device_name, add_ele_raw, add_ele_kwh)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (time, device_name) DO NOTHING
+                    """,
+                    timestamp,
+                    device.name,
+                    raw_ele * 10.0,  # back to raw 0.1 kWh units
+                    raw_ele,
+                    )
+        except Exception as exc:
+            logger.warning("[TS] device_energy_counters insert failed: %s", exc)
+
     async def collect_data(self, dev_mgr) -> Dict[str, Any]:
         """
         Собирает данные со всех устройств и записывает в БД

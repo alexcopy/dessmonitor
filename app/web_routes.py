@@ -491,27 +491,46 @@ def create_auth_router(
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
             conn = await asyncpg.connect(db_url)
             rows = await conn.fetch("""
+                WITH power_stats AS (
+                    SELECT
+                        device_name,
+                        COUNT(*) FILTER (WHERE is_on = true) as on_count,
+                        ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours,
+                        ROUND(AVG(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL)::numeric, 1) as avg_power_w,
+                        ROUND((SUM(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL) * 2.0 / 60.0)::numeric, 1) as real_wh
+                    FROM device_metrics
+                    WHERE time >= DATE_TRUNC('day', NOW())
+                    GROUP BY device_name
+                ),
+                energy_counters AS (
+                    SELECT
+                        device_name,
+                        ROUND((MAX(add_ele_kwh) - MIN(add_ele_kwh))::numeric, 3) as delta_kwh,
+                        COUNT(*) as counter_records
+                    FROM device_energy_counters
+                    WHERE time >= DATE_TRUNC('day', NOW())
+                    GROUP BY device_name
+                )
                 SELECT
-                    device_name,
-                    COUNT(*) FILTER (WHERE is_on = true) as on_count,
-                    ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours,
-                    ROUND(AVG(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL)::numeric, 1) as avg_power_w,
-                    ROUND((SUM(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL) * 2.0 / 60.0)::numeric, 1) as real_wh,
-                    -- delta from add_ele counter (most accurate for EM devices)
-                    ROUND((MAX(energy_kwh) - MIN(energy_kwh))::numeric, 3) as delta_kwh,
-                    COUNT(*) FILTER (WHERE energy_kwh IS NOT NULL) as has_energy_meter
-                FROM device_metrics
-                WHERE time >= DATE_TRUNC('day', NOW())
-                GROUP BY device_name
-                ORDER BY device_name
+                    p.device_name,
+                    p.on_count,
+                    p.on_hours,
+                    p.avg_power_w,
+                    p.real_wh,
+                    e.delta_kwh,
+                    e.counter_records > 0 as has_energy_meter
+                FROM power_stats p
+                LEFT JOIN energy_counters e USING (device_name)
+                ORDER BY p.device_name
             """)
             await conn.close()
             data = []
             for r in rows:
-                # Use calculated wh (power_watts × time) — add_ele is cumulative lifetime counter
-                # delta_kwh from add_ele is unreliable after pod restarts mid-day
+                # Prefer add_ele delta from dedicated counter table (reliable across pod restarts)
+                # Fallback to calculated real_wh from power_watts
+                delta_kwh = float(r["delta_kwh"]) if r["delta_kwh"] else None
                 real_wh = float(r["real_wh"]) if r["real_wh"] else None
-                best_wh = real_wh
+                best_wh = (delta_kwh * 1000) if delta_kwh and delta_kwh > 0 else real_wh
                 data.append({
                     "device_name": r["device_name"],
                     "on_hours": float(r["on_hours"] or 0),
