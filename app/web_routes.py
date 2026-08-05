@@ -500,6 +500,37 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/overload/events GET ----------------------------------------
+    @router.get("/api/overload/events")
+    async def api_overload_events(request: Request) -> Any:
+        """Return today overload events from important.log."""
+        import os
+        from datetime import date
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            log_path = os.environ.get("IMPORTANT_LOG_PATH", "/app/logs/important.log")
+            today = date.today().isoformat()
+            events = []
+            with open(log_path, encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if today not in line or "OVERLOAD" not in line:
+                        continue
+                    line = line.strip()
+                    # parse: 2026-08-05 12:35:41 [IMPORTANT] [OVERLOAD] ...
+                    parts = line.split(" ", 3)
+                    if len(parts) < 4:
+                        continue
+                    ts = parts[0] + " " + parts[1]
+                    msg = parts[3].replace("[IMPORTANT] ", "").replace("[OVERLOAD] ", "")
+                    events.append({"ts": ts, "msg": msg})
+            events.reverse()  # newest first
+            return JSONResponse({"events": events[:50], "total": len(events)})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 

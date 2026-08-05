@@ -1099,3 +1099,7 @@ html, body { font-size: 15px; }
 .dm-overload-hard     { background: rgba(255,56,96,0.15);  color: var(--red);   border: 1px solid var(--red); }
 .dm-overload-critical { background: rgba(255,56,96,0.3);   color: var(--red);   border: 2px solid var(--red); animation: dm-pulse 1s infinite; }
 @keyframes dm-pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+
+/* Overload events card */
+.dm-overload-events-card { margin-top: 0.75rem; }
+.dm-table-compact td, .dm-table-compact th { padding: 0.3rem 0.75rem; }

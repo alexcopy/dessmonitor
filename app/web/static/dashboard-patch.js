@@ -307,3 +307,48 @@ document.addEventListener("DOMContentLoaded", function() {
     loadDeviceEnergyToday();
     setInterval(loadDeviceEnergyToday, 300000); // refresh every 5 min
 });
+
+/* ── Overload Events Table ───────────────────────────────── */
+function loadOverloadEvents() {
+    fetch("/api/overload/events")
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data) return;
+            var tbody = document.getElementById("overloadEventsBody");
+            var badge = document.getElementById("overloadEventsCount");
+            var card  = document.getElementById("overloadEventsCard");
+            if (!tbody) return;
+
+            var total = data.total || 0;
+            if (badge) {
+                if (total > 0) {
+                    badge.textContent = total + " events";
+                    badge.style.display = "";
+                } else {
+                    badge.style.display = "none";
+                }
+            }
+
+            if (!data.events || !data.events.length) {
+                tbody.innerHTML = '<tr><td colspan="2" class="dm-mono">No overload events today</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.events.slice(0, 10).map(function(e) {
+                var cls = e.msg.indexOf("CRITICAL") >= 0 ? "red-text"
+                        : e.msg.indexOf("HARD") >= 0 ? "amber-text"
+                        : e.msg.indexOf("shed") >= 0 ? "amber-text"
+                        : "teal-text";
+                return '<tr>' +
+                    '<td class="dm-mono" style="white-space:nowrap;font-size:0.75rem">' + e.ts + '</td>' +
+                    '<td class="dm-mono ' + cls + '" style="font-size:0.75rem">' + e.msg + '</td>' +
+                    '</tr>';
+            }).join('');
+        })
+        .catch(function() {});
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    loadOverloadEvents();
+    setInterval(loadOverloadEvents, 60000);
+});

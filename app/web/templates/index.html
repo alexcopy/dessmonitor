@@ -239,6 +239,25 @@
             </div>
         </div>
 
+        <!-- OVERLOAD EVENTS -->
+        <div class="dm-card dm-overload-events-card" id="overloadEventsCard">
+            <div class="dm-card-header">
+                <div class="dm-kpi-label">&#9889; Overload Events Today</div>
+                <div id="overloadEventsCount" class="dm-badge degraded" style="display:none"></div>
+            </div>
+            <table class="dm-table dm-table-compact" id="overloadEventsTable">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Event</th>
+                    </tr>
+                </thead>
+                <tbody id="overloadEventsBody">
+                    <tr><td colspan="2" class="dm-mono">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
         <!-- Hidden elements for dashboard.js compatibility -->
         <div class="dm-js-hidden">
             <span id="connection-state-badge"></span>
