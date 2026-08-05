@@ -663,47 +663,33 @@
             }
             tr.appendChild(tdPower);
 
-            /* Today energy — Meter + Calc columns */
+            /* Today energy — Calc only (Meter unreliable due to pod restarts) */
             var devKey = (load.display_name || "").toLowerCase();
             var devEnergy = deviceEnergyMap[devKey];
             var configW = load.configured_load_watts || 0;
-            var tdMeter = document.createElement("td");
-            var tdCalc  = document.createElement("td");
-            tdMeter.className = "dm-mono";
-            tdCalc.className  = "dm-mono";
+            var tdToday = document.createElement("td");
+            tdToday.className = "dm-mono";
             if (devEnergy != null) {
                 var onHours = devEnergy.on_hours || 0;
-                var deltaWh = devEnergy.real_wh;
-                var calcWh  = devEnergy.avg_power_w
+                var calcWh = devEnergy.avg_power_w
                     ? devEnergy.avg_power_w * onHours
                     : onHours * configW;
-                if (deltaWh != null && deltaWh > 0) {
-                    tdMeter.textContent = (deltaWh / 1000).toFixed(2) + " kWh";
-                    tdMeter.title = "Hardware energy meter (add_ele)";
-                    tdMeter.style.color = "var(--teal)";
-                } else {
-                    tdMeter.textContent = "—";
-                    tdMeter.style.color = "var(--text-dim)";
-                }
                 if (calcWh > 0) {
-                    tdCalc.textContent = (calcWh / 1000).toFixed(2) + " kWh";
+                    tdToday.textContent = (calcWh / 1000).toFixed(2) + " kWh";
                     if (devEnergy.avg_power_w) {
-                        tdCalc.title = "avg " + devEnergy.avg_power_w.toFixed(0) + "W x " + onHours.toFixed(1) + "h (real)";
-                        tdCalc.style.color = "var(--green)";
+                        tdToday.title = "avg " + devEnergy.avg_power_w.toFixed(0) + "W x " + onHours.toFixed(1) + "h (real power)";
+                        tdToday.style.color = "var(--green)";
                     } else {
-                        tdCalc.title = configW + "W (config) x " + onHours.toFixed(1) + "h (est)";
-                        tdCalc.style.color = "var(--text-dim)";
+                        tdToday.title = configW + "W (config) x " + onHours.toFixed(1) + "h (estimated)";
+                        tdToday.style.color = "var(--text-dim)";
                     }
                 } else {
-                    tdCalc.textContent = "—";
-                    tdCalc.style.color = "var(--text-dim)";
+                    tdToday.textContent = "—";
                 }
             } else {
-                tdMeter.textContent = "—";
-                tdCalc.textContent  = "—";
+                tdToday.textContent = "—";
             }
-            tr.appendChild(tdMeter);
-            tr.appendChild(tdCalc);
+            tr.appendChild(tdToday);
 
             /* Roles */
             var tdRoles = document.createElement("td");
