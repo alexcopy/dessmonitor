@@ -718,6 +718,7 @@ class TimescaleDataCollector:
                                 "device_type": device.device_type if hasattr(device, 'device_type') else 'unknown',
                                 "is_on": device.observation.is_on if hasattr(getattr(device, "observation", None), "is_on") else None,
                                 "power_watts": None,
+                                "energy_kwh": None,
                                 "temperature_celsius": None,
                                 "humidity_percent": None,
                                 "voltage": None,
@@ -734,6 +735,10 @@ class TimescaleDataCollector:
                                 data["power_watts"] = float(device.power)
                             elif getattr(device, 'load_in_wt', None) and getattr(getattr(device, 'observation', None), 'is_on', False):
                                 data["power_watts"] = float(device.load_in_wt)
+
+                            # observed_energy_kwh — cumulative from Tuya add_ele
+                            if getattr(device, 'observed_energy_kwh', None) is not None:
+                                data["energy_kwh"] = float(device.observed_energy_kwh)
 
                             if hasattr(device, 'temperature'):
                                 data["temperature_celsius"] = float(device.temperature)
@@ -763,8 +768,9 @@ class TimescaleDataCollector:
                                                INSERT INTO device_metrics (time, device_name, device_type, is_on,
                                                                            power_watts, temperature_celsius,
                                                                            humidity_percent,
-                                                                           voltage, current_amps, power_mode, metadata)
-                                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                                                           voltage, current_amps, power_mode, metadata,
+                                                                           energy_kwh)
+                                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                                                """,
                                                data["time"],
                                                data["device_name"],
@@ -776,7 +782,8 @@ class TimescaleDataCollector:
                                                data["voltage"],
                                                data["current_amps"],
                                                data["power_mode"],
-                                               data["metadata"]
+                                               data["metadata"],
+                                               data["energy_kwh"]
                                                )
 
                             records_inserted += 1

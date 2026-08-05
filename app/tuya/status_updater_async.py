@@ -486,6 +486,13 @@ class TuyaStatusUpdaterAsync:
                         dev.observed_power_w = float(raw_power) / 10.0
                     except (TypeError, ValueError):
                         pass
+                # add_ele — cumulative energy in 0.1 kWh units
+                raw_ele = status_by_code.get("add_ele")
+                if raw_ele is not None:
+                    try:
+                        dev.observed_energy_kwh = float(raw_ele) / 10.0
+                    except (TypeError, ValueError):
+                        pass
 
                 parsed = dev.extract_status(status_list)
                 dev.update_status(parsed)
