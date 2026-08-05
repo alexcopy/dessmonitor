@@ -495,7 +495,9 @@ def create_auth_router(
                     device_name,
                     COUNT(*) FILTER (WHERE is_on = true) as on_count,
                     COUNT(*) as total_count,
-                    ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours
+                    ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours,
+                    ROUND(AVG(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL)::numeric, 1) as avg_power_w,
+                    ROUND((SUM(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL) * 2.0 / 60.0)::numeric, 1) as real_wh
                 FROM device_metrics
                 WHERE time >= DATE_TRUNC('day', NOW())
                 GROUP BY device_name
@@ -508,6 +510,8 @@ def create_auth_router(
                     "device_name": r["device_name"],
                     "on_hours": float(r["on_hours"] or 0),
                     "on_count": int(r["on_count"] or 0),
+                    "avg_power_w": float(r["avg_power_w"]) if r["avg_power_w"] else None,
+                    "real_wh": float(r["real_wh"]) if r["real_wh"] else None,
                 })
             return JSONResponse({"devices": data, "interval_minutes": 2})
         except Exception as exc:

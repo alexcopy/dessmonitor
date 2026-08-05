@@ -671,9 +671,15 @@
             if (devEnergy != null) {
                 var configW = load.configured_load_watts || 0;
                 var onHours = devEnergy.on_hours || 0;
-                var wh = Math.round(onHours * configW);
+                var wh;
+                if (devEnergy.real_wh != null && devEnergy.real_wh > 0) {
+                    wh = devEnergy.real_wh;
+                    tdToday.title = "Real power: avg " + (devEnergy.avg_power_w || 0).toFixed(0) + "W, on " + onHours.toFixed(1) + "h";
+                } else {
+                    wh = Math.round(onHours * configW);
+                    tdToday.title = "Estimated: " + configW + "W cfg × " + onHours.toFixed(1) + "h (no real power data)";
+                }
                 tdToday.textContent = wh > 0 ? (wh / 1000).toFixed(2) + " kWh" : "—";
-                tdToday.title = "On: " + onHours.toFixed(1) + "h today";
             } else {
                 tdToday.textContent = "—";
             }

@@ -727,8 +727,13 @@ class TimescaleDataCollector:
                             }
 
                             # Извлекаем метрики
-                            if hasattr(device, 'power'):
+                            # observed_power_w — real power from Tuya cur_power DP
+                            if getattr(device, 'observed_power_w', None) is not None:
+                                data["power_watts"] = float(device.observed_power_w)
+                            elif hasattr(device, 'power') and device.power is not None:
                                 data["power_watts"] = float(device.power)
+                            elif getattr(device, 'load_in_wt', None) and getattr(getattr(device, 'observation', None), 'is_on', False):
+                                data["power_watts"] = float(device.load_in_wt)
 
                             if hasattr(device, 'temperature'):
                                 data["temperature_celsius"] = float(device.temperature)
