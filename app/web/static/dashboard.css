@@ -1161,3 +1161,11 @@ html, body { font-size: 15px; }
 }
 .dm-modal-body h4:first-child { margin-top: 0; }
 .dm-modal-body p { margin: 0.5rem 0; }
+
+/* Device subname in loads table */
+.dm-device-subname {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    margin-top: 0.1rem;
+}
