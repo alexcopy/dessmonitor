@@ -663,46 +663,47 @@
             }
             tr.appendChild(tdPower);
 
-            /* Today energy */
-            var tdToday = document.createElement("td");
-            tdToday.className = "dm-mono";
+            /* Today energy — Meter + Calc columns */
             var devKey = (load.display_name || "").toLowerCase();
             var devEnergy = deviceEnergyMap[devKey];
+            var configW = load.configured_load_watts || 0;
+            var tdMeter = document.createElement("td");
+            var tdCalc  = document.createElement("td");
+            tdMeter.className = "dm-mono";
+            tdCalc.className  = "dm-mono";
             if (devEnergy != null) {
-                var configW = load.configured_load_watts || 0;
                 var onHours = devEnergy.on_hours || 0;
-                var wh, source;
-                var deltaWh = devEnergy.real_wh; // add_ele delta (hardware counter)
-                var calcWh = devEnergy.avg_power_w
+                var deltaWh = devEnergy.real_wh;
+                var calcWh  = devEnergy.avg_power_w
                     ? devEnergy.avg_power_w * onHours
                     : onHours * configW;
-
                 if (deltaWh != null && deltaWh > 0) {
-                    wh = deltaWh;
-                    source = "⚡";  // hardware counter
-                    var calcKwh = (calcWh / 1000).toFixed(2);
-                    tdToday.title = "Measured by meter: " + (deltaWh/1000).toFixed(3) + " kWh" +
-                        " | Calculated: " + calcKwh + " kWh" +
-                        " | On: " + onHours.toFixed(1) + "h";
-                } else if (devEnergy.avg_power_w) {
-                    wh = calcWh;
-                    source = "~";  // calculated from real power
-                    tdToday.title = "Calculated: avg " + devEnergy.avg_power_w.toFixed(0) +
-                        "W × " + onHours.toFixed(1) + "h";
+                    tdMeter.textContent = (deltaWh / 1000).toFixed(2) + " kWh";
+                    tdMeter.title = "Hardware energy meter (add_ele)";
+                    tdMeter.style.color = "var(--teal)";
                 } else {
-                    wh = onHours * configW;
-                    source = "≈";  // estimated from config
-                    tdToday.title = "Estimated: " + configW + "W (config) × " + onHours.toFixed(1) + "h";
+                    tdMeter.textContent = "—";
+                    tdMeter.style.color = "var(--text-dim)";
                 }
-                if (wh > 0) {
-                    tdToday.textContent = (wh / 1000).toFixed(2) + " kWh " + source;
+                if (calcWh > 0) {
+                    tdCalc.textContent = (calcWh / 1000).toFixed(2) + " kWh";
+                    if (devEnergy.avg_power_w) {
+                        tdCalc.title = "avg " + devEnergy.avg_power_w.toFixed(0) + "W x " + onHours.toFixed(1) + "h (real)";
+                        tdCalc.style.color = "var(--green)";
+                    } else {
+                        tdCalc.title = configW + "W (config) x " + onHours.toFixed(1) + "h (est)";
+                        tdCalc.style.color = "var(--text-dim)";
+                    }
                 } else {
-                    tdToday.textContent = "—";
+                    tdCalc.textContent = "—";
+                    tdCalc.style.color = "var(--text-dim)";
                 }
             } else {
-                tdToday.textContent = "—";
+                tdMeter.textContent = "—";
+                tdCalc.textContent  = "—";
             }
-            tr.appendChild(tdToday);
+            tr.appendChild(tdMeter);
+            tr.appendChild(tdCalc);
 
             /* Roles */
             var tdRoles = document.createElement("td");
