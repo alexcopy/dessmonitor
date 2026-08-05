@@ -26,7 +26,6 @@ MODULES_TO_CHECK = [
     "app.api",
     "app.config",
     "app.ml.timescale_data_collector",
-    "app.ml.ml_data_analyzer",
     "app.ml.ml_data_collector",
     "app.tuya.relay_tuya_controller",
     "app.weather.openweather_service",
