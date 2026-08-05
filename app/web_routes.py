@@ -508,10 +508,10 @@ def create_auth_router(
             await conn.close()
             data = []
             for r in rows:
-                # Prefer add_ele delta (hardware counter) over calculated
-                delta_kwh = float(r["delta_kwh"]) if r["delta_kwh"] else None
+                # Use calculated wh (power_watts × time) — add_ele is cumulative lifetime counter
+                # delta_kwh from add_ele is unreliable after pod restarts mid-day
                 real_wh = float(r["real_wh"]) if r["real_wh"] else None
-                best_wh = (delta_kwh * 1000) if delta_kwh else real_wh
+                best_wh = real_wh
                 data.append({
                     "device_name": r["device_name"],
                     "on_hours": float(r["on_hours"] or 0),
