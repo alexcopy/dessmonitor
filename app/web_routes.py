@@ -462,6 +462,44 @@ def create_auth_router(
         alert = _ss.get("overload_alert") or {"level": "ok"}
         return JSONResponse(alert)
 
+
+    # -- /api/energy/devices/today GET ------------------------------------
+    @router.get("/api/energy/devices/today")
+    async def api_energy_devices_today(request: Request) -> Any:
+        """Return per-device energy consumed today from TimescaleDB device_metrics."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+            rows = await conn.fetch("""
+                SELECT
+                    device_name,
+                    COUNT(*) FILTER (WHERE is_on = true) as on_count,
+                    COUNT(*) as total_count,
+                    ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours
+                FROM device_metrics
+                WHERE time >= DATE_TRUNC('day', NOW())
+                GROUP BY device_name
+                ORDER BY device_name
+            """)
+            await conn.close()
+            data = []
+            for r in rows:
+                data.append({
+                    "device_name": r["device_name"],
+                    "on_hours": float(r["on_hours"] or 0),
+                    "on_count": int(r["on_count"] or 0),
+                })
+            return JSONResponse({"devices": data, "interval_minutes": 2})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 

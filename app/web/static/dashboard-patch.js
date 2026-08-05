@@ -287,3 +287,23 @@ document.addEventListener("DOMContentLoaded", function() {
         setInterval(checkOverload, 30000);
     });
 })();
+
+/* ── Device Energy Today ─────────────────────────────────── */
+function loadDeviceEnergyToday() {
+    fetch("/api/energy/devices/today")
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data || !data.devices) return;
+            var map = {};
+            data.devices.forEach(function(d) {
+                map[d.device_name.toLowerCase()] = d;
+            });
+            window._deviceEnergyToday = map;
+        })
+        .catch(function() {});
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    loadDeviceEnergyToday();
+    setInterval(loadDeviceEnergyToday, 300000); // refresh every 5 min
+});

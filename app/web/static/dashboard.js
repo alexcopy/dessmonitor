@@ -525,6 +525,7 @@
         dom.loadsTableBody.textContent = "";
         var onCount = 0, offCount = 0, unknownCount = 0;
         var totalActiveW = 0;
+        var deviceEnergyMap = window._deviceEnergyToday || {};
 
         for (var i = 0; i < loads.length; i++) {
             var load = loads[i];
@@ -661,6 +662,22 @@
                 tdPower.appendChild(cfgNote);
             }
             tr.appendChild(tdPower);
+
+            /* Today energy */
+            var tdToday = document.createElement("td");
+            tdToday.className = "dm-mono";
+            var devKey = (load.display_name || "").toLowerCase();
+            var devEnergy = deviceEnergyMap[devKey];
+            if (devEnergy != null) {
+                var configW = load.configured_load_watts || 0;
+                var onHours = devEnergy.on_hours || 0;
+                var wh = Math.round(onHours * configW);
+                tdToday.textContent = wh > 0 ? (wh / 1000).toFixed(2) + " kWh" : "—";
+                tdToday.title = "On: " + onHours.toFixed(1) + "h today";
+            } else {
+                tdToday.textContent = "—";
+            }
+            tr.appendChild(tdToday);
 
             /* Roles */
             var tdRoles = document.createElement("td");
