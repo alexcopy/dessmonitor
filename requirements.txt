@@ -14,11 +14,8 @@ itsdangerous>=2.2.0
 jinja2>=3.1.0
 jsonschema==4.23.0
 jsonschema-specifications==2025.4.1
-matplotlib==3.10.7
 multidict==6.4.3
-numpy==2.3.3
 paho-mqtt==2.1.0
-pandas==2.3.3
 propcache==0.3.1
 pycryptodome==3.22.0
 python-multipart>=0.0.18
@@ -27,7 +24,6 @@ PyYAML==6.0.2
 referencing==0.36.2
 requests==2.32.3
 rpds-py==0.24.0
-scikit-learn==1.7.2
 tuya-connector-python==0.1.2
 tuya-iot-py-sdk==0.6.6
 typing_extensions==4.13.2
