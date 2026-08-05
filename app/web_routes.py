@@ -494,10 +494,12 @@ def create_auth_router(
                 SELECT
                     device_name,
                     COUNT(*) FILTER (WHERE is_on = true) as on_count,
-                    COUNT(*) as total_count,
                     ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours,
                     ROUND(AVG(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL)::numeric, 1) as avg_power_w,
-                    ROUND((SUM(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL) * 2.0 / 60.0)::numeric, 1) as real_wh
+                    ROUND((SUM(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL) * 2.0 / 60.0)::numeric, 1) as real_wh,
+                    -- delta from add_ele counter (most accurate for EM devices)
+                    ROUND((MAX(energy_kwh) - MIN(energy_kwh))::numeric, 3) as delta_kwh,
+                    COUNT(*) FILTER (WHERE energy_kwh IS NOT NULL) as has_energy_meter
                 FROM device_metrics
                 WHERE time >= DATE_TRUNC('day', NOW())
                 GROUP BY device_name
@@ -506,12 +508,17 @@ def create_auth_router(
             await conn.close()
             data = []
             for r in rows:
+                # Prefer add_ele delta (hardware counter) over calculated
+                delta_kwh = float(r["delta_kwh"]) if r["delta_kwh"] else None
+                real_wh = float(r["real_wh"]) if r["real_wh"] else None
+                best_wh = (delta_kwh * 1000) if delta_kwh else real_wh
                 data.append({
                     "device_name": r["device_name"],
                     "on_hours": float(r["on_hours"] or 0),
                     "on_count": int(r["on_count"] or 0),
                     "avg_power_w": float(r["avg_power_w"]) if r["avg_power_w"] else None,
-                    "real_wh": float(r["real_wh"]) if r["real_wh"] else None,
+                    "real_wh": best_wh,
+                    "has_energy_meter": int(r["has_energy_meter"] or 0) > 0,
                 })
             return JSONResponse({"devices": data, "interval_minutes": 2})
         except Exception as exc:
