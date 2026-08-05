@@ -671,15 +671,34 @@
             if (devEnergy != null) {
                 var configW = load.configured_load_watts || 0;
                 var onHours = devEnergy.on_hours || 0;
-                var wh;
-                if (devEnergy.real_wh != null && devEnergy.real_wh > 0) {
-                    wh = devEnergy.real_wh;
-                    tdToday.title = "Real power: avg " + (devEnergy.avg_power_w || 0).toFixed(0) + "W, on " + onHours.toFixed(1) + "h";
+                var wh, source;
+                var deltaWh = devEnergy.real_wh; // add_ele delta (hardware counter)
+                var calcWh = devEnergy.avg_power_w
+                    ? devEnergy.avg_power_w * onHours
+                    : onHours * configW;
+
+                if (deltaWh != null && deltaWh > 0) {
+                    wh = deltaWh;
+                    source = "⚡";  // hardware counter
+                    var calcKwh = (calcWh / 1000).toFixed(2);
+                    tdToday.title = "Measured by meter: " + (deltaWh/1000).toFixed(3) + " kWh" +
+                        " | Calculated: " + calcKwh + " kWh" +
+                        " | On: " + onHours.toFixed(1) + "h";
+                } else if (devEnergy.avg_power_w) {
+                    wh = calcWh;
+                    source = "~";  // calculated from real power
+                    tdToday.title = "Calculated: avg " + devEnergy.avg_power_w.toFixed(0) +
+                        "W × " + onHours.toFixed(1) + "h";
                 } else {
-                    wh = Math.round(onHours * configW);
-                    tdToday.title = "Estimated: " + configW + "W cfg × " + onHours.toFixed(1) + "h (no real power data)";
+                    wh = onHours * configW;
+                    source = "≈";  // estimated from config
+                    tdToday.title = "Estimated: " + configW + "W (config) × " + onHours.toFixed(1) + "h";
                 }
-                tdToday.textContent = wh > 0 ? (wh / 1000).toFixed(2) + " kWh" : "—";
+                if (wh > 0) {
+                    tdToday.textContent = (wh / 1000).toFixed(2) + " kWh " + source;
+                } else {
+                    tdToday.textContent = "—";
+                }
             } else {
                 tdToday.textContent = "—";
             }
