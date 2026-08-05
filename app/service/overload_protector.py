@@ -19,10 +19,10 @@ from shared_state.shared_state import shared_state
 logger = logging.getLogger("OverloadProtector")
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-SOFT_CURRENT_A      = 45.0   # A
+SOFT_CURRENT_A      = 55.0   # A
 SOFT_DURATION_S     = 300    # 5 min
 
-HARD_CURRENT_A      = 50.0   # A
+HARD_CURRENT_A      = 65.0   # A
 HARD_DURATION_S     = 120    # 2 min
 
 CRITICAL_POWER_W    = 2000.0 # W
