@@ -20,6 +20,9 @@
         <a href="/analytics" class="dm-nav-link">
             <span class="nav-icon">&#9776;</span> Analytics
         </a>
+        <a href="/alarms" class="dm-nav-link">
+            <span class="nav-icon">&#9888;</span> Alarms
+        </a>
         <a href="/controls" class="dm-nav-link">
             <span class="nav-icon">&#9881;</span> Controls
         </a>
@@ -237,25 +240,6 @@
                     <div class="dm-energy-val" id="energy-load">—</div>
                 </div>
             </div>
-        </div>
-
-        <!-- OVERLOAD EVENTS -->
-        <div class="dm-card dm-overload-events-card" id="overloadEventsCard">
-            <div class="dm-card-header">
-                <div class="dm-kpi-label">&#9889; Overload Events Today</div>
-                <div id="overloadEventsCount" class="dm-badge degraded" style="display:none"></div>
-            </div>
-            <table class="dm-table dm-table-compact" id="overloadEventsTable">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Event</th>
-                    </tr>
-                </thead>
-                <tbody id="overloadEventsBody">
-                    <tr><td colspan="2" class="dm-mono">Loading...</td></tr>
-                </tbody>
-            </table>
         </div>
 
         <!-- Hidden elements for dashboard.js compatibility -->

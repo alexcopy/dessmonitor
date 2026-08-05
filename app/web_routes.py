@@ -213,6 +213,19 @@ def create_auth_router(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+
+    # -- /alarms GET --------------------------------------------------------
+    @router.get("/alarms")
+    async def alarms_get(request: Request) -> Any:
+        auth_ok, username = _check_auth(request)
+        if not auth_ok:
+            return RedirectResponse("/login", status_code=302)
+        return templates.TemplateResponse(
+            request=request,
+            name="alarms.html",
+            context={"username": username},
+        )
+
     # -- /analytics GET --------------------------------------------------
 
     @router.get("/analytics")
