@@ -196,13 +196,22 @@ async def main() -> None:
                     result.append(r)
                     continue
 
-                # Try per-device key first, then generic fallback
+                # Try only per-device keys. The generic water_temp key is a
+                # last-write compatibility value and must not be copied to
+                # every configured sensor on the dashboard.
                 name = r.get("display_name", "")
-                dev_temp = (
-                    _ss.get(f"water_temp_{name}")
-                    or _ss.get(f"water_temp_{r.get('sensor_id','')}")
-                    or _ss.get("water_temp")
-                )
+                sensor_id = r.get("sensor_id", "")
+                device_id = sensor_id.removesuffix("_water_temp")
+                dev_temp = None
+                for key in (
+                    f"water_temp_{sensor_id}",
+                    f"water_temp_{device_id}",
+                    f"water_temp_{name}",
+                ):
+                    candidate = _ss.get(key)
+                    if candidate is not None:
+                        dev_temp = candidate
+                        break
 
                 if dev_temp is not None:
                     result.append({

@@ -311,8 +311,24 @@ class TuyaStatusUpdaterAsync:
                     ),
                     timeout=TUYA_RPC_TIMEOUT,
                 )
-            except (asyncio.TimeoutError, Exception):
+            except asyncio.TimeoutError:
                 # Do not split on transient errors
+                logger.warning(
+                    "[Updater] Bisect half failed with exception — not splitting further"
+                )
+                continue
+            except KeyError as exc:
+                logger.warning(
+                    "[Updater] Bisect half hit Tuya SDK KeyError for %d parent(s): %s",
+                    len(half), exc,
+                )
+                if len(half) == 1:
+                    self._mark_transient_error(half[0])
+                else:
+                    await self._bisect_failed(half, parent_to_devices, now_utc, now_ts)
+                continue
+            except Exception:
+                # Do not split on unknown transient errors
                 logger.warning(
                     "[Updater] Bisect half failed with exception — not splitting further"
                 )
@@ -413,6 +429,16 @@ class TuyaStatusUpdaterAsync:
                     parent_id, exc,
                 )
 
+    def _mark_transient_error(self, parent_id: str) -> None:
+        """Quarantine a parent briefly after an SDK/runtime transient error."""
+        state = self._parent_states.get(parent_id)
+        if state is None:
+            state = ParentCommState()
+            self._parent_states[parent_id] = state
+        state.status = "transient_error"
+        now = datetime.now(timezone.utc).timestamp()
+        state.retry_at = now + min(state.retry_interval, PERMISSION_DENIED_RETRY_SECONDS)
+
     # -------------------------------------------------------------
     def _process_result(
         self,
@@ -446,12 +472,16 @@ class TuyaStatusUpdaterAsync:
             if tuya_id not in parent_to_devices:
                 continue
             status_list = dev_res.get("status", [])
+            if not isinstance(status_list, list):
+                status_list = []
 
             status_by_code: dict[str, object] = {}
             for item in status_list:
+                if not isinstance(item, dict):
+                    continue
                 code = item.get("code")
                 if code is not None:
-                    status_by_code[str(code)] = item.get("value")
+                    status_by_code[str(code).strip()] = item.get("value")
 
             # Check if this parent has any sensor children whose telemetry
             # property is missing from the batch response
@@ -467,7 +497,8 @@ class TuyaStatusUpdaterAsync:
                         "temp" in status_by_code or
                         "va_temperature" in status_by_code or
                         "temperature" in status_by_code or
-                        "temp_value" in status_by_code
+                        "temp_value" in status_by_code or
+                        "temp_humidity_way_1" in status_by_code
                     )
                     if not has_temp:
                         has_sensor_no_telemetry = True
@@ -490,6 +521,10 @@ class TuyaStatusUpdaterAsync:
                     continue
 
                 value = status_by_code.get(str(sp))
+                if value is None:
+                    cp = getattr(dev.property_mapping, "control_property", None)
+                    if cp is not None and str(cp) != str(sp):
+                        value = status_by_code.get(str(cp))
                 if value is not None:
                     dev.update_observation_from_tuya(value, now_utc)
 
@@ -508,8 +543,17 @@ class TuyaStatusUpdaterAsync:
                     except (TypeError, ValueError):
                         pass
 
-                parsed = dev.extract_status(status_list)
-                dev.update_status(parsed)
+                try:
+                    parsed = dev.extract_status(status_list)
+                except Exception as exc:
+                    logger.debug(
+                        "[Updater] legacy-status-parse-failed dev=%s: %s",
+                        getattr(dev, "id", ""),
+                        exc,
+                    )
+                    parsed = {}
+                if parsed:
+                    dev.update_status(parsed)
                 dev.tick(now_ts)
 
                 if dev.device_type.lower() != "pump":
@@ -564,42 +608,12 @@ class TuyaStatusUpdaterAsync:
                 communication_status=communication_status if dev.enabled else "disabled",
             )
 
-        # Priority-ordered candidate property codes
-        candidate_properties = ["temp_current", "temp", "va_temperature", "temperature", "temp_value"]
-
-        raw_temp: object = None
-        for prop in candidate_properties:
-            if prop in status_by_code:
-                raw_temp = status_by_code[prop]
-                break
-
-        # Handle temp_humidity_way_1 format: "... t1=26.52,c1=28.04" or "...t1-26.52..."
-        if raw_temp is None and "temp_humidity_way_1" in status_by_code:
-            import re as _re
-            raw_str = str(status_by_code["temp_humidity_way_1"])
-            m = _re.search(r't1[=\-](\d+\.\d+)', raw_str)
-            if m:
-                try:
-                    # Already in Celsius, scale=1 (not 0.1)
-                    raw_temp = float(m.group(1)) * 10  # multiply by 10 so normalize *0.1 gives correct value
-                except (ValueError, TypeError):
-                    pass
-
-        if raw_temp is None:
+        normalized = self._extract_temperature_celsius(status_by_code)
+        if normalized is None:
             # No telemetry property found — update communication status only
             if self._telemetry.get_reading(sensor_id) is not None:
                 # Keep existing value, update freshness and comm status
                 pass
-            return
-
-        # Normalize using scale 0.1 (bounded Tuya compatibility mapping)
-        # This is the single canonical normalization path.
-        normalized: float | None = None
-        if isinstance(raw_temp, (int, float)) and not isinstance(raw_temp, bool):
-            if raw_temp == raw_temp and raw_temp != float("inf") and raw_temp != float("-inf"):
-                normalized = round(float(raw_temp) * 0.1, 1)
-
-        if normalized is None:
             return
 
         self._telemetry.update_water_temperature(
@@ -617,7 +631,44 @@ class TuyaStatusUpdaterAsync:
         shared_state["water_temp"] = normalized  # last-write (compat)
         # Per-device key so multiple sensors don't overwrite each other
         shared_state[f"water_temp_{dev.id}"] = normalized
+        shared_state[f"water_temp_{sensor_id}"] = normalized
         shared_state[f"water_temp_{display_name}"] = normalized
+
+    @staticmethod
+    def _extract_temperature_celsius(status_by_code: dict[str, object]) -> float | None:
+        """Extract a Tuya temperature reading and return Celsius."""
+        candidate_properties = (
+            "temp_current",
+            "temp",
+            "va_temperature",
+            "temperature",
+            "temp_value",
+        )
+        for prop in candidate_properties:
+            raw_temp = status_by_code.get(prop)
+            if isinstance(raw_temp, bool):
+                continue
+            if isinstance(raw_temp, (int, float)):
+                if raw_temp == raw_temp and raw_temp not in (float("inf"), float("-inf")):
+                    value = float(raw_temp)
+                    if abs(value) >= 100.0:
+                        value = value * 0.1
+                    return round(value, 1)
+
+        raw_way = status_by_code.get("temp_humidity_way_1")
+        if raw_way is None:
+            return None
+        import re
+        match = re.search(r"\bt1\s*[=-]\s*(-?\d+(?:\.\d+)?)", str(raw_way))
+        if match is None:
+            return None
+        try:
+            value = float(match.group(1))
+        except ValueError:
+            return None
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return round(value, 1)
 
     def _schedule_sensor_individual_fallback(
         self,
@@ -634,11 +685,9 @@ class TuyaStatusUpdaterAsync:
         """
         for pid in parent_ids:
             try:
-                import asyncio
-                result = asyncio.run_coroutine_threadsafe(
-                    self._do_individual_fallback(pid, parent_to_devices, now_utc, now_ts),
-                    asyncio.get_running_loop(),
-                ).result(timeout=TUYA_RPC_TIMEOUT)
+                asyncio.get_running_loop().create_task(
+                    self._do_individual_fallback(pid, parent_to_devices, now_utc, now_ts)
+                )
             except Exception as exc:
                 logger.debug(
                     "[Updater] sensor-individual-status-failed parent=%s", pid,
@@ -681,9 +730,11 @@ class TuyaStatusUpdaterAsync:
 
         status_by_code: dict[str, object] = {}
         for item in status_list:
+            if not isinstance(item, dict):
+                continue
             code = item.get("code")
             if code is not None:
-                status_by_code[str(code)] = item.get("value")
+                status_by_code[str(code).strip()] = item.get("value")
 
         devices = parent_to_devices.get(parent_id, [])
         for dev in devices:

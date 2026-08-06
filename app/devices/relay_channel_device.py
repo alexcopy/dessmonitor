@@ -258,16 +258,26 @@ class RelayChannelDevice:
         if isinstance(value, bool):
             observed_bool = value
         elif isinstance(value, int):
-            if value == 1:
+            if self.device_type.lower() == "pump":
+                observed_bool = value > 0
+            elif value == 1:
                 observed_bool = True
             elif value == 0:
                 observed_bool = False
+        elif isinstance(value, float):
+            if self.device_type.lower() == "pump":
+                observed_bool = value > 0.0
         elif isinstance(value, str):
             stripped = value.strip().lower()
             if stripped in ("1", "true", "yes", "on"):
                 observed_bool = True
             elif stripped in ("0", "false", "no", "off"):
                 observed_bool = False
+            elif self.device_type.lower() == "pump":
+                try:
+                    observed_bool = float(stripped) > 0.0
+                except ValueError:
+                    pass
 
         if observed_bool is None:
             # Malformed — leave prior observation unchanged

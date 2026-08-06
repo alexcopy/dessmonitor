@@ -324,6 +324,34 @@ if dev6.observation.observed_state == ObservationValue.OFF:
 else:
     fail(f"Int 0: {dev6.observation.observed_state}")
 
+# [23b] Pump numeric value > 0 -> ON
+dev6b = RelayChannelDevice(
+    id="test-6b", name="Pump", desc="test",
+    tuya_device_id="tuya6b", device_type="pump",
+    available=True, min_volt=0, max_volt=0,
+    priority=0, control_key="P",
+    status={},
+)
+dev6b.update_observation_from_tuya(30)
+if dev6b.observation.observed_state == ObservationValue.ON:
+    ok("Pump numeric value > 0 -> ON")
+else:
+    fail(f"Pump numeric ON: {dev6b.observation.observed_state}")
+
+# [23c] Pump numeric value 0 -> OFF
+dev6c = RelayChannelDevice(
+    id="test-6c", name="Pump", desc="test",
+    tuya_device_id="tuya6c", device_type="pump",
+    available=True, min_volt=0, max_volt=0,
+    priority=0, control_key="P",
+    status={},
+)
+dev6c.update_observation_from_tuya(0)
+if dev6c.observation.observed_state == ObservationValue.OFF:
+    ok("Pump numeric value 0 -> OFF")
+else:
+    fail(f"Pump numeric OFF: {dev6c.observation.observed_state}")
+
 # [24] Accepted string "true" -> ON
 dev7 = RelayChannelDevice(
     id="test-7", name="Test7", desc="test",
@@ -525,6 +553,45 @@ if STALE_MAX_AGE_SECONDS >= 360:
     ok(f"STALE_MAX_AGE_SECONDS={STALE_MAX_AGE_SECONDS} >= 360 (production-aligned)")
 else:
     fail(f"STALE_MAX_AGE_SECONDS={STALE_MAX_AGE_SECONDS} too low")
+
+# [36b] TuyaStatusUpdaterAsync applies switch_1 and pump P observations
+from app.devices.device_property_mapping import DevicePropertyMapping
+from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
+
+switch_dev = RelayChannelDevice(
+    id="switch-test", name="SwitchTest", desc="test",
+    tuya_device_id="tuya-switch", device_type="switch",
+    available=True, min_volt=0, max_volt=0,
+    priority=0, control_key="switch_1", status={},
+    property_mapping=DevicePropertyMapping.single_switch(control_key="switch_1"),
+)
+pump_dev = RelayChannelDevice(
+    id="pump-test", name="PumpTest", desc="test",
+    tuya_device_id="tuya-pump", device_type="pump",
+    available=True, min_volt=0, max_volt=0,
+    priority=0, control_key="P", state_key="Power", status={},
+    property_mapping=DevicePropertyMapping.pump_device(control_key="P", state_key="Power"),
+)
+updater = TuyaStatusUpdaterAsync()
+updater._process_result(
+    {
+        "result": [
+            {"device_id": "tuya-switch", "status": [{"code": "switch_1", "value": True}]},
+            {"device_id": "tuya-pump", "status": [{"code": "P", "value": 30}]},
+        ]
+    },
+    {"tuya-switch": [switch_dev], "tuya-pump": [pump_dev]},
+    datetime.datetime.now(datetime.timezone.utc),
+    0,
+)
+if switch_dev.observation.observed_state == ObservationValue.ON and pump_dev.observation.observed_state == ObservationValue.ON:
+    ok("Tuya updater applies switch_1 and pump P observations")
+else:
+    fail(
+        "Updater observation states: "
+        f"switch={switch_dev.observation.observed_state} "
+        f"pump={pump_dev.observation.observed_state}"
+    )
 
 # ================================================================
 # CLOCK INJECTION (1 test)

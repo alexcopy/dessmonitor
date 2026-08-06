@@ -667,6 +667,47 @@ else:
     value = reading.value if reading is not None else "None"
     fail(f"_process_result device_id sensor value={value} shared_state={shared_state.get('water_temp')}")
 
+# [62] Non-standard temp_humidity_way_1 updates only that sensor
+reg3 = TelemetryRegistry()
+updater2 = TuyaStatusUpdaterAsync(telemetry_registry=reg3)
+cats = SimpleNamespace(
+    id="cats",
+    name="Cats_Home",
+    desc="Cats home thermometer",
+    device_type="thermo",
+    enabled=True,
+)
+updater2._process_result(
+    {
+        "result": [
+            {
+                "device_id": "001TH0202",
+                "status": [
+                    {"code": "temp_humidity_way_1", "value": "...t1-26.52,c1=28.04"},
+                ],
+            }
+        ]
+    },
+    {"001TH0202": [cats]},
+    datetime.now(timezone.utc),
+    0,
+)
+cats_reading = reg3.get_reading("cats_water_temp")
+if cats_reading is not None and cats_reading.value == 26.5 and shared_state.get("water_temp_cats") == 26.5:
+    ok("temp_humidity_way_1 parsed into per-device Cats_Home temperature")
+else:
+    value = cats_reading.value if cats_reading is not None else "None"
+    fail(f"temp_humidity_way_1 value={value} shared_state={shared_state.get('water_temp_cats')}")
+
+# [63] run.py sensors provider does not use generic water_temp fallback
+run_path = os.path.join(sys.argv[1], "run.py")
+with open(run_path, encoding="utf-8") as f:
+    run_src = f.read()
+if '_ss.get("water_temp")' not in run_src and "_ss.get('water_temp')" not in run_src:
+    ok("Sensors provider avoids generic water_temp fallback collision")
+else:
+    fail("Sensors provider still uses generic water_temp fallback")
+
 # ================================================================
 # Results
 # ================================================================
