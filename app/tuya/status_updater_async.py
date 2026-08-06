@@ -573,6 +573,18 @@ class TuyaStatusUpdaterAsync:
                 raw_temp = status_by_code[prop]
                 break
 
+        # Handle temp_humidity_way_1 format: "... t1=26.52,c1=28.04" or "...t1-26.52..."
+        if raw_temp is None and "temp_humidity_way_1" in status_by_code:
+            import re as _re
+            raw_str = str(status_by_code["temp_humidity_way_1"])
+            m = _re.search(r't1[=\-](\d+\.\d+)', raw_str)
+            if m:
+                try:
+                    # Already in Celsius, scale=1 (not 0.1)
+                    raw_temp = float(m.group(1)) * 10  # multiply by 10 so normalize *0.1 gives correct value
+                except (ValueError, TypeError):
+                    pass
+
         if raw_temp is None:
             # No telemetry property found — update communication status only
             if self._telemetry.get_reading(sensor_id) is not None:
