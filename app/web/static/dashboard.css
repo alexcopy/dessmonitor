@@ -1169,3 +1169,6 @@ html, body { font-size: 15px; }
     font-family: var(--mono);
     margin-top: 0.1rem;
 }
+
+/* Config power — dimmed to show it's not real */
+.dm-watt-config { color: var(--text-dim) !important; font-style: italic; }

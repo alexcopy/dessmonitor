@@ -95,6 +95,7 @@ class LoadControlSnapshot:
     startup_reset_result: str | None = None
     enabled: bool = True
     communication_status: str | None = None
+    observed_power_w: float | None = None
 
 
 # ===================================================================
@@ -325,6 +326,7 @@ def _convert_load(load: LoadCandidate, load_meta: dict[str, Any] | None = None) 
         startup_reset_result=meta.get("startup_reset_result"),
         enabled=meta.get("enabled", True),
         communication_status=meta.get("communication_status"),
+        observed_power_w=meta.get("observed_power_w"),
     )
 
 
@@ -425,6 +427,7 @@ def build_control_state_snapshot(
             "startup_reset_result": rls.startup_reset_result,
             "enabled": rls.enabled,
             "communication_status": rls.communication_status,
+            "observed_power_w": rls.observed_power_w,
         }
 
     # Convert loads with metadata

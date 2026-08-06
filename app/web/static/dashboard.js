@@ -632,11 +632,14 @@
             wattSpan.className = "dm-watt";
             if (observedPowerW !== null) {
                 wattSpan.textContent = observedPowerW.toFixed(1) + " W";
+                wattSpan.title = "Real power from device";
                 if (currentlyOn === true && observedPowerW < configuredWatts * 0.1) {
                     wattSpan.classList.add("dm-watt-idle");
                 }
             } else {
                 wattSpan.textContent = configuredWatts + " W";
+                wattSpan.classList.add("dm-watt-config");
+                wattSpan.title = "Configured power (no real data)";
             }
             if (currentlyOn !== true) { wattSpan.classList.add("dm-watt-off"); }
             tdPower.appendChild(wattSpan);

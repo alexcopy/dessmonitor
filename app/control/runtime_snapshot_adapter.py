@@ -98,6 +98,7 @@ class RuntimeLoadState:
     startup_reset_result: str | None = None
     enabled: bool = True
     communication_status: str | None = None
+    observed_power_w: float | None = None
 
 
 # ===================================================================
@@ -324,6 +325,7 @@ def _parse_sensors(
                     freshness=str(item.get("freshness", "")),
                     status=str(item.get("status", "")),
                     communication_status=str(item.get("communication_status", "")),
+                    observed_power_w=float(item["observed_power_w"]) if item.get("observed_power_w") is not None else None,
                 )
                 result.append(sr)
             except (TypeError, ValueError):
