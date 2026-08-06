@@ -184,6 +184,16 @@ class TuyaStatusUpdaterAsync:
                 TUYA_RPC_TIMEOUT, len(parent_ids),
             )
             return
+        except KeyError as exc:
+            # SDK bug: device missing 'status' field (offline/removed device)
+            # Filter out problematic device_ids and retry with remaining
+            logger.warning(
+                "[Updater] Tuya SDK KeyError for %d parent(s): %s — will retry individually",
+                len(parent_ids), exc,
+            )
+            if len(parent_ids) > 1:
+                await self._bisect_failed(parent_ids, parent_to_devices, now_utc, now_ts)
+            return
         except Exception as exc:
             logger.error(
                 "[Updater] Tuya RPC exception for %d parent(s): %s",
