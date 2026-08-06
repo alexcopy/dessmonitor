@@ -144,6 +144,15 @@ if len(parsed) == 1 and parsed[0].sensor_id == "s1":
 else:
     fail(f"_parse_sensors: {parsed}")
 
+# [10b] Load-only observed_power_w does not make sensor parsing drop entries
+sensor_with_load_field = dict(dicts[0])
+sensor_with_load_field["observed_power_w"] = 12.3
+parsed_with_load_field = _parse_sensors([sensor_with_load_field])
+if len(parsed_with_load_field) == 1 and parsed_with_load_field[0].sensor_id == "s1":
+    ok("_parse_sensors ignores load-only observed_power_w")
+else:
+    fail(f"_parse_sensors with observed_power_w: {parsed_with_load_field}")
+
 # [11] Parse preserves description
 if parsed[0].description == "Water Thermometer":
     ok("_parse_sensors preserves description")
@@ -600,6 +609,63 @@ if parsed_loads[0].communication_status == "active":
     ok("_parse_loads preserves communication_status")
 else:
     fail(f"_parse_loads communication_status: {parsed_loads[0].communication_status}")
+
+# [59] _parse_loads preserves observed_power_w
+runtime_state4 = {
+    "loads": [
+        {
+            "load_id": "load-2",
+            "display_name": "metered_load",
+            "configured_load_watts": 100,
+            "observed_power_w": 42.5,
+        }
+    ],
+}
+parsed_metered_loads = _parse_loads(runtime_state4.get("loads"))
+if len(parsed_metered_loads) == 1 and parsed_metered_loads[0].observed_power_w == 42.5:
+    ok("_parse_loads preserves observed_power_w")
+else:
+    val = parsed_metered_loads[0].observed_power_w if parsed_metered_loads else "None"
+    fail(f"_parse_loads observed_power_w: {val}")
+
+# ================================================================
+# PART 16: Tuya batch sensor parent ID compatibility
+# ================================================================
+
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
+from shared_state.shared_state import shared_state
+
+reg2 = TelemetryRegistry()
+updater = TuyaStatusUpdaterAsync(telemetry_registry=reg2)
+dev = SimpleNamespace(
+    id="pond",
+    name="pond thermo",
+    desc="Pond thermometer",
+    device_type="thermo",
+    enabled=True,
+)
+shared_state.pop("water_temp", None)
+updater._process_result(
+    {
+        "result": [
+            {
+                "device_id": "tuya-parent-1",
+                "status": [{"code": "temp_current", "value": 237}],
+            }
+        ]
+    },
+    {"tuya-parent-1": [dev]},
+    datetime.now(timezone.utc),
+    0,
+)
+reading = reg2.get_reading("pond_water_temp")
+if reading is not None and reading.value == 23.7 and shared_state.get("water_temp") == 23.7:
+    ok("_process_result accepts Tuya device_id for sensor telemetry")
+else:
+    value = reading.value if reading is not None else "None"
+    fail(f"_process_result device_id sensor value={value} shared_state={shared_state.get('water_temp')}")
 
 # ================================================================
 # Results

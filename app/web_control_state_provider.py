@@ -231,6 +231,7 @@ def _parse_loads(
                     startup_reset_result=item.get("startup_reset_result"),
                     enabled=bool(item.get("enabled", True)),
                     communication_status=item.get("communication_status"),
+                    observed_power_w=float(item["observed_power_w"]) if item.get("observed_power_w") is not None else None,
                 )
                 result.append(rl)
             except (TypeError, ValueError):

@@ -428,7 +428,11 @@ class TuyaStatusUpdaterAsync:
         sensor_parents_needing_fallback: list[str] = []
 
         for dev_res in result.get("result", []):
-            tuya_id = dev_res.get("id")
+            tuya_id = (
+                dev_res.get("id")
+                or dev_res.get("device_id")
+                or dev_res.get("devId")
+            )
             if tuya_id not in parent_to_devices:
                 continue
             status_list = dev_res.get("status", [])
@@ -551,7 +555,7 @@ class TuyaStatusUpdaterAsync:
             )
 
         # Priority-ordered candidate property codes
-        candidate_properties = ["temp_current", "va_temperature", "temperature", "temp_value"]
+        candidate_properties = ["temp_current", "temp", "va_temperature", "temperature", "temp_value"]
 
         raw_temp: object = None
         for prop in candidate_properties:
