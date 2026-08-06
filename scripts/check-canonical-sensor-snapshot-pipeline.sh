@@ -746,6 +746,63 @@ else:
     value = cats2_reading.value if cats2_reading is not None else "None"
     fail(f"Individual fallback variant value={value}")
 
+# [65] _process_result accepts paged device-list response result.devices
+reg5 = TelemetryRegistry()
+updater4 = TuyaStatusUpdaterAsync(telemetry_registry=reg5)
+conservatory = SimpleNamespace(
+    id="conservatory",
+    name="Conservatory",
+    desc="Conservatory thermometer",
+    device_type="thermo",
+    enabled=True,
+)
+cats3 = SimpleNamespace(
+    id="cats3",
+    name="Cats_Home",
+    desc="Cats home thermometer",
+    device_type="thermo",
+    enabled=True,
+)
+updater4._process_result(
+    {
+        "result": {
+            "devices": [
+                {
+                    "id": "bfd2b6b52de4e06e04xiju",
+                    "product_name": "TH06",
+                    "status": [{"code": "va_temperature", "value": 278}],
+                },
+                {
+                    "id": "bf9463cdaff26ad1b4oean",
+                    "product_name": "001TH0202",
+                },
+            ],
+            "last_id": "1786032611",
+            "total": 2,
+        },
+        "success": True,
+    },
+    {
+        "bfd2b6b52de4e06e04xiju": [conservatory],
+        "bf9463cdaff26ad1b4oean": [cats3],
+    },
+    datetime.now(timezone.utc),
+    0,
+)
+conservatory_reading = reg5.get_reading("conservatory_water_temp")
+cats3_reading = reg5.get_reading("cats3_water_temp")
+if (
+    conservatory_reading is not None
+    and conservatory_reading.value == 27.8
+    and cats3_reading is not None
+    and cats3_reading.value is None
+):
+    ok("_process_result accepts result.devices and leaves no-status sensor unavailable")
+else:
+    cval = conservatory_reading.value if conservatory_reading is not None else "None"
+    cats_val = cats3_reading.value if cats3_reading is not None else "None"
+    fail(f"result.devices values conservatory={cval} cats={cats_val}")
+
 # ================================================================
 # Results
 # ================================================================

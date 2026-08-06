@@ -463,7 +463,7 @@ class TuyaStatusUpdaterAsync:
         # Track which sensor parents need individual fallback
         sensor_parents_needing_fallback: list[str] = []
 
-        for dev_res in result.get("result", []):
+        for dev_res in self._extract_device_result_list(result):
             tuya_id = (
                 dev_res.get("id")
                 or dev_res.get("device_id")
@@ -764,6 +764,27 @@ class TuyaStatusUpdaterAsync:
         if not isinstance(raw_status, list):
             return []
         return [item for item in raw_status if isinstance(item, dict)]
+
+    @staticmethod
+    def _extract_device_result_list(payload: object) -> list[dict[str, object]]:
+        """Return device rows from Tuya batch/list response variants."""
+        raw_devices: object = None
+        if isinstance(payload, list):
+            raw_devices = payload
+        elif isinstance(payload, dict):
+            devices = payload.get("devices")
+            if isinstance(devices, list):
+                raw_devices = devices
+            else:
+                result = payload.get("result")
+                if isinstance(result, list):
+                    raw_devices = result
+                elif isinstance(result, dict):
+                    raw_devices = result.get("devices")
+
+        if not isinstance(raw_devices, list):
+            return []
+        return [item for item in raw_devices if isinstance(item, dict)]
 
     # -------------------------------------------------------------
     def stop(self) -> None:
