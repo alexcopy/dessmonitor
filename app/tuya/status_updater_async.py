@@ -471,9 +471,7 @@ class TuyaStatusUpdaterAsync:
             )
             if tuya_id not in parent_to_devices:
                 continue
-            status_list = dev_res.get("status", [])
-            if not isinstance(status_list, list):
-                status_list = []
+            status_list = self._extract_status_list(dev_res)
 
             status_by_code: dict[str, object] = {}
             for item in status_list:
@@ -724,8 +722,8 @@ class TuyaStatusUpdaterAsync:
             )
             return
 
-        status_list = result.get("result", [])
-        if not isinstance(status_list, list):
+        status_list = self._extract_status_list(result)
+        if not status_list:
             return
 
         status_by_code: dict[str, object] = {}
@@ -745,6 +743,27 @@ class TuyaStatusUpdaterAsync:
         logger.debug(
             "[Updater] sensor-individual-status-updated parent=%s", parent_id,
         )
+
+    @staticmethod
+    def _extract_status_list(payload: object) -> list[dict[str, object]]:
+        """Return a Tuya status list from SDK response variants."""
+        raw_status: object = None
+        if isinstance(payload, list):
+            raw_status = payload
+        elif isinstance(payload, dict):
+            status = payload.get("status")
+            if isinstance(status, list):
+                raw_status = status
+            else:
+                result = payload.get("result")
+                if isinstance(result, list):
+                    raw_status = result
+                elif isinstance(result, dict):
+                    raw_status = result.get("status")
+
+        if not isinstance(raw_status, list):
+            return []
+        return [item for item in raw_status if isinstance(item, dict)]
 
     # -------------------------------------------------------------
     def stop(self) -> None:

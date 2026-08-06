@@ -708,6 +708,44 @@ if '_ss.get("water_temp")' not in run_src and "_ss.get('water_temp')" not in run
 else:
     fail("Sensors provider still uses generic water_temp fallback")
 
+# [64] Individual fallback accepts SDK response variants after no-status list row
+class FakeDeviceManager:
+    def get_device_status(self, parent_id):
+        return {
+            "success": True,
+            "result": {
+                "status": [
+                    {"code": "temp_humidity_way_1", "value": "...t1=25.81,c1=31.00"},
+                ]
+            },
+        }
+
+class FakeAuth:
+    device_manager = FakeDeviceManager()
+
+reg4 = TelemetryRegistry()
+updater3 = TuyaStatusUpdaterAsync(authorisation=FakeAuth(), telemetry_registry=reg4)
+cats2 = SimpleNamespace(
+    id="cats2",
+    name="Cats_Home",
+    desc="Cats home thermometer",
+    device_type="thermo",
+    enabled=True,
+)
+import asyncio
+asyncio.run(updater3._do_individual_fallback(
+    "001TH0202",
+    {"001TH0202": [cats2]},
+    datetime.now(timezone.utc),
+    0,
+))
+cats2_reading = reg4.get_reading("cats2_water_temp")
+if cats2_reading is not None and cats2_reading.value == 25.8:
+    ok("Individual fallback accepts result.status response variant")
+else:
+    value = cats2_reading.value if cats2_reading is not None else "None"
+    fail(f"Individual fallback variant value={value}")
+
 # ================================================================
 # Results
 # ================================================================
