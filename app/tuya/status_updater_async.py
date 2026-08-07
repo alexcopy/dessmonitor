@@ -463,7 +463,12 @@ class TuyaStatusUpdaterAsync:
         # Track which sensor parents need individual fallback
         sensor_parents_needing_fallback: list[str] = []
 
-        for dev_res in self._extract_device_result_list(result):
+        logger.debug("[Updater] _process_result raw keys: %s, result type: %s",
+                     list(result.keys()) if isinstance(result, dict) else type(result),
+                     type(result).__name__)
+        device_list = self._extract_device_result_list(result)
+        logger.debug("[Updater] _process_result device_list len: %d", len(device_list))
+        for dev_res in device_list:
             tuya_id = (
                 dev_res.get("id")
                 or dev_res.get("device_id")
