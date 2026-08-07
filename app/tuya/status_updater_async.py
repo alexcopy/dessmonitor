@@ -486,6 +486,13 @@ class TuyaStatusUpdaterAsync:
                     len(self._extract_status_list(dev_res)),
                 )
                 continue
+            # Log online/offline status from Tuya response
+            is_online = dev_res.get("online")
+            dev_name = dev_res.get("name", str(tuya_id)[:8])
+            if is_online is False:
+                logger.warning("[Updater] Device OFFLINE: %s (%s)", dev_name, str(tuya_id)[:12])
+            elif is_online is True:
+                logger.debug("[Updater] Device online: %s", dev_name)
             status_list = self._extract_status_list(dev_res)
 
             status_by_code: dict[str, object] = {}
