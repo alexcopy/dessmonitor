@@ -593,6 +593,48 @@ else:
         f"pump={pump_dev.observation.observed_state}"
     )
 
+# [36c] _poll_and_process accepts SDK-transformed list responses
+class FakeDeviceManager:
+    def get_device_list_status(self, parent_ids):
+        return [
+            {
+                "id": "bfd99acfe1912f8470lslp",
+                "status": [
+                    {"code": "switch_1", "value": True},
+                    {"code": "cur_power", "value": 7210},
+                ],
+            }
+        ]
+
+class FakeAuth:
+    device_manager = FakeDeviceManager()
+
+dush = RelayChannelDevice(
+    id="dush_heater", name="dush_heater", desc="Dush Heater in House",
+    tuya_device_id="bfd99acfe1912f8470lslp", device_type="switch",
+    available=True, min_volt=0, max_volt=0,
+    priority=0, control_key="switch_1", state_key="switch_1", status={},
+    property_mapping=DevicePropertyMapping.single_switch(
+        control_key="switch_1",
+        state_key="switch_1",
+    ),
+)
+list_updater = TuyaStatusUpdaterAsync(authorisation=FakeAuth())
+import asyncio
+asyncio.run(list_updater._poll_and_process(
+    ["bfd99acfe1912f8470lslp"],
+    {"bfd99acfe1912f8470lslp": [dush]},
+    datetime.datetime.now(datetime.timezone.utc),
+    0,
+))
+if dush.observation.observed_state == ObservationValue.ON and dush.observed_power_w == 721.0:
+    ok("_poll_and_process accepts SDK-transformed list for dush_heater")
+else:
+    fail(
+        "SDK list did not update dush_heater: "
+        f"state={dush.observation.observed_state} power={dush.observed_power_w}"
+    )
+
 # ================================================================
 # CLOCK INJECTION (1 test)
 # ================================================================

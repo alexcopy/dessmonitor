@@ -201,12 +201,13 @@ class TuyaStatusUpdaterAsync:
             )
             return
 
-        # Validate response
-        if not isinstance(result, dict):
+        # Validate response. Tuya SDK may return either the raw API dict or
+        # an SDK-transformed list of {"id": ..., "status": [...]} rows.
+        if not isinstance(result, (dict, list)):
             logger.warning("[Updater] Invalid response type: %s", type(result).__name__)
             return
 
-        success = result.get("success")
+        success = result.get("success") if isinstance(result, dict) else None
         if success is False:
             code = result.get("code")
             msg = result.get("msg", "")
@@ -230,9 +231,13 @@ class TuyaStatusUpdaterAsync:
                             ),
                             timeout=TUYA_RPC_TIMEOUT,
                         )
-                        if (isinstance(retry_result, dict)
-                                and retry_result.get("success") is not False
-                                and "result" in retry_result):
+                        if (
+                            (
+                                not isinstance(retry_result, dict)
+                                or retry_result.get("success") is not False
+                            )
+                            and self._has_processable_device_rows(retry_result)
+                        ):
                             # Full batch succeeded after token refresh
                             self._process_result(retry_result, parent_to_devices, now_utc, now_ts)
                             for pid in parent_ids:
@@ -265,8 +270,8 @@ class TuyaStatusUpdaterAsync:
                 )
             return
 
-        if "result" not in result:
-            logger.warning("[Updater] Batch response missing result")
+        if not self._has_processable_device_rows(result):
+            logger.warning("[Updater] Batch response has no processable device rows")
             return
 
         # Process successful response
@@ -334,11 +339,11 @@ class TuyaStatusUpdaterAsync:
                 )
                 continue
 
-            if not isinstance(result, dict):
+            if not isinstance(result, (dict, list)):
                 continue
 
-            success = result.get("success")
-            if success is False and result.get("code") == 1106:
+            success = result.get("success") if isinstance(result, dict) else None
+            if isinstance(result, dict) and success is False and result.get("code") == 1106:
                 if len(half) == 1:
                     self._mark_permission_denied(half[0])
                     logger.warning(
@@ -346,7 +351,7 @@ class TuyaStatusUpdaterAsync:
                     )
                 else:
                     await self._bisect_failed(half, parent_to_devices, now_utc, now_ts)
-            elif success is not False and "result" in result:
+            elif success is not False and self._has_processable_device_rows(result):
                 # This half succeeded — process it
                 self._process_result(result, parent_to_devices, now_utc, now_ts)
                 for pid in half:
@@ -475,6 +480,11 @@ class TuyaStatusUpdaterAsync:
                 or dev_res.get("devId")
             )
             if tuya_id not in parent_to_devices:
+                logger.debug(
+                    "[Updater] Tuya row parent not configured: parent=%s status_count=%d",
+                    tuya_id,
+                    len(self._extract_status_list(dev_res)),
+                )
                 continue
             status_list = self._extract_status_list(dev_res)
 
@@ -530,6 +540,23 @@ class TuyaStatusUpdaterAsync:
                         value = status_by_code.get(str(cp))
                 if value is not None:
                     dev.update_observation_from_tuya(value, now_utc)
+                    logger.debug(
+                        "[Updater] load-observation-updated dev=%s state_property=%s "
+                        "value=%r observed_state=%s status_keys=%s",
+                        getattr(dev, "id", ""),
+                        sp,
+                        value,
+                        getattr(getattr(dev, "observation", None), "observed_state", None),
+                        sorted(status_by_code.keys()),
+                    )
+                else:
+                    logger.debug(
+                        "[Updater] load-observation-missing dev=%s state_property=%s "
+                        "status_keys=%s",
+                        getattr(dev, "id", ""),
+                        sp,
+                        sorted(status_by_code.keys()),
+                    )
 
                 # cur_power is in 0.1W units (Tuya convention)
                 raw_power = status_by_code.get("cur_power")
@@ -790,6 +817,11 @@ class TuyaStatusUpdaterAsync:
         if not isinstance(raw_devices, list):
             return []
         return [item for item in raw_devices if isinstance(item, dict)]
+
+    @classmethod
+    def _has_processable_device_rows(cls, payload: object) -> bool:
+        """Return True when a Tuya response contains at least one device row."""
+        return len(cls._extract_device_result_list(payload)) > 0
 
     # -------------------------------------------------------------
     def stop(self) -> None:
