@@ -68,6 +68,29 @@ class OverloadProtector:
                 logger.error("[OverloadProtector] check failed: %s", exc, exc_info=True)
             await asyncio.sleep(POLL_INTERVAL_S)
 
+    async def _write_event(self, level_from: str, level_to: str,
+                           dis: float, pwr: float, v: float,
+                           action: str = "", device_name: str = "", device_cfg_w: int = 0) -> None:
+        """Write overload event to TimescaleDB."""
+        import os, asyncpg
+        from datetime import timezone as _tz
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            return
+        try:
+            conn = await asyncpg.connect(db_url)
+            await conn.execute("""
+                INSERT INTO overload_events
+                (time, level_from, level_to, battery_dis_a, output_power_w,
+                 battery_v, action, device_name, device_cfg_w)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            """,
+            datetime.now(_tz.utc), level_from, level_to,
+            dis, pwr, v, action, device_name, device_cfg_w)
+            await conn.close()
+        except Exception as exc:
+            logger.warning("[OverloadProtector] DB write failed: %s", exc)
+
     async def _check_once(self) -> None:
         now = time.time()
         dis  = shared_state.get("battery_current_dis") or 0.0
@@ -150,6 +173,13 @@ class OverloadProtector:
                 self._imp.error(msg, extra={"type": "overload", "evt": "hard"})
             elif level == "critical":
                 self._imp.critical(msg, extra={"type": "overload", "evt": "critical"})
+            # Write to TimescaleDB
+            asyncio.create_task(self._write_event(
+                level_from=self._state.alert_level,
+                level_to=level,
+                dis=dis, pwr=pwr,
+                v=float(shared_state.get("battery_voltage") or 0),
+            ))
         self._state.alert_level = level
         shared_state["overload_alert"] = {
             "level": level,
@@ -179,6 +209,15 @@ class OverloadProtector:
         dev = candidates[0]
         logger.warning("[OverloadProtector] HARD shed: turning off %s (priority=%d)",
                        dev.name, getattr(dev, "priority", 0))
+        asyncio.create_task(self._write_event(
+            level_from="hard", level_to="hard",
+            dis=shared_state.get("battery_current_dis") or 0,
+            pwr=shared_state.get("output_power") or shared_state.get("output_apparent_power") or 0,
+            v=float(shared_state.get("battery_voltage") or 0),
+            action="shed",
+            device_name=dev.name,
+            device_cfg_w=getattr(dev, "load_in_wt", 0),
+        ))
         _dis = shared_state.get("battery_current_dis") or 0
         _v = shared_state.get("battery_voltage") or 0
         _pwr = shared_state.get("output_power") or shared_state.get("output_apparent_power") or 0
@@ -226,6 +265,15 @@ class OverloadProtector:
                     dev.name, getattr(dev, "priority", 0), getattr(dev, "load_in_wt", 0),
                     extra={"type": "overload", "evt": "shed_critical_device", "device": dev.name},
                 )
+                asyncio.create_task(self._write_event(
+                    level_from="critical", level_to="critical",
+                    dis=shared_state.get("battery_current_dis") or 0,
+                    pwr=shared_state.get("output_power") or shared_state.get("output_apparent_power") or 0,
+                    v=float(shared_state.get("battery_voltage") or 0),
+                    action="shed",
+                    device_name=dev.name,
+                    device_cfg_w=getattr(dev, "load_in_wt", 0),
+                ))
                 logger.info("[OverloadProtector] critical shed: %s OFF", dev.name)
             except Exception as exc:
                 logger.error("[OverloadProtector] critical shed %s failed: %s", dev.name, exc)
