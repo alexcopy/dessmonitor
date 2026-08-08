@@ -270,7 +270,7 @@ class TuyaStatusUpdaterAsync:
                     try:
                         retry_result = await asyncio.wait_for(
                             asyncio.to_thread(
-                                self.auth.device_manager.get_device_list_status,
+                                self._safe_get_device_list_status,
                                 parent_ids,
                             ),
                             timeout=TUYA_RPC_TIMEOUT,
