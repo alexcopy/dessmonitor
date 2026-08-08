@@ -256,6 +256,17 @@ def _device_to_load_dict(
         observation_source_str = None
         freshness_str = "unavailable"
 
+    # Safety fallback: if state unknown, use last-known from shared_state cache
+    if currently_on is None:
+        from shared_state.shared_state import shared_state as _ss
+        dev_name = getattr(device, "name", None)
+        cached = _ss.get(f"device_state_{dev_name}") if dev_name else None
+        if isinstance(cached, dict) and "is_on" in cached:
+            currently_on = cached["is_on"]
+            observed_at_str = cached.get("observed_at", observed_at_str)
+            observation_source_str = "cached"
+            freshness_str = "stale"
+
     # --- controllable ---
     available = getattr(device, "available", True)
     enabled = _safe_enabled(device)

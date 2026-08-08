@@ -547,6 +547,15 @@ class TuyaStatusUpdaterAsync:
                         value = status_by_code.get(str(cp))
                 if value is not None:
                     dev.update_observation_from_tuya(value, now_utc)
+                    # Persist last-known state to shared_state for safety fallback
+                    from shared_state.shared_state import shared_state as _ss
+                    _obs = getattr(dev, "observation", None)
+                    if _obs is not None:
+                        _ss[f"device_state_{dev.name}"] = {
+                            "is_on": _obs.is_on,
+                            "observed_at": now_utc.isoformat(),
+                            "source": "tuya",
+                        }
                     logger.debug(
                         "[Updater] load-observation-updated dev=%s state_property=%s "
                         "value=%r observed_state=%s status_keys=%s",
