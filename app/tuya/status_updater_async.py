@@ -67,6 +67,49 @@ class TuyaStatusUpdaterAsync:
         await self._update_once()
 
     # -------------------------------------------------------------
+    def _safe_get_device_list_status(self, device_ids: list[str]) -> dict:
+        """Safe wrapper around SDK get_device_list_status.
+        
+        SDK crashes with KeyError when device has no 'status' field (offline devices).
+        This wrapper calls the raw API directly and handles missing fields gracefully.
+        """
+        try:
+            # Try raw API call bypassing SDK transformation
+            openapi = self.auth.openapi
+            response = openapi.get("/v1.0/devices/", {"device_ids": ",".join(device_ids)})
+            if not response.get("success"):
+                return response
+            # Handle both paged and flat response formats
+            result = response.get("result", {})
+            if isinstance(result, dict):
+                devices = result.get("devices", [])
+            elif isinstance(result, list):
+                devices = result
+            else:
+                devices = []
+            # Build status list safely — skip devices without status
+            status_list = []
+            for info in devices:
+                if not isinstance(info, dict):
+                    continue
+                device_id = info.get("id") or info.get("device_id")
+                if not device_id:
+                    continue
+                status = info.get("status", [])
+                status_list.append({
+                    "id": device_id,
+                    "status": status if isinstance(status, list) else [],
+                    "online": info.get("online"),
+                    "name": info.get("name", ""),
+                })
+            response["result"] = status_list
+            return response
+        except Exception as exc:
+            logger.warning("[Updater] _safe_get_device_list_status failed: %s", exc)
+            # Fallback to SDK method
+            return self.auth.device_manager.get_device_list_status(device_ids)
+
+    # -------------------------------------------------------------
     def _build_poll_targets(self) -> tuple[list[str], dict[str, list[Any]]]:
         """Build ordered list of unique parent IDs and parent->devices index.
 
@@ -173,7 +216,7 @@ class TuyaStatusUpdaterAsync:
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self.auth.device_manager.get_device_list_status,
+                    self._safe_get_device_list_status,
                     parent_ids,
                 ),
                 timeout=TUYA_RPC_TIMEOUT,
@@ -186,7 +229,8 @@ class TuyaStatusUpdaterAsync:
             return
         except KeyError as exc:
             # SDK bug: device missing 'status' field (offline/removed device)
-            # Filter out problematic device_ids and retry with remaining
+            # Reset budget before bisect so it always runs fresh
+            self._isolation_budget = 0
             logger.warning(
                 "[Updater] Tuya SDK KeyError for %d parent(s): %s — will retry individually",
                 len(parent_ids), exc,
