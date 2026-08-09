@@ -53,7 +53,7 @@ CANONICAL_TYPE_MAP: dict[str, str] = {
 }
 
 # Sensor canonical types — devices classified as sensors appear in Sensors only.
-SENSOR_CANONICAL_TYPES = {"thermo"}
+SENSOR_CANONICAL_TYPES = {"thermo", "meter"}  # meter = read-only energy counter
 
 # Load canonical types — devices classified as loads appear in Current Loads.
 LOAD_CANONICAL_TYPES = {"switch", "pump", "multi_switch"}

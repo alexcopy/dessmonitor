@@ -666,6 +666,56 @@ class TuyaStatusUpdaterAsync:
                 sensor_parents_needing_fallback, parent_to_devices, now_utc, now_ts,
             )
 
+    def _update_meter_telemetry(
+        self,
+        dev: Any,
+        status_by_code: dict[str, object],
+        now_utc: datetime,
+    ) -> None:
+        """Extract energy DP from meter device and write to TimescaleDB."""
+        import os, asyncio as _asyncio
+        # energy DP candidates
+        raw_energy = (
+            status_by_code.get("energy") or
+            status_by_code.get("Energy") or
+            status_by_code.get("add_ele")
+        )
+        if raw_energy is None:
+            return
+        try:
+            energy_kwh = float(raw_energy) / 100.0  # Tuya energy in 0.01 kWh
+        except (TypeError, ValueError):
+            return
+
+        # Throttle — write at most once per 5 minutes per device
+        cache_key = f"_meter_last_write_{dev.id}"
+        import time as _time
+        last = getattr(self, cache_key, 0)
+        if _time.time() - last < 300:
+            return
+        setattr(self, cache_key, _time.time())
+
+        # Write to TimescaleDB
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            return
+
+        async def _write():
+            import asyncpg
+            try:
+                conn = await asyncpg.connect(db_url)
+                await conn.execute("""
+                    INSERT INTO device_energy_snapshots
+                    (time, device_id, device_name, energy_kwh)
+                    VALUES ($1, $2, $3, $4)
+                """, now_utc, str(dev.tuya_device_id), str(dev.name), energy_kwh)
+                await conn.close()
+                logger.debug("[Meter] %s energy_kwh=%.3f written", dev.name, energy_kwh)
+            except Exception as exc:
+                logger.warning("[Meter] DB write failed for %s: %s", dev.name, exc)
+
+        _asyncio.create_task(_write())
+
     def _update_sensor_telemetry(
         self,
         dev: Any,
