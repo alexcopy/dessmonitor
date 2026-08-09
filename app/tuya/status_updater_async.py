@@ -567,7 +567,13 @@ class TuyaStatusUpdaterAsync:
                     if not has_temp:
                         has_sensor_no_telemetry = True
                     # Process sensor even without telemetry (to update comm state)
-                    self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+                    if getattr(dev, "device_type", "").lower() == "meter":
+                        self._update_meter_telemetry(dev, status_by_code, now_utc)
+                    else:
+                        if getattr(dev, "device_type", "").lower() == "meter":
+                self._update_meter_telemetry(dev, status_by_code, now_utc)
+            else:
+                self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
 
             if has_sensor_no_telemetry:
                 sensor_parents_needing_fallback.append(tuya_id)
@@ -880,7 +886,10 @@ class TuyaStatusUpdaterAsync:
         for dev in devices:
             if not dev.enabled:
                 continue
-            self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+            if getattr(dev, "device_type", "").lower() == "meter":
+                self._update_meter_telemetry(dev, status_by_code, now_utc)
+            else:
+                self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
 
         logger.debug(
             "[Updater] sensor-individual-status-updated parent=%s", parent_id,
