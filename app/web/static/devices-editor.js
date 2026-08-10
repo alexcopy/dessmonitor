@@ -59,7 +59,8 @@
             'switch': 'de-type-switch',
             'thermo': 'de-type-thermo',
             'pump':   'de-type-pump',
-            'multi_switch': 'de-type-multi'
+            'multi_switch': 'de-type-multi',
+            'meter':       'de-type-meter'
         };
         return map[dtype] || 'de-type-other';
     }
@@ -124,7 +125,7 @@
         descInp.addEventListener('input', function () { state.devices[idx].desc = descInp.value; });
         grid1.appendChild(field('Description', descInp));
 
-        var typeInp = sel('', ['switch', 'thermo', 'pump', 'multi_switch', 'analog'], dev.device_type);
+        var typeInp = sel('', ['switch', 'thermo', 'pump', 'multi_switch', 'analog', 'meter'], dev.device_type);
         typeInp.addEventListener('change', function () {
             state.devices[idx].device_type = typeInp.value;
             badge.className = 'de-device-type-badge ' + typeBadgeClass(typeInp.value);

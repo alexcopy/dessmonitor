@@ -262,3 +262,5 @@
 @media (max-width: 600px) {
     .de-field-grid { grid-template-columns: 1fr; }
 }
+
+.de-type-meter { background: #1a3a4a; color: #00b4d8; border-color: #00b4d8; }
