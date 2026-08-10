@@ -49,6 +49,10 @@ CANONICAL_TYPE_MAP: dict[str, str] = {
     "switch": "switch",
     "relay": "switch",
     "pump": "pump",
+    "meter": "meter",
+    "energy_meter": "meter",
+    "zndb": "meter",
+    "dlq": "meter",
     "multi_switch": "multi_switch",
 }
 
