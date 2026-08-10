@@ -721,17 +721,27 @@ class TuyaStatusUpdaterAsync:
             except Exception:
                 pass
 
-        # Smart-plug fallback: add_ele in 0.1 kWh, cur_power in 0.1W
+        # zndb energy code (shadow/properties): energy in 0.01 kWh
         if energy_kwh is None:
-            raw_ele = status_by_code.get("add_ele") or status_by_code.get("energy")
+            raw_ele = status_by_code.get("energy")
+            if raw_ele is not None:
+                try:
+                    energy_kwh = float(raw_ele) / 100.0
+                except (TypeError, ValueError):
+                    pass
+
+        # Smart-plug fallback: add_ele in 0.1 kWh
+        if energy_kwh is None:
+            raw_ele = status_by_code.get("add_ele")
             if raw_ele is not None:
                 try:
                     energy_kwh = float(raw_ele) / 10.0
                 except (TypeError, ValueError):
                     pass
 
+        # power in 0.1W (zndb and smart-plug)
         if power_w is None:
-            raw_pw = status_by_code.get("cur_power")
+            raw_pw = status_by_code.get("power") or status_by_code.get("cur_power")
             if raw_pw is not None:
                 try:
                     power_w = float(raw_pw) / 10.0
@@ -933,6 +943,31 @@ class TuyaStatusUpdaterAsync:
                 status_by_code[str(code).strip()] = item.get("value")
 
         devices = parent_to_devices.get(parent_id, [])
+        has_meter = any(getattr(d, "device_type", "").lower() == "meter" for d in devices)
+
+        # For meter devices use shadow/properties endpoint which has energy DP
+        if has_meter:
+            try:
+                shadow = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self.auth.openapi.get,
+                        f"/v2.0/cloud/thing/{parent_id}/shadow/properties",
+                    ),
+                    timeout=TUYA_RPC_TIMEOUT,
+                )
+                if shadow.get("success") and isinstance(shadow.get("result"), dict):
+                    props = shadow["result"].get("properties", [])
+                    shadow_by_code: dict[str, object] = {}
+                    for prop in props:
+                        if isinstance(prop, dict) and prop.get("code"):
+                            shadow_by_code[str(prop["code"])] = prop.get("value")
+                    if shadow_by_code:
+                        status_by_code.update(shadow_by_code)
+                        logger.debug("[Meter] shadow/properties for %s: %s",
+                                     parent_id, list(shadow_by_code.keys()))
+            except Exception as exc:
+                logger.warning("[Meter] shadow/properties failed for %s: %s", parent_id, exc)
+
         for dev in devices:
             if not dev.enabled:
                 continue
