@@ -570,10 +570,7 @@ class TuyaStatusUpdaterAsync:
                     if getattr(dev, "device_type", "").lower() == "meter":
                         self._update_meter_telemetry(dev, status_by_code, now_utc)
                     else:
-                        if getattr(dev, "device_type", "").lower() == "meter":
-                self._update_meter_telemetry(dev, status_by_code, now_utc)
-            else:
-                self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+                        self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
 
             if has_sensor_no_telemetry:
                 sensor_parents_needing_fallback.append(tuya_id)
