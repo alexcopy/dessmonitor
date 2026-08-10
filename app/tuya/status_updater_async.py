@@ -355,7 +355,7 @@ class TuyaStatusUpdaterAsync:
             try:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self.auth.device_manager.get_device_list_status,
+                        self._safe_get_device_list_status,
                         half,
                     ),
                     timeout=TUYA_RPC_TIMEOUT,
