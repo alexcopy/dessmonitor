@@ -177,6 +177,13 @@ class DeviceInitializer:
                     api_sw=cfg.get("api_sw"),
                     state_key=cfg.get("state_key"),
                 )
+            elif dtype == "meter":
+                # Read-only energy meter — no control, sensor-style mapping
+                mapping = DevicePropertyMapping.sensor_device(
+                    state_key=cfg.get("state_key") or "energy",
+                    channel=cfg.get("channel"),
+                    api_sw=cfg.get("api_sw"),
+                )
             else:
                 # Unknown device type — conservative binary mapping
                 mapping = DevicePropertyMapping.inferred_device(
