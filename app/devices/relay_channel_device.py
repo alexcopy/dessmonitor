@@ -105,7 +105,8 @@ class RelayChannelDevice:
     api_key: str = None
     load_in_wt: int = 0
     observed_power_w: float | None = None
-    observed_energy_kwh: float | None = None  # cumulative from Tuya add_ele
+    observed_energy_kwh: float | None = None  # cumulative from Tuya energy DP
+    has_energy_meter: bool = False
     status: Dict[str, Any] = field(default_factory=dict)
     observation: DeviceObservationState = field(default_factory=make_observation_unavailable)
     property_mapping: DevicePropertyMapping = field(

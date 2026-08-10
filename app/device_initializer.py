@@ -125,6 +125,7 @@ class DeviceInitializer:
                     min_volt=sw_cfg.get("min_volt", base_min),
                     max_volt=sw_cfg.get("max_volt", base_max),
                     load_in_wt=sw_cfg.get("load_in_wt", 0),
+                    has_energy_meter=bool(sw_cfg.get("has_energy_meter", False)),
 
                     # --- приоритеты / задержки ---
                     priority=sw_cfg.get("priority", hub_cfg.get("priority", 0)),
@@ -212,6 +213,7 @@ class DeviceInitializer:
                 min_volt=cfg.get("min_volt", 0),
                 max_volt=cfg.get("max_volt", 0),
                 load_in_wt=cfg.get("load_in_wt", 0),
+                has_energy_meter=bool(cfg.get("has_energy_meter", False)),
 
                 # тайминги / приоритет
                 priority=cfg.get("priority", 0),

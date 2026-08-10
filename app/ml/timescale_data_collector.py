@@ -148,6 +148,9 @@ class TimescaleDataCollector:
                                    power_watts
                                    DOUBLE
                                    PRECISION,
+                                   energy_kwh
+                                   DOUBLE
+                                   PRECISION,
                                    temperature_celsius
                                    DOUBLE
                                    PRECISION,
@@ -184,6 +187,12 @@ class TimescaleDataCollector:
                 """)
             except Exception as e:
                 logger.debug(f"Hypertable creation: {e}")
+
+            # Existing installations may predate the energy capability.
+            await conn.execute("""
+                ALTER TABLE device_metrics
+                ADD COLUMN IF NOT EXISTS energy_kwh DOUBLE PRECISION;
+            """)
 
             # ========== INVERTER METRICS ==========
             await conn.execute("""

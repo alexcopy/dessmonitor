@@ -11,6 +11,7 @@ TUYA_RPC_TIMEOUT = 20
 MAX_ISOLATION_REQUESTS = 16
 PERMISSION_DENIED_RETRY_SECONDS = 300
 PERMISSION_DENIED_MAX_RETRY_SECONDS = 3600
+TELEMETRY_FALLBACK_MIN_INTERVAL_SECONDS = 300
 
 logger = logging.getLogger("TuyaStatusUpdater")
 
@@ -502,15 +503,16 @@ class TuyaStatusUpdaterAsync:
         - LOAD devices: process binary/numeric observation via state_property.
         - SENSOR devices: extract telemetry from the full status list.
 
-        After processing, if a SENSOR parent had empty or telemetry-missing
-        status, schedule one individual-status fallback for that parent.
+        After processing, if a SENSOR or energy-capable LOAD parent had
+        empty or telemetry-missing status, schedule a throttled individual
+        fallback for that parent.
         """
         from app.devices.relay_channel_device import (
             classify_projection_kind, DeviceProjectionKind,
         )
 
-        # Track which sensor parents need individual fallback
-        sensor_parents_needing_fallback: list[str] = []
+        # Track parents that need an individual telemetry fallback.
+        telemetry_parents_needing_fallback: list[str] = []
 
         logger.debug("[Updater] _process_result raw keys: %s, result type: %s",
                      list(result.keys()) if isinstance(result, dict) else type(result),
@@ -547,43 +549,61 @@ class TuyaStatusUpdaterAsync:
                 if code is not None:
                     status_by_code[str(code).strip()] = item.get("value")
 
-            # Check if this parent has any sensor children whose telemetry
-            # property is missing from the batch response
-            has_sensor_no_telemetry = False
+            # Check whether this parent needs an individual telemetry
+            # fallback. Normal polling still uses the shared batch request.
+            has_temp = (
+                "temp_current" in status_by_code or
+                "temp" in status_by_code or
+                "va_temperature" in status_by_code or
+                "temperature" in status_by_code or
+                "temp_value" in status_by_code or
+                "temp_humidity_way_1" in status_by_code
+            )
+            has_energy = (
+                "forward_energy_total" in status_by_code or
+                "add_ele" in status_by_code or
+                "energy" in status_by_code or
+                "total_power" in status_by_code or
+                "cur_power" in status_by_code or
+                "power" in status_by_code or
+                "phase_a" in status_by_code
+            )
+
+            parent_needs_telemetry_fallback = False
+
             for dev in parent_to_devices[tuya_id]:
                 if not dev.enabled:
                     continue
+
                 proj = classify_projection_kind(dev.device_type)
+
                 if proj == DeviceProjectionKind.SENSOR:
-                    # Check for telemetry property presence
-                    has_temp = (
-                        "temp_current" in status_by_code or
-                        "temp" in status_by_code or
-                        "va_temperature" in status_by_code or
-                        "temperature" in status_by_code or
-                        "temp_value" in status_by_code or
-                        "temp_humidity_way_1" in status_by_code
-                    )
-                    has_energy = (
-                        "forward_energy_total" in status_by_code or
-                        "add_ele" in status_by_code or
-                        "energy" in status_by_code or
-                        "total_power" in status_by_code or
-                        "cur_power" in status_by_code
-                    )
                     is_meter = getattr(dev, "device_type", "").lower() == "meter"
+
                     if is_meter and not has_energy:
-                        has_sensor_no_telemetry = True
+                        parent_needs_telemetry_fallback = True
                     elif not is_meter and not has_temp:
-                        has_sensor_no_telemetry = True
-                    # Process sensor even without telemetry (to update comm state)
-                    if getattr(dev, "device_type", "").lower() == "meter":
+                        parent_needs_telemetry_fallback = True
+
+                    # Process SENSOR telemetry from the existing batch.
+                    if is_meter:
                         self._update_meter_telemetry(dev, status_by_code, now_utc)
                     else:
-                        self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+                        self._update_sensor_telemetry(
+                            dev, status_by_code, now_utc, "active"
+                        )
 
-            if has_sensor_no_telemetry:
-                sensor_parents_needing_fallback.append(tuya_id)
+                elif (
+                    proj == DeviceProjectionKind.LOAD
+                    and getattr(dev, "has_energy_meter", False)
+                    and not has_energy
+                ):
+                    # Energy-capable switch/load stays a LOAD. The flag only
+                    # enables the expensive fallback when batch telemetry is absent.
+                    parent_needs_telemetry_fallback = True
+
+            if parent_needs_telemetry_fallback:
+                telemetry_parents_needing_fallback.append(tuya_id)
 
             for dev in parent_to_devices[tuya_id]:
                 if not dev.enabled:
@@ -631,20 +651,24 @@ class TuyaStatusUpdaterAsync:
                         sorted(status_by_code.keys()),
                     )
 
-                # cur_power is in 0.1W units (Tuya convention)
-                raw_power = status_by_code.get("cur_power")
-                if raw_power is not None:
-                    try:
-                        dev.observed_power_w = float(raw_power) / 10.0
-                    except (TypeError, ValueError):
-                        pass
-                # add_ele — cumulative energy in 0.1 kWh units
-                raw_ele = status_by_code.get("add_ele")
-                if raw_ele is not None:
-                    try:
-                        dev.observed_energy_kwh = float(raw_ele) / 10.0
-                    except (TypeError, ValueError):
-                        pass
+                if getattr(dev, "has_energy_meter", False):
+                    self._update_load_energy_observation(dev, status_by_code)
+                else:
+                    # Backward compatibility: opportunistically consume the
+                    # classic smart-plug DPs without enabling extra requests.
+                    raw_power = status_by_code.get("cur_power")
+                    if raw_power is not None:
+                        try:
+                            dev.observed_power_w = float(raw_power) / 10.0
+                        except (TypeError, ValueError):
+                            pass
+
+                    raw_ele = status_by_code.get("add_ele")
+                    if raw_ele is not None:
+                        try:
+                            dev.observed_energy_kwh = float(raw_ele) / 10.0
+                        except (TypeError, ValueError):
+                            pass
 
                 try:
                     parsed = dev.extract_status(status_list)
@@ -672,12 +696,97 @@ class TuyaStatusUpdaterAsync:
                     except (ValueError, TypeError):
                         logger.debug("[Updater] Problem with sync")
 
-        # Individual fallback for sensor parents whose batch status
-        # was empty or missing the telemetry property
-        if sensor_parents_needing_fallback:
+        # Individual fallback for SENSOR or explicitly energy-capable LOAD
+        # parents whose batch status was missing telemetry.
+        if telemetry_parents_needing_fallback:
             self._schedule_sensor_individual_fallback(
-                sensor_parents_needing_fallback, parent_to_devices, now_utc, now_ts,
+                telemetry_parents_needing_fallback,
+                parent_to_devices,
+                now_utc,
+                now_ts,
             )
+
+    @staticmethod
+    def _update_load_energy_observation(
+        dev: Any,
+        status_by_code: dict[str, object],
+    ) -> None:
+        """Update real power/energy fields for an energy-capable LOAD.
+
+        No Tuya request is made here. The method only consumes an already
+        received batch or fallback status map.
+
+        Supported DP families mirror the dedicated meter implementation:
+        smart-plug: cur_power/add_ele
+        zndb/dlq: total_power/forward_energy_total/energy/phase_a
+        """
+        import json as _json
+
+        power_w: float | None = None
+        energy_kwh: float | None = None
+
+        raw_total = status_by_code.get("forward_energy_total")
+        if raw_total is not None:
+            try:
+                energy_kwh = float(raw_total) / 100.0
+            except (TypeError, ValueError):
+                pass
+
+        if energy_kwh is None:
+            raw_energy = status_by_code.get("energy")
+            if raw_energy is not None:
+                try:
+                    # Tuya zndb shadow value: 0.1 Wh.
+                    energy_kwh = float(raw_energy) / 10000.0
+                except (TypeError, ValueError):
+                    pass
+
+        if energy_kwh is None:
+            raw_add_ele = status_by_code.get("add_ele")
+            if raw_add_ele is not None:
+                try:
+                    energy_kwh = float(raw_add_ele) / 10.0
+                except (TypeError, ValueError):
+                    pass
+
+        raw_total_power = status_by_code.get("total_power")
+        if raw_total_power is not None:
+            try:
+                power_w = float(raw_total_power) / 10.0
+            except (TypeError, ValueError):
+                pass
+
+        if power_w is None:
+            raw_phase = status_by_code.get("phase_a")
+            if raw_phase is not None:
+                try:
+                    phase = (
+                        _json.loads(raw_phase)
+                        if isinstance(raw_phase, str)
+                        else raw_phase
+                    )
+                    if isinstance(phase, dict) and "power" in phase:
+                        power_w = float(phase["power"])
+                except Exception:
+                    pass
+
+        if power_w is None:
+            for code in ("power", "cur_power"):
+                raw_power = status_by_code.get(code)
+                if raw_power is None:
+                    continue
+                try:
+                    power_w = float(raw_power) / 10.0
+                    break
+                except (TypeError, ValueError):
+                    pass
+
+        if power_w is not None:
+            dev.observed_power_w = power_w
+
+        if energy_kwh is not None:
+            dev.observed_energy_kwh = energy_kwh
+
 
     def _update_meter_telemetry(
         self,
@@ -904,20 +1013,36 @@ class TuyaStatusUpdaterAsync:
         now_utc: datetime,
         now_ts: int,
     ) -> None:
-        """Perform one individual-status fallback for each sensor parent
-        whose batch response was empty or missing telemetry.
+        """Schedule bounded individual telemetry fallback.
 
-        Bounded to one request per parent per cycle.  No recursion,
-        no retry on failure.  Only for SENSOR parents.
+        Normal Tuya observation remains the shared batch request. Individual
+        status/shadow requests are limited to once per parent per five minutes.
         """
-        for pid in parent_ids:
+        import time as _time
+
+        now_mono = _time.monotonic()
+
+        for pid in dict.fromkeys(parent_ids):
+            cache_key = f"_telemetry_fallback_last_{pid}"
+            last = getattr(self, cache_key, 0.0)
+
+            if now_mono - last < TELEMETRY_FALLBACK_MIN_INTERVAL_SECONDS:
+                logger.debug(
+                    "[Updater] telemetry fallback throttled parent=%s", pid,
+                )
+                continue
+
+            setattr(self, cache_key, now_mono)
+
             try:
                 asyncio.get_running_loop().create_task(
-                    self._do_individual_fallback(pid, parent_to_devices, now_utc, now_ts)
+                    self._do_individual_fallback(
+                        pid, parent_to_devices, now_utc, now_ts
+                    )
                 )
-            except Exception as exc:
+            except Exception:
                 logger.debug(
-                    "[Updater] sensor-individual-status-failed parent=%s", pid,
+                    "[Updater] telemetry-individual-status-failed parent=%s", pid,
                 )
 
     async def _do_individual_fallback(
@@ -964,10 +1089,16 @@ class TuyaStatusUpdaterAsync:
                 status_by_code[str(code).strip()] = item.get("value")
 
         devices = parent_to_devices.get(parent_id, [])
-        has_meter = any(getattr(d, "device_type", "").lower() == "meter" for d in devices)
+        has_energy_capability = any(
+            getattr(d, "device_type", "").lower() == "meter"
+            or getattr(d, "has_energy_meter", False)
+            for d in devices
+            if getattr(d, "enabled", False)
+        )
 
-        # For meter devices use shadow/properties endpoint which has energy DP
-        if has_meter:
+        # Dedicated meters and explicitly energy-capable LOADs may use the
+        # shadow/properties endpoint when the normal batch omitted telemetry.
+        if has_energy_capability:
             try:
                 shadow = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -984,18 +1115,38 @@ class TuyaStatusUpdaterAsync:
                             shadow_by_code[str(prop["code"])] = prop.get("value")
                     if shadow_by_code:
                         status_by_code.update(shadow_by_code)
-                        logger.debug("[Meter] shadow/properties for %s: %s",
-                                     parent_id, list(shadow_by_code.keys()))
+                        logger.debug(
+                            "[Energy] shadow/properties for %s: %s",
+                            parent_id,
+                            list(shadow_by_code.keys()),
+                        )
             except Exception as exc:
-                logger.warning("[Meter] shadow/properties failed for %s: %s", parent_id, exc)
+                logger.warning(
+                    "[Energy] shadow/properties failed for %s: %s",
+                    parent_id,
+                    exc,
+                )
+
+        from app.devices.relay_channel_device import (
+            classify_projection_kind,
+            DeviceProjectionKind,
+        )
 
         for dev in devices:
             if not dev.enabled:
                 continue
+
             if getattr(dev, "device_type", "").lower() == "meter":
                 self._update_meter_telemetry(dev, status_by_code, now_utc)
-            else:
-                self._update_sensor_telemetry(dev, status_by_code, now_utc, "active")
+
+            elif getattr(dev, "has_energy_meter", False):
+                # Remains a LOAD; only its observation fields are updated.
+                self._update_load_energy_observation(dev, status_by_code)
+
+            elif classify_projection_kind(dev.device_type) == DeviceProjectionKind.SENSOR:
+                self._update_sensor_telemetry(
+                    dev, status_by_code, now_utc, "active"
+                )
 
         logger.debug(
             "[Updater] sensor-individual-status-updated parent=%s", parent_id,
