@@ -125,6 +125,36 @@ class TelemetryRegistry:
             communication_status=communication_status,
         )
 
+    def update_energy_reading(
+        self,
+        sensor_id: str,
+        display_name: str,
+        energy_kwh: float,
+        power_w: float | None = None,
+        description: str = "",
+        observed_at: "datetime | None" = None,
+        source: str = "tuya",
+    ) -> None:
+        """Update or create an energy meter reading."""
+        now = observed_at if observed_at is not None else datetime.now(timezone.utc)
+        desc = description or (self._readings.get(sensor_id).description if self._readings.get(sensor_id) else "")
+        display_val = f"{energy_kwh:.2f} kWh"
+        if power_w is not None:
+            display_val += f" ({power_w:.0f}W)"
+        self._readings[sensor_id] = SensorTelemetryReading(
+            sensor_id=sensor_id,
+            display_name=display_name,
+            description=desc,
+            metric=SensorMetric.ENERGY,
+            value=energy_kwh,
+            unit="kwh",
+            observed_at=now,
+            source=source,
+            freshness=SensorFreshness.FRESH,
+            status=SensorStatus.VALID,
+            communication_status="active",
+        )
+
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------

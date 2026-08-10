@@ -753,6 +753,27 @@ class TuyaStatusUpdaterAsync:
                         dev.name, list(status_by_code.keys())[:10])
             return
 
+        # Update TelemetryRegistry so meter appears as valid in SENSORS panel
+        if self._telemetry is not None and energy_kwh is not None:
+            sensor_id = f"{dev.id}_energy"
+            display_name = getattr(dev, "name", "Energy Meter")
+            description = getattr(dev, "desc", "") or ""
+            if not self._telemetry.get_reading(sensor_id):
+                self._telemetry.register_sensor_descriptor(
+                    sensor_id=sensor_id,
+                    display_name=display_name,
+                    description=description,
+                    communication_status="active",
+                )
+            self._telemetry.update_energy_reading(
+                sensor_id=sensor_id,
+                display_name=display_name,
+                energy_kwh=energy_kwh,
+                power_w=power_w,
+                description=description,
+                observed_at=now_utc,
+            )
+
         # Throttle — write at most once per 5 minutes per device
         cache_key = f"_meter_last_write_{dev.id}"
         import time as _time
