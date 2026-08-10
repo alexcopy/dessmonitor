@@ -766,8 +766,9 @@
             /* Icon */
             var iconDiv = document.createElement("div");
             iconDiv.className = "dm-sensor-icon";
-            iconDiv.textContent = "\uD83C\uDF21"; /* thermometer emoji */
-            sensorDiv.appendChild(iconDiv);
+            iconDiv.className = "dm-sensor-icon";
+            var sMetric = sensor.metric || "";
+            iconDiv.textContent = sMetric === "energy" ? "\u26A1" : "\uD83C\uDF21";
 
             /* Body */
             var bodyDiv = document.createElement("div");
@@ -808,13 +809,17 @@
                 valDiv.textContent = "\u2014";
                 valDiv.style.color = "var(--text-dim)";
             } else {
-                valDiv.textContent = String(rawValue);
+                if (unit === "kwh") {
+                    valDiv.textContent = Math.round(parseFloat(rawValue));
+                } else {
+                    valDiv.textContent = String(rawValue);
+                }
                 var unitSpan = document.createElement("span");
                 unitSpan.className = "dm-sensor-unit";
                 if (unit === "celsius") {
                     unitSpan.textContent = "\u00B0C";
                 } else {
-                    unitSpan.textContent = " " + unit;
+                    unitSpan.textContent = unit === "kwh" ? " kWh" : " " + unit;
                 }
                 valDiv.appendChild(unitSpan);
             }
