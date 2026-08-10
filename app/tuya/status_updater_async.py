@@ -830,12 +830,12 @@ class TuyaStatusUpdaterAsync:
             except Exception:
                 pass
 
-        # zndb energy code (shadow/properties): energy in 0.1 Wh = divide by 10000 for kWh
+        # zndb energy code (shadow/properties): energy in Wh = divide by 1000 for kWh
         if energy_kwh is None:
             raw_ele = status_by_code.get("energy")
             if raw_ele is not None:
                 try:
-                    energy_kwh = float(raw_ele) / 10000.0
+                    energy_kwh = float(raw_ele) / 1000.0
                 except (TypeError, ValueError):
                     pass
 
