@@ -130,6 +130,7 @@
             state.devices[idx].device_type = typeInp.value;
             badge.className = 'de-device-type-badge ' + typeBadgeClass(typeInp.value);
             badge.textContent = typeInp.value;
+            toggleEnergyMeterVisibility();
         });
         grid1.appendChild(field('Device Type', typeInp));
 
@@ -163,6 +164,44 @@
         var coefInp = inp('', dev.coefficient !== undefined ? dev.coefficient : 1, '1.0', 'number');
         coefInp.addEventListener('input', function () { state.devices[idx].coefficient = parseFloat(coefInp.value) || 1; });
         grid2.appendChild(field('Coefficient', coefInp));
+
+        /* Energy Meter capability — opt-in for controllable switch devices.
+         * Shown only for device_type == "switch". Remains a LOAD; never
+         * becomes a SENSOR. Backend semantics authoritative. */
+        var energyChk = document.createElement('input');
+        energyChk.type = 'checkbox';
+        energyChk.checked = dev.has_energy_meter === true;
+        energyChk.addEventListener('change', function () {
+            state.devices[idx].has_energy_meter = energyChk.checked;
+        });
+        var energyWrap = el('div', 'de-field');
+        energyWrap.appendChild(el('label', 'de-field-label', 'Energy Meter'));
+        var energyChkWrap = el('div', 'de-enabled-toggle');
+        energyChkWrap.appendChild(energyChk);
+        energyChkWrap.appendChild(document.createTextNode('Tuya energy DP'));
+        energyWrap.appendChild(energyChkWrap);
+        grid2.appendChild(energyWrap);
+
+        /* Show the Energy Meter field based on device type:
+         *   switch => editable checkbox
+         *   meter  => disabled checked checkbox (already a dedicated meter)
+         *   other  => hidden
+         * Hiding does NOT erase the stored has_energy_meter value. */
+        function toggleEnergyMeterVisibility() {
+            var dtype = state.devices[idx].device_type;
+            if (dtype === 'switch') {
+                energyWrap.style.display = '';
+                energyChk.disabled = false;
+                energyChk.checked = state.devices[idx].has_energy_meter === true;
+            } else if (dtype === 'meter') {
+                energyWrap.style.display = '';
+                energyChk.disabled = true;
+                energyChk.checked = true;
+            } else {
+                energyWrap.style.display = 'none';
+            }
+        }
+        toggleEnergyMeterVisibility();
 
         body.appendChild(grid2);
 
@@ -274,6 +313,22 @@
         availWrap.appendChild(chkWrap);
         grid.appendChild(availWrap);
 
+        /* Energy meter capability — explicit child-level opt-in only.
+         * Parent-level aggregate energy is NOT inherited into channels. */
+        var swEnergyChk = document.createElement('input');
+        swEnergyChk.type = 'checkbox';
+        swEnergyChk.checked = sw.has_energy_meter === true;
+        swEnergyChk.addEventListener('change', function () {
+            state.devices[devIdx].switches[swKey].has_energy_meter = swEnergyChk.checked;
+        });
+        var swEnergyWrap = el('div', 'de-field');
+        swEnergyWrap.appendChild(el('label', 'de-field-label', 'Energy meter'));
+        var swEnergyChkWrap = el('div', 'de-enabled-toggle');
+        swEnergyChkWrap.appendChild(swEnergyChk);
+        swEnergyChkWrap.appendChild(document.createTextNode('Tuya energy DP'));
+        swEnergyWrap.appendChild(swEnergyChkWrap);
+        grid.appendChild(swEnergyWrap);
+
         row.appendChild(grid);
         return row;
     }
@@ -364,6 +419,7 @@
             load_in_wt: 0,
             priority: 10,
             coefficient: 1,
+            has_energy_meter: false,
             enabled: true,
             available: true
         });
