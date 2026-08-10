@@ -55,3 +55,19 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
+      - name: 🚀 Update image tag in ArgoCD repo
+        env:
+          ARGO_DEPLOY_KEY: ${{ secrets.ARGO_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$ARGO_DEPLOY_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git clone git@github.com:alexcopy/dess-argo.git
+          cd dess-argo
+          sed -i "s|redcopy/dessmonitor:.*|redcopy/dessmonitor:${{ github.sha }}|g"             manifests/apps/dessmonitor/deployment.yaml
+          git config user.email "ci@dessmonitor"
+          git config user.name "CI"
+          git add manifests/apps/dessmonitor/deployment.yaml
+          git commit -m "ci: deploy dessmonitor@${{ github.sha }}"
+          git push
