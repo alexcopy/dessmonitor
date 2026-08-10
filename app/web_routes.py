@@ -574,6 +574,46 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/energy/meter/daily GET ------------------------------------
+    @router.get("/api/energy/meter/daily")
+    async def api_energy_meter_daily(request: Request, days: int = 30) -> Any:
+        """Return daily energy consumption from device_daily_energy aggregate."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+            rows = await conn.fetch("""
+                SELECT
+                    day::date as day,
+                    device_name,
+                    ROUND(consumed_kwh::numeric, 3) as consumed_kwh,
+                    ROUND(end_kwh::numeric, 3) as end_kwh,
+                    samples
+                FROM device_daily_energy
+                WHERE day >= NOW() - ($1 || ' days')::interval
+                ORDER BY day DESC, device_name
+            """, str(days))
+            await conn.close()
+            data = []
+            for r in rows:
+                data.append({
+                    "day": str(r["day"]),
+                    "device_name": r["device_name"],
+                    "consumed_kwh": float(r["consumed_kwh"] or 0),
+                    "end_kwh": float(r["end_kwh"] or 0),
+                    "samples": int(r["samples"] or 0),
+                })
+            return JSONResponse({"days": data})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 

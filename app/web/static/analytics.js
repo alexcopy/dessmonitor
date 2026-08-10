@@ -139,3 +139,102 @@
         setInterval(loadInverterMetrics, 120000); // refresh every 2min
     });
 })();
+
+/* ── Meter Daily Energy ─────────────────────────────────── */
+(function() {
+    var currentDays = 30;
+    var chartInstance = null;
+
+    function loadMeterData(days) {
+        currentDays = days;
+        var tbody = document.getElementById("meterDailyBody");
+        var tfoot = document.getElementById("meterDailyFoot");
+        var placeholder = document.getElementById("meterChartPlaceholder");
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="dm-mono">Loading...</td></tr>';
+
+        fetch("/api/energy/meter/daily?days=" + days)
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.days || !data.days.length) {
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="dm-mono">No meter data yet</td></tr>';
+                    return;
+                }
+                if (placeholder) placeholder.style.display = "none";
+
+                var rows = data.days;
+                var totalKwh = 0;
+
+                if (tbody) {
+                    tbody.innerHTML = rows.map(function(r) {
+                        totalKwh += r.consumed_kwh || 0;
+                        return '<tr>' +
+                            '<td class="dm-mono">' + r.day + '</td>' +
+                            '<td class="dm-mono teal-text">' + (r.consumed_kwh || 0).toFixed(3) + '</td>' +
+                            '<td class="dm-mono amber-text">' + (r.end_kwh || 0).toFixed(1) + '</td>' +
+                            '<td class="dm-mono" style="color:var(--text-dim)">' + (r.samples || 0) + '</td>' +
+                            '</tr>';
+                    }).join('');
+                }
+
+                if (tfoot) {
+                    tfoot.innerHTML = '<tr class="dm-table-total">' +
+                        '<td class="dm-mono">TOTAL ' + days + 'd</td>' +
+                        '<td class="dm-mono teal-text">' + totalKwh.toFixed(2) + ' kWh</td>' +
+                        '<td></td><td></td></tr>';
+                }
+
+                // Chart
+                renderMeterChart(rows);
+            })
+            .catch(function() {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="4">Failed to load</td></tr>';
+            });
+    }
+
+    function renderMeterChart(rows) {
+        var canvas = document.getElementById("meterChart");
+        if (!canvas) return;
+        if (typeof Chart === "undefined") return;
+
+        var labels = rows.map(function(r) { return r.day; }).reverse();
+        var values = rows.map(function(r) { return r.consumed_kwh || 0; }).reverse();
+
+        if (chartInstance) { chartInstance.destroy(); }
+        chartInstance = new Chart(canvas.getContext("2d"), {
+            type: "bar",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "kWh consumed",
+                    data: values,
+                    backgroundColor: "rgba(0,209,178,0.4)",
+                    borderColor: "rgba(0,209,178,0.8)",
+                    borderWidth: 1,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+                    x: { ticks: { color: "#8b949e", maxRotation: 45 }, grid: { display: false } }
+                }
+            }
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        // Period buttons
+        document.querySelectorAll(".dm-meter-period").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                document.querySelectorAll(".dm-meter-period").forEach(function(b) {
+                    b.classList.remove("active");
+                });
+                btn.classList.add("active");
+                loadMeterData(parseInt(btn.dataset.days));
+            });
+        });
+        loadMeterData(30);
+    });
+})();

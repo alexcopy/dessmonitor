@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
     <link rel="stylesheet" href="/static/dashboard.css">
     <script defer src="/static/dashboard.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script defer src="/static/analytics.js"></script>
 </head>
 <body>
@@ -202,6 +203,40 @@
                     <td><span class="dm-tag amber">INFO</span></td>
                 </tr>
             </tbody>
+        </table>
+    </div>
+
+    <!-- SECTION: Meter Daily Energy -->
+    <div class="dm-section-label">Energy Meter — Daily Consumption</div>
+    <div class="dm-card">
+        <div class="dm-card-header">
+            <div class="dm-kpi-label">&#9889; House Energy Meter (KWS-302WF)</div>
+            <div style="display:flex;gap:0.5rem">
+                <button class="dm-btn-small dm-meter-period active" data-days="30">30D</button>
+                <button class="dm-btn-small dm-meter-period" data-days="90">90D</button>
+                <button class="dm-btn-small dm-meter-period" data-days="365">1Y</button>
+            </div>
+        </div>
+        <div id="meterChartWrap" style="height:200px;position:relative;margin:1rem 0">
+            <canvas id="meterChart"></canvas>
+            <div id="meterChartPlaceholder" class="dm-chart-placeholder">
+                <div class="chart-icon">&#9889;</div>
+                <div>Loading meter data...</div>
+            </div>
+        </div>
+        <table class="dm-table dm-table-compact" id="meterDailyTable">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th class="dm-mono teal-text">Consumed kWh</th>
+                    <th class="dm-mono amber-text">Total kWh</th>
+                    <th>Samples</th>
+                </tr>
+            </thead>
+            <tbody id="meterDailyBody">
+                <tr><td colspan="4" class="dm-mono">Loading...</td></tr>
+            </tbody>
+            <tfoot id="meterDailyFoot"></tfoot>
         </table>
     </div>
 
