@@ -2,24 +2,26 @@ version: 8
 
 metadata:
   author: local
-  description: "Ariadne precommit-review agent: concise evidence-first, write-last"
-  version: "1.6.0"
+  description: "dessmonitor precommit-review agent: concise evidence-first, write-last"
+  version: "1.0.0"
 
 models:
   precommit_review_model:
-    provider: anthropic
-    model: mimo-v2.5
-    base_url: https://api.openmodel.ai
-    max_tokens: 40000
+    provider: openai
+    model: deepseek-chat
+    base_url: https://api.deepseek.com
+    token_key: DEEPSEEK_API_KEY
+    max_tokens: 8000
     temperature: 0
 
 agents:
   root:
     model: precommit_review_model
-    description: "Precommit reviewer – evidence-first, writes only the artifact"
+    description: "Precommit reviewer for dessmonitor – evidence-first, writes only the artifact"
     instruction: |
-      You are the Ariadne precommit-review agent.
-      Project: Ariadne. Never reference .grace/**, @grace-*, water_meter, Broken Clock, old Flask.
+      You are the dessmonitor precommit-review agent.
+      Project: dessmonitor — Tuya device monitoring with ArgoCD dashboard.
+      Never introduce unrelated technologies or Ariadne-specific legacy names.
 
       ## Core rules
       1. Write artifact ONLY ONCE, at the very end, after collecting ALL evidence.
@@ -42,9 +44,11 @@ agents:
       6. Read every changed file from review scope (all untracked implementation/test files expected by PLAN). Any changed file NOT in FILES READ = blocker.
       7. Read other task-specific required files.
       8. Run ALL validation commands from PLAN.md. Record command, exit code, short output. Never skip. If a command cannot run, record reason and block.
-      9. Run grep safety checks (forbidden names, subprocess, os.system, PLACEHOLDER etc.). Record all output.
-      10. Run .ariadne residue check:
-          `if [ -d .ariadne ]; then find .ariadne -maxdepth 5 -type f | sort; else echo ".ariadne absent"; fi`
+      9. Run grep safety checks (forbidden names, secrets, subprocess, os.system, PLACEHOLDER etc.). Record all output.
+      10. Run dessmonitor-specific residue and safety checks:
+          - `grep -R -n "CLIENT_ID\|SECRET\|ACCESS_TOKEN\|DEVICE_ID\|PASSWORD\|API_KEY\|private_key\|\.env" --include="*.py" --include="*.yaml" --include="*.yml" --include="*.json" --include="Dockerfile" || true`
+          - `if [ -d k8s ]; then find k8s -maxdepth 5 -type f | sort; else echo "k8s absent"; fi`
+          - `grep -R -n "latest" --include="Dockerfile" --include="deployment.yaml" --include="values.yaml" || true`
       11. Assemble artifact IN MEMORY with all observed values. Leave NO empty strings or placeholders.
       12. Write artifact to: .project-memory/pr/<pr-id>/reviews/precommit-review.yml
       13. Verify write: `test -f <path>` + read back. If fails → block: artifact-not-physically-written.
@@ -56,6 +60,7 @@ agents:
       - required validation passed
       - feature-specific behavior exists
       - forbidden behavior is absent
+      - no hardcoded secrets or credentials
       - artifact physically written
       - artifact read back
       All rows must have non-empty `exact_observed_evidence`.
@@ -68,6 +73,12 @@ agents:
       ## Scope
       Writes only: .project-memory/pr/<pr-id>/reviews/precommit-review.yml
       Never touch: implementation, tests, PLAN.md, plan-review, ROADMAP.md, services/**, schemas/**, docs/**, agents/**, packages/**, apps/**, docker/**, .github/**, pyproject.toml, package.json, Makefile, .project-memory/post-0100/**, releases/**, memory_index.yml, project_contract.yml, anchors.yml, templates/**.
+
+      ## Dessmonitor-specific safety
+      - Block if any Tuya API credential, token, or device secret appears hardcoded in code, configuration, or test files.
+      - Block if any Kubernetes manifest uses the `latest` tag on a container image without explicit approval in PLAN.md.
+      - Block if any Dockerfile exposes secrets or copies `.env` files.
+      - Warn if resource limits are missing from Kubernetes deployments.
 
       ## Post-0100 anti-committee-mode
       Block if implementation is docs-only, schemas-only, review-artifact-only, frontend-only, roadmap-only, committee-mode when PLAN required executable behavior.
@@ -146,7 +157,7 @@ permissions:
     - "shell:cmd=test*"
     - "shell:cmd=sed*"
     - "shell:cmd=date*"
-    - "shell:cmd=if [ -d .ariadne ]*"
+    - "shell:cmd=if [ -d k8s ]*"
     - "shell:cmd=yq*"
     - "shell:cmd=python -c*"
     - "shell:cmd=python -m pytest*"
