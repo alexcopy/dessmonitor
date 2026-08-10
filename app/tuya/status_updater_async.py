@@ -564,7 +564,17 @@ class TuyaStatusUpdaterAsync:
                         "temp_value" in status_by_code or
                         "temp_humidity_way_1" in status_by_code
                     )
-                    if not has_temp:
+                    has_energy = (
+                        "forward_energy_total" in status_by_code or
+                        "add_ele" in status_by_code or
+                        "energy" in status_by_code or
+                        "total_power" in status_by_code or
+                        "cur_power" in status_by_code
+                    )
+                    is_meter = getattr(dev, "device_type", "").lower() == "meter"
+                    if is_meter and not has_energy:
+                        has_sensor_no_telemetry = True
+                    elif not is_meter and not has_temp:
                         has_sensor_no_telemetry = True
                     # Process sensor even without telemetry (to update comm state)
                     if getattr(dev, "device_type", "").lower() == "meter":
@@ -675,19 +685,62 @@ class TuyaStatusUpdaterAsync:
         status_by_code: dict[str, object],
         now_utc: datetime,
     ) -> None:
-        """Extract energy DP from meter device and write to TimescaleDB."""
-        import os, asyncio as _asyncio
-        # energy DP candidates
-        raw_energy = (
-            status_by_code.get("energy") or
-            status_by_code.get("Energy") or
-            status_by_code.get("add_ele")
-        )
-        if raw_energy is None:
-            return
-        try:
-            energy_kwh = float(raw_energy) / 100.0  # Tuya energy in 0.01 kWh
-        except (TypeError, ValueError):
+        """Extract energy DP from meter device and write to TimescaleDB.
+
+        Supports both smart-plug style (add_ele, cur_power) and
+        zndb/dlq meter style (forward_energy_total, total_power, phase_a).
+        """
+        import os, asyncio as _asyncio, json as _json
+
+        energy_kwh: float | None = None
+        power_w: float | None = None
+
+        # zndb/dlq meter style — forward_energy_total in 0.01 kWh
+        raw_total = status_by_code.get("forward_energy_total")
+        if raw_total is not None:
+            try:
+                energy_kwh = float(raw_total) / 100.0
+            except (TypeError, ValueError):
+                pass
+
+        # total_power in 0.1W
+        raw_power = status_by_code.get("total_power")
+        if raw_power is not None:
+            try:
+                power_w = float(raw_power) / 10.0
+            except (TypeError, ValueError):
+                pass
+
+        # phase_a — JSON string with voltage/electricCurrent/power
+        raw_phase = status_by_code.get("phase_a")
+        if raw_phase is not None and power_w is None:
+            try:
+                phase = _json.loads(raw_phase) if isinstance(raw_phase, str) else raw_phase
+                if isinstance(phase, dict) and "power" in phase:
+                    power_w = float(phase["power"])
+            except Exception:
+                pass
+
+        # Smart-plug fallback: add_ele in 0.1 kWh, cur_power in 0.1W
+        if energy_kwh is None:
+            raw_ele = status_by_code.get("add_ele") or status_by_code.get("energy")
+            if raw_ele is not None:
+                try:
+                    energy_kwh = float(raw_ele) / 10.0
+                except (TypeError, ValueError):
+                    pass
+
+        if power_w is None:
+            raw_pw = status_by_code.get("cur_power")
+            if raw_pw is not None:
+                try:
+                    power_w = float(raw_pw) / 10.0
+                except (TypeError, ValueError):
+                    pass
+
+        if energy_kwh is None and power_w is None:
+            logger.debug("[Meter] %s: no energy/power DP found. Keys: %s",
+                        dev.name, list(status_by_code.keys())[:10])
             return
 
         # Throttle — write at most once per 5 minutes per device
