@@ -16,6 +16,7 @@ from enum import Enum
 class SensorMetric(Enum):
     """Controlled sensor metric types."""
     WATER_TEMPERATURE = "water_temperature"
+    ENERGY = "energy"
 
 
 class SensorFreshness(Enum):
