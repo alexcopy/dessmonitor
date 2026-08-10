@@ -85,6 +85,9 @@ async def main() -> None:
     for dev in dev_mgr.get_devices():
         proj = classify_projection_kind(dev.device_type)
         if proj == DeviceProjectionKind.SENSOR:
+            # Skip meter devices — they register with energy sensor_id separately
+            if getattr(dev, "device_type", "").lower() == "meter":
+                continue
             sensor_id = f"{dev.id}_water_temp"
             display_name = getattr(dev, "name", "Sensor") or "Sensor"
             description = getattr(dev, "desc", "") or ""
