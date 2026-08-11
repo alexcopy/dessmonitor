@@ -24,8 +24,9 @@ class SolarAwareController:
 
     async def tick(self) -> None:
         if self._reset_coordinator is not None and not self._reset_coordinator.is_gate_open:
-            self._important.info("[SOLAR] reset gate closed, skipping")
+            self._logger.debug("[SOLAR] reset gate closed, skipping")
             return
+        self._logger.debug("[SOLAR] tick started")
 
         raw_vbat = shared_state.get("battery_voltage")
         try:

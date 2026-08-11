@@ -251,9 +251,10 @@ class StartupResetCoordinator:
                 self._gate_open = True
                 self._reset_status = "confirmed"
                 n = len(active_targets)
+                elapsed_total = elapsed + self._retry_interval
                 self._logger.info(
-                    "[RESET] All %d target(s) confirmed OFF — gate OPEN",
-                    n,
+                    "[RESET] All %d target(s) confirmed OFF — gate OPEN (%.1fs)",
+                    n, elapsed_total,
                     extra={"evt": "reset_gate_open", "count": n},
                 )
                 return
