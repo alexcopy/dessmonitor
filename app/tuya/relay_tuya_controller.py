@@ -298,13 +298,12 @@ class RelayTuyaController:
         allow_switch_on: bool = True,
         min_volt_overrides: dict[str, float] | None = None,
         decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
+        inverter_on: bool = True,
     ):
+        # inverter_on can be passed directly; fallback to device lookup
         inverter = next((d for d in devices if d.name.lower() == "inverter"), None)
-        if not inverter:
-            logging.warning("[RelayTuyaController] Инвертор не найден среди устройств.")
-            return
-
-        inverter_on = inverter.is_device_on()
+        if inverter is not None:
+            inverter_on = inverter.is_device_on()
         if allow_switch_on and inverter_on:
             await self.switch_all_on_soft(
                 devices,

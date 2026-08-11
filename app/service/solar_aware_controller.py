@@ -66,12 +66,16 @@ class SolarAwareController:
             sunrise_hour,
             sunset_hour,
         )
+        # Check if inverter is on via shared_state (working_mode != grid/off)
+        working_mode = shared_state.get("working_mode", "")
+        inverter_on = working_mode not in ("", None) and "grid" not in str(working_mode).lower()
         await self.ctrl.switch_all_logic(
             devices,
             inverter_voltage=battery_voltage,
             allow_switch_on=solar_period,
             min_volt_overrides=min_volt_overrides,
             decision_logger=self._decision_logger,
+            inverter_on=inverter_on,
         )
 
     def _is_solar_period(self) -> tuple[bool, float | None, int, int]:
