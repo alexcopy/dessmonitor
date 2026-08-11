@@ -262,7 +262,7 @@ class DessAPI:
         self.logger.info(f"[API] Выполняем запрос: {self._redact_url(url)}")
 
         try:
-            with urllib.request.urlopen(url, timeout=120) as resp:
+            with urllib.request.urlopen(url, timeout=20) as resp:
                 raw_data = resp.read()
             data = json.loads(raw_data.decode("utf-8"))
             if data.get("err") != 0:
