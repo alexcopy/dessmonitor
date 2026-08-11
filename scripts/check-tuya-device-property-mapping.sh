@@ -330,12 +330,12 @@ from app.service.startup_reset_coordinator import (
 ok("StartupResetCoordinator class importable")
 
 # [20] Timeout constants
-if STARTUP_RESET_TIMEOUT_SECONDS == 120.0:
+if STARTUP_RESET_TIMEOUT_SECONDS == 30.0:
     ok(f"STARTUP_RESET_TIMEOUT_SECONDS={STARTUP_RESET_TIMEOUT_SECONDS}s")
 else:
     fail(f"timeout: {STARTUP_RESET_TIMEOUT_SECONDS}")
 
-if STARTUP_RESET_RETRY_INTERVAL == 30.0:
+if STARTUP_RESET_RETRY_INTERVAL == 5.0:
     ok(f"STARTUP_RESET_RETRY_INTERVAL={STARTUP_RESET_RETRY_INTERVAL}s")
 else:
     fail(f"retry: {STARTUP_RESET_RETRY_INTERVAL}")
