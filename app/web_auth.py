@@ -452,7 +452,7 @@ class SecurityHeadersMiddleware:
                         headers.append(
                             (
                                 b"content-security-policy",
-                                b"default-src 'self'; frame-ancestors 'none'; form-action 'self'",
+                                b"default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'",
                             )
                         )
 
