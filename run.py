@@ -18,6 +18,7 @@ from app.ml.timescale_data_collector import TimescaleDataCollector, timescale_co
 from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
 from app.service.overload_protector import OverloadProtector
+from app.service.solar_aware_controller import SolarAwareController
 from app.service.startup_reset_coordinator import StartupResetCoordinator
 from app.service.telemetry_registry import TelemetryRegistry
 from app.tuya.relay_tuya_controller import RelayTuyaController
@@ -256,6 +257,13 @@ async def main() -> None:
         reset_coordinator.reset_status, reset_coordinator.is_gate_open,
     )
 
+    solar_ctrl = SolarAwareController(
+        dev_mgr=dev_mgr,
+        tuya_ctrl=tuya_ctrl,
+        startup_reset_coordinator=reset_coordinator,
+    )
+    inverter_mon.solar_controller = solar_ctrl
+
     # ─── 6. Бизнес-логика SmartHomeController ─────────────────
     pump_automation_enabled = os.getenv("PUMP_AUTOMATION_ENABLED", "").lower() in ("true", "1", "yes")
 
@@ -264,6 +272,7 @@ async def main() -> None:
         tuya_ctrl=tuya_ctrl,
         switch_int=180,  # сек между проверками свитчей
         pump_int=120,  # сек между коррекцией насоса
+        switch_automation_enabled=False,
         pump_automation_enabled=pump_automation_enabled,
         startup_reset_coordinator=reset_coordinator,
     )

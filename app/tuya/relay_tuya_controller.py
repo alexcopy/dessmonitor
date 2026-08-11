@@ -1,7 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, time as dt_time
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Callable
 
 from app.devices.relay_channel_device import RelayChannelDevice
 from app.devices.device_property_mapping import (
@@ -166,17 +165,55 @@ class RelayTuyaController:
 
     # ---------- batch helpers ----------
 
-    async def switch_all_on_soft(self, devices, inverter_voltage):
+    async def switch_all_on_soft(
+        self,
+        devices,
+        inverter_voltage,
+        decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
+    ):
         for dev in devices:
+            if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
+                continue
             if dev.ready_to_switch_on(inverter_voltage):
                 logging.info(f"[TuyaCtl] SOFT-ON: {dev.name}")
+                if decision_logger:
+                    decision_logger(
+                        "ON",
+                        dev,
+                        f"voltage {inverter_voltage:.2f} > max_volt {dev.max_volt:.2f}",
+                        inverter_voltage,
+                        None,
+                    )
                 self.switch_on_device(dev)
                 await asyncio.sleep(1)
 
-    async def switch_all_off_soft(self, devices, inverter_voltage, inverter_on):
+    async def switch_all_off_soft(
+        self,
+        devices,
+        inverter_voltage,
+        inverter_on,
+        min_volt_overrides: dict[str, float] | None = None,
+        decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
+    ):
         for dev in devices:
-            if dev.ready_to_switch_off(inverter_voltage, inverter_on):
+            if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
+                continue
+            should_off, reason = self._should_switch_off(
+                dev=dev,
+                inverter_voltage=inverter_voltage,
+                inverter_on=inverter_on,
+                min_volt_override=(min_volt_overrides or {}).get(dev.id),
+            )
+            if should_off:
                 logging.info(f"[TuyaCtl] SOFT-OFF: {dev.name}")
+                if decision_logger:
+                    decision_logger(
+                        "OFF",
+                        dev,
+                        reason,
+                        inverter_voltage,
+                        (min_volt_overrides or {}).get(dev.id),
+                    )
                 self.switch_off_device(dev)
                 await asyncio.sleep(1)
 
@@ -229,19 +266,55 @@ class RelayTuyaController:
             )
 
     @staticmethod
-    def is_before_1830() -> bool:
-        return datetime.now().time() <= dt_time(18, 30)
-
-    @staticmethod
     def select_device_by_id(devices: List[RelayChannelDevice], dev_id: str) -> Optional[RelayChannelDevice]:
         return next((d for d in devices if str(d.id) == str(dev_id)), None)
 
-    async def switch_all_logic(self, devices: List[RelayChannelDevice], inverter_voltage: float):
+    def _should_switch_off(
+        self,
+        dev: RelayChannelDevice,
+        inverter_voltage: float,
+        inverter_on: bool,
+        min_volt_override: float | None = None,
+    ) -> tuple[bool, str]:
+        if not dev.is_device_on():
+            logging.debug(f"[{dev.name}] Already OFF")
+            return False, "already off"
+        if not inverter_on:
+            return True, "inverter off"
+        min_trashhold = float(dev.extra.get("min_trashhold", 0))
+        if inverter_voltage < min_trashhold:
+            return True, f"voltage {inverter_voltage:.2f} < min_trashhold {min_trashhold:.2f}"
+        if not dev.can_switch():
+            return False, "time delay active"
+        effective_min = float(min_volt_override if min_volt_override is not None else dev.min_volt)
+        if inverter_voltage < effective_min:
+            return True, f"voltage {inverter_voltage:.2f} < min_volt {effective_min:.2f}"
+        return False, "threshold not reached"
+
+    async def switch_all_logic(
+        self,
+        devices: List[RelayChannelDevice],
+        inverter_voltage: float,
+        allow_switch_on: bool = True,
+        min_volt_overrides: dict[str, float] | None = None,
+        decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
+    ):
         inverter = next((d for d in devices if d.name.lower() == "inverter"), None)
         if not inverter:
             logging.warning("[RelayTuyaController] Инвертор не найден среди устройств.")
             return
 
-        if self.is_before_1830():
-            await self.switch_all_on_soft(devices, inverter_voltage)
-        await self.switch_all_off_soft(devices, inverter_voltage, inverter_on=inverter.is_device_on())
+        inverter_on = inverter.is_device_on()
+        if allow_switch_on and inverter_on:
+            await self.switch_all_on_soft(
+                devices,
+                inverter_voltage,
+                decision_logger=decision_logger,
+            )
+        await self.switch_all_off_soft(
+            devices,
+            inverter_voltage,
+            inverter_on=inverter_on,
+            min_volt_overrides=min_volt_overrides,
+            decision_logger=decision_logger,
+        )

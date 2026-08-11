@@ -33,6 +33,7 @@ class SmartHomeController:
             tuya_ctrl: RelayTuyaController,
             switch_int: int,
             pump_int: int,
+            switch_automation_enabled: bool = True,
             pump_automation_enabled: bool = False,
             startup_reset_coordinator=None,
     ):
@@ -40,6 +41,7 @@ class SmartHomeController:
         self.ctrl = tuya_ctrl
         self.switch_int = switch_int
         self.pump_int = pump_int
+        self.switch_automation_enabled = switch_automation_enabled
         self.pump_automation_enabled = pump_automation_enabled
         self._reset_coordinator = startup_reset_coordinator
 
@@ -61,7 +63,8 @@ class SmartHomeController:
     def start(self) -> None:
         loop = asyncio.get_running_loop()
         self._stop.clear()
-        self._tasks.append(loop.create_task(self._switch_loop()))
+        if self.switch_automation_enabled:
+            self._tasks.append(loop.create_task(self._switch_loop()))
         if self.pump_automation_enabled:
             self._tasks.append(loop.create_task(self._pump_loop()))
 

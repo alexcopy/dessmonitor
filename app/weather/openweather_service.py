@@ -6,7 +6,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import aiohttp
 
@@ -108,6 +108,8 @@ class OpenWeatherService:
 
     def _update_shared_state(self, data: dict) -> None:
         """Записать данные в shared_state (dict-like)"""
+        tz_offset_sec = int(data.get("timezone_offset", 0) or 0)
+        tz = timezone(timedelta(seconds=tz_offset_sec))
 
         # ========== ТЕКУЩЕЕ СОСТОЯНИЕ ==========
         current = data.get("current", {})
@@ -119,6 +121,8 @@ class OpenWeatherService:
         shared_state["wind_speed_mps"] = current.get("wind_speed")
         shared_state["clouds"] = current.get("clouds")
         shared_state["uvi"] = current.get("uvi")
+        shared_state["sunrise_hour"] = self._to_local_hour(current.get("sunrise"), tz)
+        shared_state["sunset_hour"] = self._to_local_hour(current.get("sunset"), tz)
 
         # Weather description
         weather_list = current.get("weather", [])
@@ -129,6 +133,9 @@ class OpenWeatherService:
         hourly = data.get("hourly", [])
         shared_state["forecast_hourly"] = hourly
         shared_state["forecast_source"] = "OpenWeatherMap"
+        shared_state["forecast_clouds_pct"] = (
+            hourly[0].get("clouds") if hourly else None
+        )
 
         # ========== ПРОГНОЗ DAILY ==========
         daily = data.get("daily", [])
@@ -138,6 +145,23 @@ class OpenWeatherService:
             shared_state["daily_temp_min"] = temp.get("min")
             shared_state["daily_temp_max"] = temp.get("max")
             shared_state["daily_pop"] = today.get("pop")
+            shared_state["sunrise_hour"] = (
+                self._to_local_hour(today.get("sunrise"), tz)
+                or shared_state.get("sunrise_hour")
+            )
+            shared_state["sunset_hour"] = (
+                self._to_local_hour(today.get("sunset"), tz)
+                or shared_state.get("sunset_hour")
+            )
+
+    @staticmethod
+    def _to_local_hour(unix_ts: int | None, tz: timezone) -> int | None:
+        if unix_ts is None:
+            return None
+        try:
+            return datetime.fromtimestamp(int(unix_ts), tz=tz).hour
+        except (TypeError, ValueError, OSError):
+            return None
 
     async def run(self, stop_event: asyncio.Event) -> None:
         """Основной цикл обновления погоды"""
