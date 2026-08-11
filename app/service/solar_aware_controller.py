@@ -50,11 +50,15 @@ class SolarAwareController:
             return
 
         solar_period, clouds_pct, sunrise_hour, sunset_hour = self._is_solar_period()
-        min_volt_overrides = self._build_min_volt_overrides(devices, solar_period)
+        min_volt_overrides = self._build_min_volt_overrides(
+            devices, solar_period, sunrise_hour, sunset_hour
+        )
         self._last_tick_context = (solar_period, min_volt_overrides)
+        phase = self._solar_phase(sunrise_hour, sunset_hour)
 
         self._important.info(
-            "[SOLAR] solar_period=%s voltage=%.2f clouds=%s sunrise=%s sunset=%s",
+            "[SOLAR] phase=%s solar_period=%s voltage=%.2f clouds=%s sunrise=%s sunset=%s",
+            phase,
             solar_period,
             battery_voltage,
             "n/a" if clouds_pct is None else f"{clouds_pct:.0f}%",
@@ -79,18 +83,57 @@ class SolarAwareController:
         is_clear_enough = clouds_pct is not None and clouds_pct < 50.0
         return is_day_window and is_clear_enough, clouds_pct, sunrise_hour, sunset_hour
 
-    def _build_min_volt_overrides(self, devices, solar_period: bool) -> dict[str, float]:
+    # Phase constants (hours before sunset)
+    PHASE_ACTIVE_END   = 4   # sunset-4h: start tapering
+    PHASE_TAPER_END    = 1   # sunset-1h: target 26.5V
+    TARGET_SUNSET_VOLT = 26.5
+
+    def _solar_phase(self, sunrise_hour: int, sunset_hour: int) -> str:
+        """Return current solar phase: 'active', 'taper', 'off', 'night'."""
+        now_hour = datetime.now().hour
+        if now_hour < sunrise_hour or now_hour >= sunset_hour:
+            return "night"
+        hours_to_sunset = sunset_hour - now_hour
+        if hours_to_sunset <= self.PHASE_TAPER_END:
+            return "off"      # last hour before sunset — no coefficient
+        if hours_to_sunset <= self.PHASE_ACTIVE_END:
+            return "taper"    # 4..1 hours before sunset — gradually reduce
+        return "active"       # main solar period
+
+    def _taper_factor(self, sunset_hour: int) -> float:
+        """Linear factor 1.0→0.0 during taper phase (sunset-4h → sunset-1h)."""
+        now_hour = datetime.now().hour
+        hours_to_sunset = sunset_hour - now_hour
+        # taper window: 4h → 1h before sunset
+        taper_range = self.PHASE_ACTIVE_END - self.PHASE_TAPER_END  # = 3
+        elapsed = self.PHASE_ACTIVE_END - hours_to_sunset  # 0..3
+        return max(0.0, 1.0 - elapsed / taper_range)
+
+    def _build_min_volt_overrides(
+        self, devices, solar_period: bool,
+        sunrise_hour: int = 6, sunset_hour: int = 20,
+    ) -> dict[str, float]:
+        phase = self._solar_phase(sunrise_hour, sunset_hour)
         overrides: dict[str, float] = {}
         for dev in devices:
             if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
                 continue
-            if solar_period:
-                overrides[dev.id] = max(
-                    self.HARD_FLOOR_VOLT,
-                    float(dev.min_volt) - float(dev.coefficient),
-                )
+            min_v = float(dev.min_volt)
+            coef  = float(dev.coefficient)
+            if phase == "active" and solar_period:
+                # Full coefficient — allow deeper discharge
+                effective = max(self.HARD_FLOOR_VOLT, min_v - coef)
+            elif phase == "taper" and solar_period:
+                # Partial coefficient — taper toward min_volt
+                factor = self._taper_factor(sunset_hour)
+                effective = max(self.HARD_FLOOR_VOLT, min_v - coef * factor)
+                # Also target 26.5V at sunset — raise floor if needed
+                effective = max(effective, self.TARGET_SUNSET_VOLT * factor
+                                + min_v * (1 - factor))
             else:
-                overrides[dev.id] = float(dev.min_volt)
+                # night / off / cloudy — normal thresholds
+                effective = min_v
+            overrides[dev.id] = effective
         return overrides
 
     def _forecast_clouds_pct(self) -> float | None:
