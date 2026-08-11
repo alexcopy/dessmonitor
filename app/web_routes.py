@@ -614,6 +614,63 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/thresholds GET -----------------------------------------------
+    @router.get("/api/thresholds")
+    async def api_thresholds(request: Request) -> Any:
+        """Return per-device voltage thresholds with solar-adjusted values."""
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            from app.device_initializer import DeviceInitializer
+            from app.devices.relay_channel_device import classify_projection_kind, DeviceProjectionKind
+            from shared_state.shared_state import shared_state
+            HARD_FLOOR = 25.0
+            dev_mgr = DeviceInitializer().device_manager
+            battery_v = shared_state.get("battery_voltage")
+            clouds = shared_state.get("forecast_clouds_pct")
+            sunrise = shared_state.get("sunrise_hour") or 6
+            sunset = shared_state.get("sunset_hour") or 20
+            from datetime import datetime
+            now_h = datetime.now().hour
+            solar_period = (sunrise <= now_h < max(sunrise, sunset - 3)) and clouds is not None and float(clouds) < 50
+            devices = []
+            for dev in dev_mgr.get_devices():
+                proj = classify_projection_kind(dev.device_type)
+                if proj != DeviceProjectionKind.LOAD:
+                    continue
+                if not getattr(dev, "enabled", True):
+                    continue
+                min_v = getattr(dev, "min_volt", None)
+                max_v = getattr(dev, "max_volt", None)
+                coef  = getattr(dev, "coefficient", 0.0) or 0.0
+                if min_v is None or max_v is None:
+                    continue
+                solar_min = max(HARD_FLOOR, float(min_v) - float(coef))
+                solar_max = float(max_v)  # max_volt not adjusted
+                devices.append({
+                    "name": dev.name,
+                    "desc": getattr(dev, "desc", "") or "",
+                    "min_volt": float(min_v),
+                    "max_volt": float(max_v),
+                    "coefficient": float(coef),
+                    "solar_min_volt": solar_min,
+                    "priority": getattr(dev, "priority", 0),
+                    "is_on": dev.is_device_on(),
+                })
+            devices.sort(key=lambda d: d["max_volt"], reverse=True)
+            return JSONResponse({
+                "devices": devices,
+                "battery_voltage": battery_v,
+                "solar_period": solar_period,
+                "clouds_pct": clouds,
+                "sunrise": sunrise,
+                "sunset": sunset,
+            })
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 
