@@ -208,13 +208,14 @@ class RelayChannelDevice:
     def mark_switched(self):
         self.last_switched = int(datetime.now().timestamp())
 
-    def ready_to_switch_on(self, inverter_voltage: float) -> bool:
+    def ready_to_switch_on(self, inverter_voltage: float, max_volt_override: float | None = None) -> bool:
         if self.is_device_on():
             logging.debug(f"[{self.name}] Already ON")
             return False
         if not self.can_switch():
             return False
-        return inverter_voltage > self.max_volt
+        effective_max = float(max_volt_override if max_volt_override is not None else self.max_volt)
+        return inverter_voltage > effective_max
 
     def ready_to_switch_off(self, inverter_voltage: float, inverter_is_on: bool) -> bool:
         if not self.is_device_on():

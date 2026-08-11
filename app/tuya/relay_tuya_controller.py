@@ -169,6 +169,7 @@ class RelayTuyaController:
         self,
         devices,
         inverter_voltage,
+        max_volt_overrides: dict[str, float] | None = None,
         decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
     ):
         for dev in devices:
@@ -296,10 +297,19 @@ class RelayTuyaController:
         devices: List[RelayChannelDevice],
         inverter_voltage: float,
         allow_switch_on: bool = True,
-        min_volt_overrides: dict[str, float] | None = None,
+        min_volt_overrides: dict[str, float | tuple] | None = None,
         decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
         inverter_on: bool = True,
     ):
+        # Split overrides into min/max dicts (support tuple (min,max) or float (min only))
+        _min_overrides: dict[str, float] = {}
+        _max_overrides: dict[str, float] = {}
+        for dev_id, val in (min_volt_overrides or {}).items():
+            if isinstance(val, tuple):
+                _min_overrides[dev_id] = val[0]
+                _max_overrides[dev_id] = val[1]
+            else:
+                _min_overrides[dev_id] = val
         # inverter_on can be passed directly; fallback to device lookup
         inverter = next((d for d in devices if d.name.lower() == "inverter"), None)
         if inverter is not None:
@@ -308,12 +318,13 @@ class RelayTuyaController:
             await self.switch_all_on_soft(
                 devices,
                 inverter_voltage,
+                max_volt_overrides=_max_overrides,
                 decision_logger=decision_logger,
             )
         await self.switch_all_off_soft(
             devices,
             inverter_voltage,
             inverter_on=inverter_on,
-            min_volt_overrides=min_volt_overrides,
+            min_volt_overrides=_min_overrides,
             decision_logger=decision_logger,
         )

@@ -141,19 +141,22 @@ class SolarAwareController:
             except (TypeError, ValueError, AttributeError):
                 coef = 0.0  # no coefficient — treat as normal switch
             if phase == "active" and solar_period:
-                # Full coefficient — allow deeper discharge
-                effective = max(self.HARD_FLOOR_VOLT, min_v - coef)
+                # Full coefficient — allow deeper discharge AND earlier switch-on
+                effective_min = max(self.HARD_FLOOR_VOLT, min_v - coef)
+                effective_max = max(self.HARD_FLOOR_VOLT, dev.max_volt - coef)
             elif phase == "taper" and solar_period:
-                # Partial coefficient — taper toward min_volt
+                # Partial coefficient — taper toward normal thresholds
                 factor = self._taper_factor(sunset_hour)
-                effective = max(self.HARD_FLOOR_VOLT, min_v - coef * factor)
-                # Also target 26.5V at sunset — raise floor if needed
-                effective = max(effective, self.TARGET_SUNSET_VOLT * factor
-                                + min_v * (1 - factor))
+                effective_min = max(self.HARD_FLOOR_VOLT, min_v - coef * factor)
+                effective_max = max(self.HARD_FLOOR_VOLT, dev.max_volt - coef * factor)
+                # Target 26.5V at sunset
+                effective_min = max(effective_min, self.TARGET_SUNSET_VOLT * factor
+                                    + min_v * (1 - factor))
             else:
                 # night / off / cloudy — normal thresholds
-                effective = min_v
-            overrides[dev.id] = effective
+                effective_min = min_v
+                effective_max = float(dev.max_volt)
+            overrides[dev.id] = (effective_min, effective_max)
         return overrides
 
     def _forecast_clouds_pct_dayavg(self, sunrise_hour: int, sunset_hour: int) -> float | None:

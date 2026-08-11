@@ -647,8 +647,8 @@ def create_auth_router(
                 coef  = getattr(dev, "coefficient", 0.0) or 0.0
                 if min_v is None or max_v is None:
                     continue
-                solar_min = min(float(min_v), max(HARD_FLOOR, float(min_v) - float(coef)))
-                solar_max = float(max_v)  # max_volt not adjusted
+                solar_min = max(HARD_FLOOR, float(min_v) - float(coef))
+                solar_max = max(HARD_FLOOR, float(max_v) - float(coef))  # also lower ON threshold
                 devices.append({
                     "name": dev.name,
                     "desc": getattr(dev, "desc", "") or "",
