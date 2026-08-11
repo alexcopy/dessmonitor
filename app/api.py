@@ -1,14 +1,16 @@
 import logging
 import os
 # dessmonitor/api.py
+import socket
 import time
 import hashlib
 import urllib.request
+import urllib.error
 import urllib.parse
 import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Iterable
 
 from app.logger import loki_handler
 from shared_state.shared_state import shared_state
@@ -110,11 +112,39 @@ class TokenExpiredError(Exception):
     pass
 
 
+class DessAPIError(RuntimeError):
+    def __init__(self, message: str, *, err: int | None = None, desc: str | None = None,
+                 action: str | None = None, transport: str = "api"):
+        super().__init__(message)
+        self.err = err
+        self.desc = desc or message
+        self.action = action
+        self.transport = transport
+
+
+class DessAuthError(DessAPIError):
+    pass
+
+
+class DessTimeoutError(DessAPIError):
+    pass
+
+
+class DessSignError(DessAPIError):
+    pass
+
+
 class DessAPI:
     API_BASE = "https://api.dessmonitor.com/public/"  # https
+    WEB_FALLBACK_BASE = "https://web.dessmonitor.com/public/"
+    REQUEST_TIMEOUT = 20
     APP_ID = "com.demo.test"
     APP_VERSION = "3.6.2.1"
     APP_CLIENT = "android"
+    ERR_TIMEOUT = 0x0002
+    ERR_SIGN = 0x0004
+    ERR_SALT = 0x0005
+    ERR_NO_AUTH = 0x000A
 
     TITLE_MAPPING = {
         # общие
@@ -183,9 +213,8 @@ class DessAPI:
         return hashlib.sha1(raw_bytes).hexdigest()
 
     def _generate_sign(self, param_str: str, use_password: bool = False):
-        # нормализуем строку для подписи: без ведущего '&'
-        if param_str.startswith("&"):
-            param_str = param_str[1:]
+        if not param_str.startswith("&action="):
+            raise ValueError("Signed action string must start with '&action='")
 
         salt = str(int(time.time() * 1000))
         if use_password:
@@ -228,87 +257,212 @@ class DessAPI:
         except Exception:
             return "[REDACTED URL]"
 
+    @staticmethod
+    def _coerce_float(value: object) -> float | None:
+        try:
+            return float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    def _build_action_pairs(self, params: dict) -> list[tuple[str, str]]:
+        if "action" not in params:
+            raise ValueError("Missing required 'action' parameter")
+        action_value = str(params["action"])
+        pairs: list[tuple[str, str]] = [("action", action_value)]
+        for key, value in params.items():
+            if key == "action":
+                continue
+            pairs.append((str(key), str(value)))
+        pairs.extend([
+            ("source", "1"),
+            ("_app_client_", self.APP_CLIENT),
+            ("_app_id_", self.APP_ID),
+            ("_app_version_", self.APP_VERSION),
+        ])
+        return pairs
+
+    @staticmethod
+    def _serialize_action_pairs(pairs: Iterable[tuple[str, str]]) -> str:
+        encoded = "&".join(
+            f"{urllib.parse.quote_plus(key)}={urllib.parse.quote_plus(value)}"
+            for key, value in pairs
+        )
+        action_str = f"&{encoded}"
+        if not action_str.startswith("&action="):
+            raise ValueError("Serialized action string must start with '&action='")
+        return action_str
+
+    @staticmethod
+    def _is_token_auth_failure(desc: str | None) -> bool:
+        if not desc:
+            return False
+        desc_l = desc.lower()
+        markers = (
+            "invalid token",
+            "token invalid",
+            "token expired",
+            "expired token",
+            "token error",
+            "no auth",
+            "not auth",
+            "auth fail",
+        )
+        return any(marker in desc_l for marker in markers)
+
+    def _raise_api_error(self, *, err: int, desc: str, action: str, transport: str) -> None:
+        msg = f"[{transport.upper()}] action={action} err={err} desc={desc}"
+        if err == self.ERR_NO_AUTH or self._is_token_auth_failure(desc):
+            raise DessAuthError(msg, err=err, desc=desc, action=action, transport=transport)
+        if err == self.ERR_TIMEOUT:
+            raise DessTimeoutError(msg, err=err, desc=desc, action=action, transport=transport)
+        if err == self.ERR_SIGN:
+            raise DessSignError(msg, err=err, desc=desc, action=action, transport=transport)
+        raise DessAPIError(msg, err=err, desc=desc, action=action, transport=transport)
+
     # ──────────────────────────────────────────────────────────
     # HTTP запрос
     # ──────────────────────────────────────────────────────────
-    def _do_api_request(self, params: dict, need_auth: bool = True) -> dict:
-        # 1) копируем исходный словарь
-        params = params.copy()
-
-        # 2) служебные поля в конце
-        params.update({
-            "source": "1",
-            "_app_client_": self.APP_CLIENT,
-            "_app_id_": self.APP_ID,
-            "_app_version_": self.APP_VERSION
-        })
-
-        # 3) query в исходном порядке
-        query_str = "&".join(
-            f"{urllib.parse.quote_plus(str(k))}={urllib.parse.quote_plus(str(v))}"
-            for k, v in params.items()
-        )
-
-        # 4) подпись
-        sign, salt = self._generate_sign(query_str, use_password=not need_auth)
-
-        # 5) финальный URL
+    def _do_api_request(
+        self,
+        params: dict,
+        *,
+        need_auth: bool = True,
+        base_url: str | None = None,
+        transport: str = "api",
+    ) -> dict:
+        action = str(params.get("action", ""))
+        action_str = self._serialize_action_pairs(self._build_action_pairs(params.copy()))
+        sign, salt = self._generate_sign(action_str, use_password=not need_auth)
+        if need_auth and (not self.token or not self.secret):
+            raise DessAuthError(
+                f"[{transport.upper()}] missing token/secret for action={action}",
+                action=action,
+                transport=transport,
+            )
         url = (
-            f"{self.API_BASE}?sign={sign}&salt={salt}"
+            f"{(base_url or self.API_BASE)}?sign={sign}&salt={salt}"
             f"{f'&token={self.token}' if need_auth else ''}"
-            f"&{query_str}"
+            f"{action_str}"
         )
 
-        self.logger.info(f"[API] Выполняем запрос: {self._redact_url(url)}")
+        self.logger.info("[%s] Request: %s", transport.upper(), self._redact_url(url))
 
         try:
-            with urllib.request.urlopen(url, timeout=20) as resp:
+            with urllib.request.urlopen(url, timeout=self.REQUEST_TIMEOUT) as resp:
                 raw_data = resp.read()
             data = json.loads(raw_data.decode("utf-8"))
             if data.get("err") != 0:
                 desc = data.get("desc", "Unknown error")
-                if "TOKEN" in desc or data.get("err") == 0x0002:
-                    raise TokenExpiredError("Токен истёк")
-                raise RuntimeError(f"Ошибка API: {desc}")
+                self._raise_api_error(
+                    err=int(data.get("err")),
+                    desc=str(desc),
+                    action=action,
+                    transport=transport,
+                )
             return data
-        except TokenExpiredError:
+        except (DessAPIError, ValueError):
             raise
+        except urllib.error.URLError as exc:
+            reason = exc.reason
+            if isinstance(reason, TimeoutError) or isinstance(reason, socket.timeout):
+                raise DessTimeoutError(
+                    f"[{transport.upper()}] action={action} transport timeout",
+                    action=action,
+                    transport=transport,
+                ) from exc
+            self.logger.error(
+                "[%s] request error: %s",
+                transport.upper(),
+                exc,
+                extra={"type": "dess_api", "evt": "error"},
+            )
+            raise DessAPIError(
+                f"[{transport.upper()}] action={action} request failed: {exc}",
+                action=action,
+                transport=transport,
+            ) from exc
+        except TimeoutError as exc:
+            raise DessTimeoutError(
+                f"[{transport.upper()}] action={action} transport timeout",
+                action=action,
+                transport=transport,
+            ) from exc
+        except socket.timeout as exc:
+            raise DessTimeoutError(
+                f"[{transport.upper()}] action={action} transport timeout",
+                action=action,
+                transport=transport,
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise DessAPIError(
+                f"[{transport.upper()}] action={action} invalid JSON response",
+                action=action,
+                transport=transport,
+            ) from exc
         except Exception as e:
             self.logger.error("[API] request error: %s", e,
                               extra={"type": "dess_api", "evt": "error"})
-            raise RuntimeError(f"Ошибка запроса: {e}")
+            raise DessAPIError(
+                f"[{transport.upper()}] action={action} request failed: {e}",
+                action=action,
+                transport=transport,
+            ) from e
+
+    def _query_device_last_data_once(self) -> DeviceData:
+        params = {
+            "action": "queryDeviceLastData",
+            "i18n": "en_US",
+            "pn": self.pn,
+            "devcode": self.dev_code,
+            "devaddr": self.dev_addr,
+            "sn": self.sn,
+        }
+        result = self._do_api_request(params, need_auth=True, transport="api")
+        dd = self._parse_device_data(result)
+        self.logger.info("[DESS] official queryDeviceLastData success")
+        return dd
+
+    def _ensure_authenticated(self) -> None:
+        if not self.token or not self.secret:
+            self.authenticate()
+        if self.should_refresh_token():
+            try:
+                self.refresh_token()
+            except DessAuthError:
+                self.logger.info("[DESS] updateToken not authorised; performing full auth")
+                self.authenticate()
+            except DessAPIError as exc:
+                self.logger.info("[DESS] updateToken failed (%s); performing full auth", exc.desc)
+                self.authenticate()
 
     # ──────────────────────────────────────────────────────────
     # Аутентификация
     # ──────────────────────────────────────────────────────────
     def authenticate(self) -> None:
-        self.logger.info("Авторизация (authSource)...")
-        # ⚠️ Credentials не логируются в целях безопасности
-        self.logger.debug("[AUTH] Authenticating with provided credentials")
-
-        pwd_hash = self._sha1_hex(self.password)
+        self.logger.info("[DESS] authSource start")
         params = {"action": "authSource", "usr": self.email, "company-key": self.company_key}
-        result = self._do_api_request(params, need_auth=False)
+        result = self._do_api_request(params, need_auth=False, transport="api")
         dat = result.get("dat", {})
         self.token = dat.get("token")
         self.secret = dat.get("secret")
-        self.token_expiry = dat.get("expire")
+        self.token_expiry = self._coerce_float(dat.get("expire"))
         self.token_acquired_time = time.time()
         if not self.token or not self.secret:
             raise RuntimeError("Не получены token/secret от authSource.")
-        self.logger.info("Успешно авторизованы. Получен token.")
+        self.logger.info("[DESS] authSource success")
         self._save_token()
 
     def refresh_token(self) -> None:
-        self.logger.info("Обновление токена (updateToken)...")
+        self.logger.info("[DESS] updateToken start")
         params = {"action": "updateToken"}
-        result = self._do_api_request(params, need_auth=True)
+        result = self._do_api_request(params, need_auth=True, transport="api")
         dat = result.get("dat", {})
         self.token = dat.get("token") or self.token
         self.secret = dat.get("secret") or self.secret
-        self.token_expiry = dat.get("expire") or self.token_expiry
+        refreshed_expire = self._coerce_float(dat.get("expire"))
+        self.token_expiry = refreshed_expire or self.token_expiry
         self.token_acquired_time = time.time()
-        self.logger.info("Токен обновлён.")
+        self.logger.info("[DESS] updateToken success")
         self._save_token()
 
     def should_refresh_token(self) -> bool:
@@ -321,65 +475,53 @@ class DessAPI:
     # ──────────────────────────────────────────────────────────
     def fetch_device_data(self) -> DeviceData:
         try:
-            if self.should_refresh_token():
-                try:
-                    self.refresh_token()
-                except TokenExpiredError:
-                    self.authenticate()
-                except Exception as auth_exc:
-                    self.logger.info(f"[API] ошибка обновления токена: {auth_exc}. Пытаемся полную аутентификацию...")
-                    self.authenticate()
-
-            params = {
-                "action": "queryDeviceLastData",
-                "i18n": "en_US",
-                "pn": self.pn,
-                "devcode": self.dev_code,
-                "devaddr": self.dev_addr,
-                "sn": self.sn,
-            }
-            result = self._do_api_request(params, need_auth=True)
-            dd = self._parse_device_data(result)
+            self._ensure_authenticated()
+            try:
+                dd = self._query_device_last_data_once()
+            except DessAuthError as auth_exc:
+                self.logger.warning(
+                    "[DESS] official API auth rejected err=%s desc=%s; re-authenticating once",
+                    auth_exc.err,
+                    auth_exc.desc,
+                )
+                self.authenticate()
+                dd = self._query_device_last_data_once()
             return dd
 
         except Exception as main_exc:
-            self.logger.info(f"[API] основной API упал: {main_exc}. Пытаемся веб-кролл…")
+            if not self.token or not self.secret:
+                self.logger.error("[DESS] official API failed and no token/secret available for web fallback")
+                raise
+            err = getattr(main_exc, "err", None)
+            desc = getattr(main_exc, "desc", str(main_exc))
+            self.logger.warning(
+                "[DESS] official API failed err=%s desc=%s; using web fallback",
+                err,
+                desc,
+            )
             return self.fetch_device_data_fallback()
 
     def fetch_device_data_fallback(self) -> DeviceData:
         """
         Резервный вариант: web-кролл querySPDeviceLastData
         """
-        action_str = (
-            "&action=querySPDeviceLastData"
-            f"&pn={urllib.parse.quote_plus(str(self.pn))}"
-            f"&devcode={urllib.parse.quote_plus(str(self.dev_code))}"
-            f"&devaddr={urllib.parse.quote_plus(str(self.dev_addr))}"
-            f"&sn={urllib.parse.quote_plus(str(self.sn))}"
-            "&i18n=en_US"
-        )
-
-        # подпись и salt (нормализация & сделается внутри _generate_sign)
-        sign, salt = self._generate_sign(action_str, use_password=False)
-
-        url = (
-            f"https://web.dessmonitor.com/public/"
-            f"?sign={sign}&salt={salt}&token={self.token}&{action_str}"
-        )
-        self.logger.info(f"[WEB] Выполняем запрос: {self._redact_url(url)}")
-
         try:
-            with urllib.request.urlopen(url, timeout=20) as resp:
-                raw = resp.read().decode("utf-8")
-            payload = json.loads(raw)
-        except Exception as e:
-            self.logger.error(f"[WEB] Ошибка запроса: {e}")
-            raise RuntimeError(f"Веб-кролл не удался: {e}")
-
-        # ⬅️ Добавим проверку успешности
-        if payload.get("err") != 0:
-            self.logger.error(f"[WEB] API вернул ошибку: {payload.get('desc')}")
-            raise RuntimeError(f"Веб-кролл вернул ошибку: {payload.get('desc')}")
+            payload = self._do_api_request(
+                {
+                    "action": "querySPDeviceLastData",
+                    "pn": self.pn,
+                    "devcode": self.dev_code,
+                    "devaddr": self.dev_addr,
+                    "sn": self.sn,
+                    "i18n": "en_US",
+                },
+                need_auth=True,
+                base_url=self.WEB_FALLBACK_BASE,
+                transport="web",
+            )
+        except DessAPIError as exc:
+            self.logger.error("[WEB] fallback request failed err=%s desc=%s", exc.err, exc.desc)
+            raise RuntimeError(f"Веб-кролл не удался: {exc.desc}") from exc
 
         dat = payload.get("dat", {})
         dd = DeviceData(timestamp=dat.get("gts"))
@@ -466,12 +608,14 @@ class DessAPI:
             return
         try:
             data = json.loads(_TOKEN_FILE.read_text())
+            acquired_at = self._coerce_float(data.get("acquired_at"))
+            expires_in = self._coerce_float(data.get("expires_in"))
             # небольшая проверка «жив ли» (10% буфер)
-            if time.time() - data["acquired_at"] < 0.9 * data["expires_in"]:
+            if acquired_at is not None and expires_in is not None and time.time() - acquired_at < 0.9 * expires_in:
                 self.token = data["token"]
                 self.secret = data["secret"]
-                self.token_expiry = data["expires_in"]
-                self.token_acquired_time = data["acquired_at"]
+                self.token_expiry = expires_in
+                self.token_acquired_time = acquired_at
                 self.logger.info("[API] Восстановили token из кеша")
         except Exception as e:
             self.logger.error(f"[API] не смогли прочитать кеш token: {e}")

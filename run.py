@@ -125,7 +125,7 @@ async def main() -> None:
             )
         except Exception as dess_exc:
             logging.getLogger("FULL").warning(
-                "[STARTUP] DESS auth failed in %.1fs: %s — will use web fallback",
+                "[STARTUP] DESS auth failed in %.1fs: %s — monitor will retry official auth on fetch",
                 __import__("time").monotonic() - t1, dess_exc,
             )
     inverter_mon = InverterMonitor(dess_api, poll_sec=60)
