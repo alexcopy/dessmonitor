@@ -1187,3 +1187,8 @@ html, body { font-size: 15px; }
 }
 .dm-btn-small:hover { background: var(--surface2); color: var(--text); }
 .dm-btn-small.active { background: var(--teal-dim); color: var(--teal); border-color: var(--teal); }
+
+/* Threshold table helpers */
+.dm-text-dim { color: var(--text-dim) !important; }
+.dm-text-green { color: var(--green) !important; }
+.dm-text-amber { color: var(--amber) !important; }
