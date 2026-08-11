@@ -118,10 +118,16 @@ async def main() -> None:
     # Authenticate DESS API asynchronously to avoid blocking startup
     if not dess_api.token:
         t1 = __import__("time").monotonic()
-        await asyncio.to_thread(dess_api.authenticate)
-        logging.getLogger("FULL").info(
-            "[STARTUP] DESS auth done in %.1fs", __import__("time").monotonic() - t1
-        )
+        try:
+            await asyncio.to_thread(dess_api.authenticate)
+            logging.getLogger("FULL").info(
+                "[STARTUP] DESS auth done in %.1fs", __import__("time").monotonic() - t1
+            )
+        except Exception as dess_exc:
+            logging.getLogger("FULL").warning(
+                "[STARTUP] DESS auth failed in %.1fs: %s — will use web fallback",
+                __import__("time").monotonic() - t1, dess_exc,
+            )
     inverter_mon = InverterMonitor(dess_api, poll_sec=60)
     inverter_task = asyncio.create_task(inverter_mon.run())
 
