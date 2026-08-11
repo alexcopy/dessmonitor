@@ -19,7 +19,7 @@ logger = logging.getLogger("StartupReset")
 STARTUP_RESET_TIMEOUT_SECONDS: float = 30.0
 
 # Observation retry interval in seconds.
-STARTUP_RESET_RETRY_INTERVAL: float = 30.0
+STARTUP_RESET_RETRY_INTERVAL: float = 5.0
 
 # Inter-command delay for rate limiting (seconds).
 INTER_COMMAND_DELAY_SECONDS: float = 0.5
