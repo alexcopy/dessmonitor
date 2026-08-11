@@ -240,6 +240,31 @@
         </table>
     </div>
 
+    <!-- SECTION: Load Thresholds -->
+    <div class="dm-section-label">Load Thresholds &amp; Solar Control</div>
+    <div class="dm-card">
+        <div class="dm-card-header">
+            <div class="dm-kpi-label">&#9889; Voltage Thresholds <span id="thresholdsSolarBadge" style="display:none" class="dm-badge teal">&#9728; Solar active</span></div>
+            <div class="dm-mono" style="font-size:0.75rem;color:var(--text-dim)" id="thresholdsVoltage"></div>
+        </div>
+        <table class="dm-table dm-table-compact" id="thresholdsTable">
+            <thead>
+                <tr>
+                    <th>Device</th>
+                    <th title="Voltage to switch ON">ON &gt;</th>
+                    <th title="Voltage to switch OFF">OFF &lt;</th>
+                    <th title="With solar coefficient applied">Solar ON &gt;</th>
+                    <th title="With solar coefficient applied">Solar OFF &lt;</th>
+                    <th>Coeff</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="thresholdsBody">
+                <tr><td colspan="7" class="dm-mono">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
     <!-- SECTION: Daily Energy Table -->
     <div class="dm-section-label">Daily Energy — Last 30 Days</div>
     <div class="dm-card">

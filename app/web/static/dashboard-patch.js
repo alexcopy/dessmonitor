@@ -401,9 +401,10 @@ function loadThresholds() {
                     '<td class="dm-mono amber-text">' + d.max_volt.toFixed(1) + 'V</td>' +
                     '<td class="dm-mono red-text">' + d.min_volt.toFixed(1) + 'V</td>' +
                     '<td class="dm-mono ' + (hasSolar ? 'teal-text' : 'dm-text-dim') + '">' +
-                        (hasSolar ? d.max_volt.toFixed(1) + 'V' : '—') + '</td>' +
+                        (hasSolar ? d.solar_max_volt.toFixed(1) + 'V' : '—') + '</td>' +
                     '<td class="dm-mono ' + (hasSolar ? 'teal-text' : 'dm-text-dim') + '">' +
                         (hasSolar ? d.solar_min_volt.toFixed(1) + 'V' : '—') + '</td>' +
+                    '<td class="dm-mono" style="color:var(--text-dim)">' + (hasSolar ? d.coefficient.toFixed(1) + 'V' : '—') + '</td>' +
                     '<td>' + status + '</td>' +
                     '</tr>';
             }).join('');

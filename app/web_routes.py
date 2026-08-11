@@ -656,6 +656,7 @@ def create_auth_router(
                     "max_volt": float(max_v),
                     "coefficient": float(coef),
                     "solar_min_volt": solar_min,
+                    "solar_max_volt": solar_max,
                     "priority": getattr(dev, "priority", 0),
                     "is_on": dev.is_device_on(),
                 })
