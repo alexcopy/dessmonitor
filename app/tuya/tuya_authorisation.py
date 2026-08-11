@@ -64,9 +64,24 @@ class TuyaAuthorisation:
 
         ep = endpoint if endpoint is not None else ENDPOINT
         self.openapi = TuyaOpenAPI(ep, access_id, access_key)
-        self.openapi.connect()
+        # connect() is blocking HTTP — call it via asyncio.to_thread() from run.py
+        # or call connect_sync() here for backward compat tests
+        self._connected = False
         self.openapi.auth_type = AuthType.SMART_HOME
         self.deviceManager = TuyaDeviceManager(self.openapi, TuyaOpenMQ(self.openapi))
+
+    def connect_sync(self) -> None:
+        """Blocking connect — use only in tests or CLI scripts."""
+        if not self._connected:
+            self.openapi.connect()
+            self._connected = True
+
+    async def connect_async(self) -> None:
+        """Non-blocking connect for use in async startup."""
+        if not self._connected:
+            import asyncio
+            await asyncio.to_thread(self.openapi.connect)
+            self._connected = True
         self.deviceStatuses = {}
 
     @property

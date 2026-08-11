@@ -74,6 +74,7 @@ async def main() -> None:
         )
         sys.exit(1)
     auth = TuyaAuthorisation(access_id=access_id, access_key=access_key)
+    await auth.connect_async()  # non-blocking Tuya token fetch
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Telemetry registry + sensor descriptor bootstrap ────
