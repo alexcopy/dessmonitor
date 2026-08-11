@@ -166,12 +166,7 @@ class DessAPI:
         self.token_expiry: Optional[float] = None
         self.token_acquired_time: Optional[float] = None
         self._load_cached_token()  # ← попробуем
-
-        if not self.token:  # первый запуск или токен протух
-            try:
-                self.authenticate()
-            except Exception as auth_exc:
-                self.logger.warning(f"[API] Не удалось аутентифицироваться при инициализации: {auth_exc}. Будем использовать веб-краулер.")
+        # Auth deferred to first use — authenticate() called from run.py via asyncio.to_thread
 
         lh = loki_handler()
         if lh not in self.logger.handlers:

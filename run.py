@@ -115,6 +115,13 @@ async def main() -> None:
     # ─── 4. Монитор инвертора (Dess API) ──────────────────────
     cfg_inv = Config()
     dess_api = DessAPI(cfg_inv, dess_log)
+    # Authenticate DESS API asynchronously to avoid blocking startup
+    if not dess_api.token:
+        t1 = __import__("time").monotonic()
+        await asyncio.to_thread(dess_api.authenticate)
+        logging.getLogger("FULL").info(
+            "[STARTUP] DESS auth done in %.1fs", __import__("time").monotonic() - t1
+        )
     inverter_mon = InverterMonitor(dess_api, poll_sec=60)
     inverter_task = asyncio.create_task(inverter_mon.run())
 
