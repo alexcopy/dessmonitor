@@ -76,7 +76,7 @@ async def main() -> None:
     auth = TuyaAuthorisation(access_id=access_id, access_key=access_key)
     t0 = __import__("time").monotonic()
     await auth.connect_async()  # non-blocking Tuya token fetch
-    logger.info("[STARTUP] Tuya connect_async done in %.1fs", __import__("time").monotonic() - t0)
+    logging.getLogger("FULL").info("[STARTUP] Tuya connect_async done in %.1fs", __import__("time").monotonic() - t0)
     tuya_ctrl = RelayTuyaController(auth)
 
     # ─── 3. Telemetry registry + sensor descriptor bootstrap ────
