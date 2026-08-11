@@ -118,8 +118,14 @@ class SolarAwareController:
         for dev in devices:
             if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
                 continue
-            min_v = float(dev.min_volt)
-            coef  = float(dev.coefficient)
+            try:
+                min_v = float(dev.min_volt)
+            except (TypeError, ValueError, AttributeError):
+                continue  # skip devices without min_volt
+            try:
+                coef = float(dev.coefficient)
+            except (TypeError, ValueError, AttributeError):
+                coef = 0.0  # no coefficient — treat as normal switch
             if phase == "active" and solar_period:
                 # Full coefficient — allow deeper discharge
                 effective = max(self.HARD_FLOOR_VOLT, min_v - coef)
