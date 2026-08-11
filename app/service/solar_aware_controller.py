@@ -75,12 +75,21 @@ class SolarAwareController:
 
     def _is_solar_period(self) -> tuple[bool, float | None, int, int]:
         now_hour = datetime.now().hour
-        sunrise_hour = self._coerce_hour(shared_state.get("sunrise_hour"), fallback=6)
-        sunset_hour = self._coerce_hour(shared_state.get("sunset_hour"), fallback=20)
-        clouds_pct = self._forecast_clouds_pct()
+        raw_sunrise = shared_state.get("sunrise_hour")
+        raw_sunset  = shared_state.get("sunset_hour")
+        sunrise_hour = self._coerce_hour(raw_sunrise, fallback=6)
+        sunset_hour  = self._coerce_hour(raw_sunset,  fallback=20)
+        if raw_sunrise is None or raw_sunset is None:
+            self._logger.warning(
+                "[SOLAR] sunrise/sunset not in shared_state — using fallback %d/%d",
+                sunrise_hour, sunset_hour,
+            )
+        clouds_pct = self._forecast_clouds_pct_dayavg(sunrise_hour, sunset_hour)
         solar_cutoff = max(sunrise_hour, sunset_hour - 3)
         is_day_window = sunrise_hour <= now_hour < solar_cutoff
         is_clear_enough = clouds_pct is not None and clouds_pct < 50.0
+        if clouds_pct is None:
+            self._logger.warning("[SOLAR] forecast_clouds_pct unavailable — treating as cloudy")
         return is_day_window and is_clear_enough, clouds_pct, sunrise_hour, sunset_hour
 
     # Phase constants (hours before sunset)
@@ -142,21 +151,31 @@ class SolarAwareController:
             overrides[dev.id] = effective
         return overrides
 
-    def _forecast_clouds_pct(self) -> float | None:
-        direct_value = shared_state.get("forecast_clouds_pct")
-        if direct_value is not None:
+    def _forecast_clouds_pct_dayavg(self, sunrise_hour: int, sunset_hour: int) -> float | None:
+        """Average clouds % across daylight hours from hourly forecast."""
+        hourly = shared_state.get("forecast_hourly") or []
+        now_hour = datetime.now().hour
+        day_hours = [
+            h for h in hourly
+            if isinstance(h, dict) and
+            sunrise_hour <= datetime.fromtimestamp(h.get("dt", 0)).hour < sunset_hour
+        ]
+        if day_hours:
+            vals = [h.get("clouds") for h in day_hours if h.get("clouds") is not None]
+            if vals:
+                return sum(vals) / len(vals)
+        # fallback to direct value or first hour
+        direct = shared_state.get("forecast_clouds_pct")
+        if direct is not None:
             try:
-                return float(direct_value)
+                return float(direct)
             except (TypeError, ValueError):
                 pass
-
-        hourly = shared_state.get("forecast_hourly") or []
         if hourly:
-            clouds = hourly[0].get("clouds")
             try:
-                return float(clouds)
+                return float(hourly[0].get("clouds"))
             except (TypeError, ValueError, AttributeError):
-                return None
+                pass
         return None
 
     @staticmethod
