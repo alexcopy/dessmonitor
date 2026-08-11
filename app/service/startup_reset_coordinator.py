@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 logger = logging.getLogger("StartupReset")
 
 # Maximum total reset duration in seconds.
-STARTUP_RESET_TIMEOUT_SECONDS: float = 120.0
+STARTUP_RESET_TIMEOUT_SECONDS: float = 30.0
 
 # Observation retry interval in seconds.
 STARTUP_RESET_RETRY_INTERVAL: float = 30.0
