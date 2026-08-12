@@ -217,17 +217,21 @@ class RelayChannelDevice:
         effective_max = float(max_volt_override if max_volt_override is not None else self.max_volt)
         return inverter_voltage > effective_max
 
-    def ready_to_switch_off(self, inverter_voltage: float, inverter_is_on: bool) -> bool:
+    def ready_to_switch_off(self, inverter_voltage: float, inverter_is_on: bool,
+                             min_volt_override: float | None = None,
+                             ignore_min_trashhold: bool = False) -> bool:
         if not self.is_device_on():
             logging.debug(f"[{self.name}] Already OFF")
             return False
         if not inverter_is_on:
             return True
-        if inverter_voltage < float(self.extra.get("min_trashhold", 0)):
-            return True
+        if not ignore_min_trashhold:
+            if inverter_voltage < float(self.extra.get("min_trashhold", 0)):
+                return True
         if not self.can_switch():
             return False
-        return inverter_voltage < self.min_volt
+        effective_min = float(min_volt_override if min_volt_override is not None else self.min_volt)
+        return inverter_voltage < effective_min
 
     def extract_status(self, raw_status: list) -> Dict[str, Any]:
         """Parse a Tuya raw_status list into a dict (backward compat).
