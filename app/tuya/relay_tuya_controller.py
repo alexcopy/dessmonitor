@@ -175,13 +175,14 @@ class RelayTuyaController:
         for dev in devices:
             if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
                 continue
-            if dev.ready_to_switch_on(inverter_voltage):
+            max_ovr = (max_volt_overrides or {}).get(dev.id)
+            if dev.ready_to_switch_on(inverter_voltage, max_volt_override=max_ovr):
                 logging.info(f"[TuyaCtl] SOFT-ON: {dev.name}")
                 if decision_logger:
                     decision_logger(
                         "ON",
                         dev,
-                        f"voltage {inverter_voltage:.2f} > max_volt {dev.max_volt:.2f}",
+                        f"voltage {inverter_voltage:.2f} > max_volt {(max_ovr or dev.max_volt):.2f}",
                         inverter_voltage,
                         None,
                     )
