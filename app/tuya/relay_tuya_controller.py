@@ -200,14 +200,21 @@ class RelayTuyaController:
         min_volt_overrides: dict[str, float] | None = None,
         decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
     ):
-        for dev in devices:
-            if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
-                continue
+        # Sort by priority descending — less important (high number) switches off first
+        sorted_devices = sorted(
+            [d for d in devices if d.device_type.lower() == "switch" and d.name.lower() != "inverter"],
+            key=lambda d: getattr(d, "priority", 0),
+            reverse=True,
+        )
+        for dev in sorted_devices:
+            # Important devices (low priority number) ignore min_trashhold — prevents oscillation
+            ignore_thresh = getattr(dev, "priority", 99) <= 5
             should_off, reason = self._should_switch_off(
                 dev=dev,
                 inverter_voltage=inverter_voltage,
                 inverter_on=inverter_on,
                 min_volt_override=(min_volt_overrides or {}).get(dev.id),
+                ignore_min_trashhold=ignore_thresh,
             )
             if should_off:
                 logging.info(f"[TuyaCtl] SOFT-OFF: {dev.name}")
@@ -280,15 +287,17 @@ class RelayTuyaController:
         inverter_voltage: float,
         inverter_on: bool,
         min_volt_override: float | None = None,
+        ignore_min_trashhold: bool = False,
     ) -> tuple[bool, str]:
         if not dev.is_device_on():
             logging.debug(f"[{dev.name}] Already OFF")
             return False, "already off"
         if not inverter_on:
             return True, "inverter off"
-        min_trashhold = float(dev.extra.get("min_trashhold", 0))
-        if inverter_voltage < min_trashhold:
-            return True, f"voltage {inverter_voltage:.2f} < min_trashhold {min_trashhold:.2f}"
+        if not ignore_min_trashhold:
+            min_trashhold = float(dev.extra.get("min_trashhold", 0))
+            if inverter_voltage < min_trashhold:
+                return True, f"voltage {inverter_voltage:.2f} < min_trashhold {min_trashhold:.2f}"
         if not dev.can_switch():
             return False, "time delay active"
         effective_min = float(min_volt_override if min_volt_override is not None else dev.min_volt)
