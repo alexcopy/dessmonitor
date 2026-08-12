@@ -47,6 +47,8 @@ class InverterMonitor:
         Теперь ими могут пользоваться другие подсистемы
         (например, логика включения реле по напряжению батареи).
         """
+        self.imp.info("[INV_MON] working_state=%r battery_voltage=%r",
+                     dd.working_state, dd.battery_voltage)
         shared_state.update(
             battery_voltage=dd.battery_voltage,
             battery_soc=dd.battery_capacity,
