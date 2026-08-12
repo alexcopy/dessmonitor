@@ -390,9 +390,10 @@ function loadThresholds() {
                             ? '<span class="amber-text">will OFF soon</span>'
                             : '<span class="teal-text">ON ✓</span>';
                     } else {
-                        status = bv >= d.max_volt
+                        var effectiveMax = (data.solar_period && hasSolar && d.solar_max_volt) ? d.solar_max_volt : d.max_volt;
+                        status = bv >= effectiveMax
                             ? '<span class="green-text">ready to ON</span>'
-                            : '<span style="color:var(--text-dim)">waiting ' + d.max_volt.toFixed(1) + 'V</span>';
+                            : '<span class="dm-text-dim">waiting ' + effectiveMax.toFixed(1) + 'V' + (data.solar_period && hasSolar ? ' (solar)' : '') + '</span>';
                     }
                 }
 
