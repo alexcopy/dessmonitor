@@ -172,9 +172,12 @@ class RelayTuyaController:
         max_volt_overrides: dict[str, float] | None = None,
         decision_logger: Callable[[str, RelayChannelDevice, str, float, float | None], None] | None = None,
     ):
-        for dev in devices:
-            if dev.device_type.lower() != "switch" or dev.name.lower() == "inverter":
-                continue
+        # Sort by priority ascending — low priority number = important = switch on first
+        sorted_devices = sorted(
+            [d for d in devices if d.device_type.lower() == "switch" and d.name.lower() != "inverter"],
+            key=lambda d: getattr(d, "priority", 99)
+        )
+        for dev in sorted_devices:
             max_ovr = (max_volt_overrides or {}).get(dev.id)
             if dev.ready_to_switch_on(inverter_voltage, max_volt_override=max_ovr):
                 logging.info(f"[TuyaCtl] SOFT-ON: {dev.name}")
