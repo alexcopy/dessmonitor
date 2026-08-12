@@ -304,3 +304,181 @@ document.addEventListener("DOMContentLoaded", function() {
     loadThresholds();
     setInterval(loadThresholds, 30000);
 });
+
+/* ── Analytics Charts (Chart.js) ─────────────────────────────── */
+(function() {
+    'use strict';
+
+    if (typeof Chart === 'undefined') return;
+
+    /* Chart defaults (set once) */
+    Chart.defaults.color = '#8b949e';
+    Chart.defaults.borderColor = '#21262d';
+    Chart.defaults.font.family = 'monospace';
+
+    /* Shared options template */
+    function baseOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#8b949e', maxTicksLimit: 8 }, grid: { color: '#21262d' } },
+                y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' }, beginAtZero: false }
+            }
+        };
+    }
+
+    /* Store chart instances so we can destroy before re-render */
+    window._charts = window._charts || {};
+
+    function destroyChart(id) {
+        if (window._charts[id]) {
+            window._charts[id].destroy();
+            delete window._charts[id];
+        }
+    }
+
+    function renderChart(id, config) {
+        var canvas = document.getElementById(id);
+        if (!canvas) return;
+        destroyChart(id);
+        window._charts[id] = new Chart(canvas.getContext('2d'), config);
+    }
+
+    /* ── PV Power line chart ─────────────────────────────────── */
+    function loadPvPowerChart(hours) {
+        fetch('/api/charts/inverter?hours=' + hours)
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.data || !data.data.length) return;
+                var labels = data.data.map(function(p) { return p.time; });
+                var values = data.data.map(function(p) { return p.pv_power_w; });
+                renderChart('pvPowerChart', {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'PV Power (W)',
+                            data: values,
+                            borderColor: '#00d1b2',
+                            backgroundColor: 'rgba(0,209,178,0.15)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: baseOptions()
+                });
+            })
+            .catch(function() {});
+    }
+
+    /* ── Battery voltage line chart ──────────────────────────── */
+    function loadBattVoltChart(hours) {
+        fetch('/api/charts/inverter?hours=' + hours)
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.data || !data.data.length) return;
+                var labels = data.data.map(function(p) { return p.time; });
+                var values = data.data.map(function(p) { return p.battery_voltage; });
+                renderChart('battVoltChart', {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Battery Voltage (V)',
+                            data: values,
+                            borderColor: '#ffdd57',
+                            backgroundColor: 'rgba(255,221,87,0.15)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: baseOptions()
+                });
+            })
+            .catch(function() {});
+    }
+
+    /* ── Device energy bar chart (today) ─────────────────────── */
+    function loadDeviceEnergyChart() {
+        fetch('/api/energy/devices/today')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.devices || !data.devices.length) return;
+                var labels = data.devices.map(function(d) { return d.device_name; });
+                var values = data.devices.map(function(d) { return d.real_wh || 0; });
+                var colors = ['#00d1b2', '#48c78e', '#ffdd57', '#ff6b6b', '#a78bfa', '#f97316'];
+                renderChart('deviceEnergyChart', {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Energy (Wh)',
+                            data: values,
+                            backgroundColor: colors,
+                            borderWidth: 0
+                        }]
+                    },
+                    options: baseOptions()
+                });
+            })
+            .catch(function() {});
+    }
+
+    /* ── Hourly load bar chart ───────────────────────────────── */
+    function loadHourlyLoadChart(hours) {
+        fetch('/api/charts/hourly-load?hours=' + hours)
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data || !data.data || !data.data.length) return;
+                var labels = data.data.map(function(p) { return p.hour; });
+                var values = data.data.map(function(p) { return p.avg_power_w; });
+                renderChart('hourlyLoadChart', {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Avg Power (W)',
+                            data: values,
+                            backgroundColor: '#48c78e',
+                            borderWidth: 0
+                        }]
+                    },
+                    options: baseOptions()
+                });
+            })
+            .catch(function() {});
+    }
+
+    /* ── Load all charts for a given period ──────────────────── */
+    function loadAllCharts(hours) {
+        loadPvPowerChart(hours);
+        loadBattVoltChart(hours);
+        loadDeviceEnergyChart();
+        loadHourlyLoadChart(hours);
+    }
+
+    /* ── Wire up time period buttons ─────────────────────────── */
+    function setupPeriodButtons() {
+        var btns = document.querySelectorAll('.dm-range-btn');
+        btns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var hours = parseInt(btn.getAttribute('data-period'), 10);
+                if (!hours) return;
+                btns.forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                loadAllCharts(hours);
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setupPeriodButtons();
+        loadAllCharts(24);
+    });
+})();

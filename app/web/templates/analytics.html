@@ -52,11 +52,11 @@
             <div class="dm-analytics-sub">Historical performance</div>
         </div>
         <div class="dm-daterange">
-            <button class="dm-range-btn">6H</button>
-            <button class="dm-range-btn">12H</button>
-            <button class="dm-range-btn active">24H</button>
-            <button class="dm-range-btn">7D</button>
-            <button class="dm-range-btn">30D</button>
+            <button class="dm-range-btn" data-period="6">6H</button>
+            <button class="dm-range-btn" data-period="12">12H</button>
+            <button class="dm-range-btn active" data-period="24">24H</button>
+            <button class="dm-range-btn" data-period="168">7D</button>
+            <button class="dm-range-btn" data-period="720">30D</button>
         </div>
     </div>
 
@@ -96,22 +96,14 @@
         <div class="dm-card accent-teal">
             <div class="dm-kpi-label dm-card-title-gap">&#9788; PV Power — 24h</div>
             <div class="dm-chart-wrap tall">
-                <div class="dm-chart-placeholder">
-                    <div class="chart-icon">&#9788;</div>
-                    <div>PV Power Chart</div>
-                    <div class="chart-note">Chart.js not available — static placeholder</div>
-                </div>
+                <canvas id="pvPowerChart" class="dm-chart-canvas"></canvas>
             </div>
         </div>
 
         <div class="dm-card accent-amber">
             <div class="dm-kpi-label dm-card-title-sm-gap">&#9889; Battery SOC — 24h</div>
             <div class="dm-chart-wrap chart-h220">
-                <div class="dm-chart-placeholder">
-                    <div class="chart-icon">&#9889;</div>
-                    <div>Battery SOC Chart</div>
-                    <div class="chart-note">Chart.js not available — static placeholder</div>
-                </div>
+                <canvas id="battVoltChart" class="dm-chart-canvas"></canvas>
             </div>
         </div>
     </div>
@@ -123,22 +115,14 @@
         <div class="dm-card accent-green">
             <div class="dm-kpi-label dm-card-title-gap">&#9881; Daily Energy by Device (Wh)</div>
             <div class="dm-chart-wrap tall">
-                <div class="dm-chart-placeholder">
-                    <div class="chart-icon">&#9776;</div>
-                    <div>Device Energy Chart</div>
-                    <div class="chart-note">Chart.js not available — static placeholder</div>
-                </div>
+                <canvas id="deviceEnergyChart" class="dm-chart-canvas"></canvas>
             </div>
         </div>
 
         <div class="dm-card accent-blue">
             <div class="dm-kpi-label dm-card-title-gap">&#128202; Hourly Load Profile — 24h</div>
             <div class="dm-chart-wrap tall">
-                <div class="dm-chart-placeholder">
-                    <div class="chart-icon">&#128202;</div>
-                    <div>Hourly Load Chart</div>
-                    <div class="chart-note">Chart.js not available — static placeholder</div>
-                </div>
+                <canvas id="hourlyLoadChart" class="dm-chart-canvas"></canvas>
             </div>
         </div>
     </div>

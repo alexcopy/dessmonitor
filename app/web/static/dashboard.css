@@ -867,6 +867,13 @@ html, body { font-size: 15px; }
 .dm-chart-wrap.chart-h200 { height: 200px; }
 .dm-chart-wrap.chart-h220 { height: 220px; }
 
+/* chart canvas fills its wrap container (CSP: no inline styles) */
+.dm-chart-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 /* card title gap helpers (replaces margin-bottom inline) */
 .dm-card-title-gap    { margin-bottom: 1rem; }
 .dm-card-title-sm-gap { margin-bottom: 0.5rem; }

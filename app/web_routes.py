@@ -615,6 +615,76 @@ def create_auth_router(
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
 
+    # -- /api/charts/inverter GET ------------------------------------------
+    @router.get("/api/charts/inverter")
+    async def api_charts_inverter(request: Request, hours: int = 24) -> Any:
+        """Return inverter_metrics series for the last N hours from TimescaleDB."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+            rows = await conn.fetch("""
+                SELECT time, pv_power_w, battery_voltage, output_power_w
+                FROM inverter_metrics
+                WHERE time > NOW() - ($1 || ' hours')::interval
+                ORDER BY time
+            """, str(hours))
+            await conn.close()
+            data = []
+            for r in rows:
+                data.append({
+                    "time": r["time"].isoformat(),
+                    "pv_power_w": r["pv_power_w"],
+                    "battery_voltage": r["battery_voltage"],
+                    "output_power_w": r["output_power_w"],
+                })
+            return JSONResponse({"data": data})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
+
+    # -- /api/charts/hourly-load GET ---------------------------------------
+    @router.get("/api/charts/hourly-load")
+    async def api_charts_hourly_load(request: Request, hours: int = 24) -> Any:
+        """Return hourly average load profile from device_metrics (TimescaleDB)."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+            rows = await conn.fetch("""
+                SELECT time_bucket('1 hour', time) as hour,
+                       ROUND(AVG(power_watts)::numeric, 1) as avg_power_w,
+                       COUNT(DISTINCT device_name) as device_count
+                FROM device_metrics
+                WHERE time > NOW() - ($1 || ' hours')::interval
+                  AND power_watts IS NOT NULL
+                GROUP BY hour ORDER BY hour
+            """, str(hours))
+            await conn.close()
+            data = []
+            for r in rows:
+                data.append({
+                    "hour": r["hour"].isoformat(),
+                    "avg_power_w": float(r["avg_power_w"]) if r["avg_power_w"] is not None else None,
+                    "device_count": int(r["device_count"] or 0),
+                })
+            return JSONResponse({"data": data})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
+
     # -- /api/thresholds GET -----------------------------------------------
     @router.get("/api/thresholds")
     async def api_thresholds(request: Request) -> Any:
