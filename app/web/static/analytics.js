@@ -238,3 +238,68 @@
         loadMeterData(30);
     });
 })();
+
+
+/* ── Load Thresholds Table ───────────────────────────────── */
+function loadThresholds() {
+    fetch("/api/thresholds")
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data) return;
+            var tbody = document.getElementById("thresholdsBody");
+            var badge = document.getElementById("thresholdsSolarBadge");
+            var voltEl = document.getElementById("thresholdsVoltage");
+            if (!tbody) return;
+
+            if (voltEl && data.battery_voltage != null) {
+                voltEl.textContent = "Battery: " + parseFloat(data.battery_voltage).toFixed(1) + "V";
+            }
+            if (badge) {
+                badge.style.display = data.solar_period ? "" : "none";
+            }
+
+            if (!data.devices || !data.devices.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="dm-mono">No devices</td></tr>';
+                return;
+            }
+
+            var bv = data.battery_voltage ? parseFloat(data.battery_voltage) : null;
+            tbody.innerHTML = data.devices.map(function(d) {
+                var isOn = d.is_on === true;
+                var hasSolar = d.coefficient > 0;
+                var activeMin = data.solar_period && hasSolar ? d.solar_min_volt : d.min_volt;
+
+                // Status indicator
+                var status = "";
+                if (bv !== null) {
+                    if (isOn) {
+                        status = bv < activeMin
+                            ? '<span class="amber-text">will OFF soon</span>'
+                            : '<span class="teal-text">ON ✓</span>';
+                    } else {
+                        status = bv >= d.max_volt
+                            ? '<span class="green-text">ready to ON</span>'
+                            : '<span style="color:var(--text-dim)">waiting ' + d.max_volt.toFixed(1) + 'V</span>';
+                    }
+                }
+
+                return '<tr>' +
+                    '<td class="dm-mono">' + (d.desc || d.name) + '</td>' +
+                    '<td class="dm-mono amber-text">' + d.max_volt.toFixed(1) + 'V</td>' +
+                    '<td class="dm-mono red-text">' + d.min_volt.toFixed(1) + 'V</td>' +
+                    '<td class="dm-mono ' + (hasSolar ? 'teal-text' : 'dm-text-dim') + '">' +
+                        (hasSolar ? d.solar_max_volt.toFixed(1) + 'V' : '—') + '</td>' +
+                    '<td class="dm-mono ' + (hasSolar ? 'teal-text' : 'dm-text-dim') + '">' +
+                        (hasSolar ? d.solar_min_volt.toFixed(1) + 'V' : '—') + '</td>' +
+                    '<td class="dm-mono" style="color:var(--text-dim)">' + (hasSolar ? d.coefficient.toFixed(1) + 'V' : '—') + '</td>' +
+                    '<td>' + status + '</td>' +
+                    '</tr>';
+            }).join('');
+        })
+        .catch(function() {});
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    loadThresholds();
+    setInterval(loadThresholds, 30000);
+});
