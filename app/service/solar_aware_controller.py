@@ -69,10 +69,14 @@ class SolarAwareController:
         # Check if inverter is on via shared_state (working_mode != grid/off)
         working_mode = shared_state.get("working_mode", "")
         inverter_on = working_mode not in ("", None) and "grid" not in str(working_mode).lower()
+        # Allow switch_on at night too — devices with low max_volt thresholds
+        # can run on battery power even without solar
+        # Only restrict switch_on during non-solar periods for high-threshold devices
+        # The min_volt_overrides already ensure devices won't drain battery too low
         await self.ctrl.switch_all_logic(
             devices,
             inverter_voltage=battery_voltage,
-            allow_switch_on=solar_period,
+            allow_switch_on=True,  # always allow — max_volt thresholds control when
             min_volt_overrides=min_volt_overrides,
             decision_logger=self._decision_logger,
             inverter_on=inverter_on,
