@@ -482,3 +482,63 @@ document.addEventListener("DOMContentLoaded", function() {
         loadAllCharts(24);
     });
 })();
+
+/* ── Weather Charts ─────────────────────────────────────── */
+function loadWeatherCharts(hours) {
+    if (typeof Chart === 'undefined') return;
+    fetch('/api/charts/weather?hours=' + (hours || 24))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data || !data.data || !data.data.length) return;
+            var labels = data.data.map(function(d) {
+                return new Date(d.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            });
+            var temps = data.data.map(function(d) { return d.temp; });
+            var hums = data.data.map(function(d) { return d.humidity; });
+            var chartOpts = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#8b949e', maxTicksLimit: 8 }, grid: { color: '#21262d' } },
+                    y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' }, beginAtZero: false }
+                }
+            };
+            // Temperature chart
+            var tc = document.getElementById('tempChart');
+            if (tc) {
+                if (window._charts && window._charts.temp) window._charts.temp.destroy();
+                if (!window._charts) window._charts = {};
+                window._charts.temp = new Chart(tc.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{ data: temps, borderColor: '#ff6b6b',
+                            backgroundColor: 'rgba(255,107,107,0.1)',
+                            borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }]
+                    },
+                    options: Object.assign({}, chartOpts)
+                });
+            }
+            // Humidity chart
+            var hc = document.getElementById('humidityChart');
+            if (hc) {
+                if (window._charts && window._charts.humidity) window._charts.humidity.destroy();
+                window._charts.humidity = new Chart(hc.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{ data: hums, borderColor: '#a78bfa',
+                            backgroundColor: 'rgba(167,139,250,0.1)',
+                            borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }]
+                    },
+                    options: Object.assign({}, chartOpts)
+                });
+            }
+        })
+        .catch(function() {});
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadWeatherCharts(24);
+});

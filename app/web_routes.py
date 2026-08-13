@@ -742,6 +742,36 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/charts/weather GET ------------------------------------------
+    @router.get("/api/charts/weather")
+    async def api_charts_weather(request: Request, hours: int = 24) -> Any:
+        """Return temperature and humidity from weather_data."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+            rows = await conn.fetch("""
+                SELECT time, ambient_temp, humidity
+                FROM weather_data
+                WHERE time > NOW() - ($1 || ' hours')::interval
+                ORDER BY time
+            """, str(hours))
+            await conn.close()
+            data = [{"time": r["time"].isoformat(),
+                     "temp": float(r["ambient_temp"]) if r["ambient_temp"] else None,
+                     "humidity": float(r["humidity"]) if r["humidity"] else None}
+                    for r in rows]
+            return JSONResponse({"data": data})
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 
