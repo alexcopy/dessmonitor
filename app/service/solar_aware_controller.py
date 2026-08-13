@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+import time
 
 from app.devices.relay_device_manager import RelayDeviceManager
 from app.tuya.relay_tuya_controller import RelayTuyaController
@@ -36,6 +37,7 @@ class SolarAwareController:
             return
 
         devices = self.dev_mgr.get_devices()
+        eligible_devices = self._filter_override_devices(devices)
         if battery_voltage < self.HARD_FLOOR_VOLT:
             self._important.warning(
                 "[SOLAR] hard floor hit: voltage=%.2f < %.2f, soft-off all switches",
@@ -43,7 +45,7 @@ class SolarAwareController:
                 self.HARD_FLOOR_VOLT,
             )
             await self.ctrl.switch_all_off_soft(
-                devices,
+                eligible_devices,
                 inverter_voltage=battery_voltage,
                 inverter_on=False,
                 decision_logger=self._decision_logger,
@@ -74,7 +76,7 @@ class SolarAwareController:
         # Only restrict switch_on during non-solar periods for high-threshold devices
         # The min_volt_overrides already ensure devices won't drain battery too low
         await self.ctrl.switch_all_logic(
-            devices,
+            eligible_devices,
             inverter_voltage=battery_voltage,
             allow_switch_on=True,  # always allow — max_volt thresholds control when
             min_volt_overrides=min_volt_overrides,
@@ -100,6 +102,32 @@ class SolarAwareController:
         if clouds_pct is None:
             self._logger.warning("[SOLAR] forecast_clouds_pct unavailable — treating as cloudy")
         return is_day_window and is_clear_enough, clouds_pct, sunrise_hour, sunset_hour
+
+    def _filter_override_devices(self, devices):
+        eligible = []
+        now_ts = time.time()
+        for dev in devices:
+            override_key = f"device_override_{getattr(dev, 'id', '')}"
+            override = shared_state.get(override_key)
+            if not isinstance(override, dict):
+                eligible.append(dev)
+                continue
+            mode = str(override.get("mode", "")).lower()
+            if mode == "force":
+                self._logger.debug("[SOLAR] skip %s due to force override", getattr(dev, "name", dev))
+                continue
+            if mode == "timed":
+                expires_at = override.get("expires_at", 0)
+                try:
+                    expires_at = float(expires_at or 0)
+                except (TypeError, ValueError):
+                    expires_at = 0
+                if now_ts < expires_at:
+                    self._logger.debug("[SOLAR] skip %s due to timed override", getattr(dev, "name", dev))
+                    continue
+                shared_state.pop(override_key, None)
+            eligible.append(dev)
+        return eligible
 
     # Phase constants (hours before sunset)
     PHASE_ACTIVE_END   = 4   # sunset-4h: start tapering

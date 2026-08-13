@@ -509,7 +509,7 @@
             dom.loadsTableBody.textContent = "";
             var emptyRow = document.createElement("tr");
             var emptyCell = document.createElement("td");
-            emptyCell.colSpan = 4;
+            emptyCell.colSpan = 5;
             emptyCell.style.cssText = "text-align:center; color:var(--text-dim);";
             emptyCell.textContent = "No loads available";
             emptyRow.appendChild(emptyCell);
@@ -543,7 +543,10 @@
             else { unknownCount++; }
 
             var tr = document.createElement("tr");
-            if (isStale) { tr.className = "is-stale-row"; }
+            tr.className = "dm-load-row";
+            if (isStale) { tr.classList.add("is-stale-row"); }
+            tr.dataset.deviceId = load.load_id || load.display_name || "";
+            tr.dataset.deviceName = load.display_name || "Device";
 
             /* Device Name */
             var tdName = document.createElement("td");
@@ -605,6 +608,7 @@
             /* State */
             var tdState = document.createElement("td");
             if (currentlyOn === true) {
+                tr.dataset.currentState = "on";
                 var onSpan = document.createElement("span");
                 onSpan.className = "dm-state-on";
                 var dotOn = document.createElement("span");
@@ -613,6 +617,7 @@
                 onSpan.appendChild(document.createTextNode("ON"));
                 tdState.appendChild(onSpan);
             } else if (currentlyOn === false) {
+                tr.dataset.currentState = "off";
                 var offSpan = document.createElement("span");
                 offSpan.className = "dm-state-off";
                 var dotOff = document.createElement("span");
@@ -621,6 +626,7 @@
                 offSpan.appendChild(document.createTextNode("OFF"));
                 tdState.appendChild(offSpan);
             } else {
+                tr.dataset.currentState = "unknown";
                 tdState.textContent = "\u2014";
                 tdState.style.color = "var(--text-dim)";
             }

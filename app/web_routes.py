@@ -13,7 +13,9 @@ No imports of hardware, Tuya, relay, device, monitoring, ML, or weather modules.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -30,6 +32,7 @@ from app.web_auth import (
     verify_password,
 )
 from app.device_initializer import DeviceInitializer
+from shared_state.shared_state import shared_state
 
 # ---------------------------------------------------------------------------
 # Templates — use absolute path so working-directory changes are safe
@@ -344,6 +347,100 @@ def create_auth_router(
             return JSONResponse({"ok": True, "added": result["added"], "errors": result["errors"]})
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
+
+    @router.post("/api/device/{device_id}/control")
+    async def api_device_control(request: Request, device_id: str) -> Any:
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Invalid JSON body"}, status_code=400)
+
+        action = str(body.get("action", "")).strip().lower()
+        mode = str(body.get("mode", "once")).strip().lower()
+        duration_raw = body.get("duration_hours", 0)
+
+        if action not in {"on", "off", "auto"}:
+            return JSONResponse({"detail": "action must be on, off, or auto"}, status_code=400)
+        if mode not in {"once", "timed", "force"}:
+            return JSONResponse({"detail": "mode must be once, timed, or force"}, status_code=400)
+        try:
+            duration_hours = float(duration_raw or 0)
+        except (TypeError, ValueError):
+            return JSONResponse({"detail": "duration_hours must be numeric"}, status_code=400)
+        if duration_hours < 0 or duration_hours > 24:
+            return JSONResponse({"detail": "duration_hours must be between 0 and 24"}, status_code=400)
+
+        dev_mgr = DeviceInitializer().device_manager
+        dev = next((d for d in dev_mgr.get_devices() if str(getattr(d, "id", "")) == str(device_id)), None)
+        if dev is None:
+            return JSONResponse({"detail": "Device not found"}, status_code=404)
+
+        override_key = f"device_override_{dev.id}"
+        if action == "auto":
+            if override_key in shared_state:
+                del shared_state[override_key]
+            return JSONResponse({
+                "success": True,
+                "device_name": dev.name,
+                "action": "auto",
+                "mode": "auto",
+            })
+
+        tuya_ctrl = shared_state.get("_tuya_ctrl")
+        if tuya_ctrl is None:
+            return JSONResponse({"detail": "Tuya controller unavailable"}, status_code=503)
+
+        if action == "on":
+            ok = await asyncio.to_thread(tuya_ctrl.switch_on_device, dev)
+        else:
+            ok = await asyncio.to_thread(tuya_ctrl.switch_off_device, dev)
+        if not ok:
+            return JSONResponse({"detail": "Device command failed"}, status_code=502)
+
+        if mode == "once":
+            if override_key in shared_state:
+                del shared_state[override_key]
+        else:
+            expires_at = None
+            if mode == "timed":
+                expires_at = time.time() + duration_hours * 3600.0
+            shared_state[override_key] = {
+                "action": action,
+                "mode": mode,
+                "expires_at": expires_at,
+            }
+
+        return JSONResponse({
+            "success": True,
+            "device_name": dev.name,
+            "action": action,
+            "mode": mode,
+        })
+
+    @router.get("/api/device/{device_id}/override")
+    async def api_device_override(request: Request, device_id: str) -> Any:
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+        override = shared_state.get(f"device_override_{device_id}")
+        if not isinstance(override, dict):
+            return JSONResponse({"mode": "auto"})
+
+        expires_at = override.get("expires_at")
+        if override.get("mode") == "timed" and isinstance(expires_at, (int, float)) and time.time() >= float(expires_at):
+            del shared_state[f"device_override_{device_id}"]
+            return JSONResponse({"mode": "auto"})
+
+        return JSONResponse({
+            "action": override.get("action"),
+            "mode": override.get("mode"),
+            "expires_at": override.get("expires_at"),
+        })
 
 
     # -- /api/energy/daily GET ------------------------------------------

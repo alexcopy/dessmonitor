@@ -298,7 +298,7 @@
                     </thead>
                     <tbody id="loads-table-body">
                         <tr>
-                            <td colspan="4" class="dm-table-empty">Loading&hellip;</td>
+                            <td colspan="5" class="dm-table-empty">Loading&hellip;</td>
                         </tr>
                     </tbody>
                     <tfoot>
@@ -336,6 +336,38 @@
         </div>
     </div>
 </main>
+
+<div id="deviceControlModal" class="dm-modal dm-hidden" aria-hidden="true">
+    <div class="dm-modal-box dm-modal-box-control">
+        <div class="dm-modal-header">
+            <span id="modalDeviceName">Device</span>
+            <button id="modalClose" type="button" class="dm-modal-close" aria-label="Close">&#10005;</button>
+        </div>
+        <div class="dm-modal-body">
+            <div id="modalCurrentState" class="dm-modal-state"></div>
+
+            <div class="dm-modal-modes" role="tablist" aria-label="Control mode">
+                <button type="button" class="dm-modal-mode-btn active" data-mode="once">Once</button>
+                <button type="button" class="dm-modal-mode-btn" data-mode="timed">Timed</button>
+                <button type="button" class="dm-modal-mode-btn" data-mode="force">Force</button>
+            </div>
+
+            <div id="modalDurationRow" class="dm-modal-duration dm-hidden">
+                <label for="modalDuration" class="dm-field-label">Duration (hours)</label>
+                <input id="modalDuration" type="number" min="1" max="24" value="2" class="dm-field-input">
+            </div>
+
+            <div id="modalModeDesc" class="dm-modal-desc"></div>
+
+            <div class="dm-modal-actions">
+                <button id="modalBtnOn" type="button" class="dm-btn dm-btn-on">Turn ON</button>
+                <button id="modalBtnOff" type="button" class="dm-btn dm-btn-off">Turn OFF</button>
+            </div>
+
+            <button id="modalBtnAuto" type="button" class="dm-btn dm-btn-auto dm-hidden">Return to Auto</button>
+        </div>
+    </div>
+</div>
 
     <script defer src="/static/dashboard-patch.js"></script>
 </body>

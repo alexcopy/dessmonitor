@@ -252,6 +252,172 @@ document.addEventListener("DOMContentLoaded", function() {
     setInterval(loadEnergyToday, 300000);
 });
 
+/* ── Manual Device Control Modal ───────────────────────────── */
+(function () {
+    'use strict';
+
+    var MODE_DESCRIPTIONS = {
+        once: "Device will switch, then automation resumes normal control",
+        timed: "Device will switch for N hours, then return to auto",
+        force: "Device stays in this state until pod restart or manual cancel"
+    };
+
+    var state = {
+        deviceId: "",
+        deviceName: "",
+        mode: "once",
+        currentState: "unknown"
+    };
+
+    function byId(id) { return document.getElementById(id); }
+
+    function modalEls() {
+        return {
+            modal: byId("deviceControlModal"),
+            title: byId("modalDeviceName"),
+            close: byId("modalClose"),
+            currentState: byId("modalCurrentState"),
+            durationRow: byId("modalDurationRow"),
+            duration: byId("modalDuration"),
+            desc: byId("modalModeDesc"),
+            btnOn: byId("modalBtnOn"),
+            btnOff: byId("modalBtnOff"),
+            btnAuto: byId("modalBtnAuto")
+        };
+    }
+
+    function setMode(mode) {
+        state.mode = mode;
+        var els = modalEls();
+        var buttons = document.querySelectorAll(".dm-modal-mode-btn");
+        buttons.forEach(function(btn) {
+            btn.classList.toggle("active", btn.dataset.mode === mode);
+        });
+        if (els.durationRow) {
+            els.durationRow.classList.toggle("dm-hidden", mode !== "timed");
+        }
+        if (els.desc) {
+            els.desc.textContent = MODE_DESCRIPTIONS[mode] || "";
+        }
+    }
+
+    function setStateText(text, stateCls) {
+        var box = byId("modalCurrentState");
+        if (!box) return;
+        box.textContent = text;
+        box.classList.remove("is-on", "is-off");
+        if (stateCls) box.classList.add(stateCls);
+    }
+
+    function closeModal() {
+        var els = modalEls();
+        if (!els.modal) return;
+        els.modal.classList.add("dm-hidden");
+        els.modal.setAttribute("aria-hidden", "true");
+    }
+
+    async function loadOverride(deviceId) {
+        var els = modalEls();
+        try {
+            var resp = await fetch("/api/device/" + encodeURIComponent(deviceId) + "/override");
+            if (!resp.ok) { return; }
+            var data = await resp.json();
+            var activeOverride = data && (data.mode === "force" || data.mode === "timed");
+            if (activeOverride) {
+                setMode(data.mode);
+            }
+            if (els.btnAuto) {
+                els.btnAuto.classList.toggle("dm-hidden", !activeOverride);
+            }
+        } catch (e) {}
+    }
+
+    function openModal(deviceId, deviceName, currentState) {
+        var els = modalEls();
+        if (!els.modal) return;
+        state.deviceId = deviceId;
+        state.deviceName = deviceName || "Device";
+        state.currentState = currentState || "unknown";
+        if (els.title) els.title.textContent = state.deviceName;
+        setMode("once");
+        if (currentState === "on") {
+            setStateText("Current state: ON", "is-on");
+        } else if (currentState === "off") {
+            setStateText("Current state: OFF", "is-off");
+        } else {
+            setStateText("Current state: Unknown", "is-off");
+        }
+        if (els.btnAuto) els.btnAuto.classList.add("dm-hidden");
+        els.modal.classList.remove("dm-hidden");
+        els.modal.setAttribute("aria-hidden", "false");
+        loadOverride(deviceId);
+    }
+
+    async function sendControl(action) {
+        var els = modalEls();
+        if (!state.deviceId) return;
+        var payload = {
+            action: action,
+            mode: state.mode,
+            duration_hours: els.duration ? Number(els.duration.value || 0) : 0
+        };
+        try {
+            var resp = await fetch("/api/device/" + encodeURIComponent(state.deviceId) + "/control", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            var data = await resp.json().catch(function() { return {}; });
+            if (!resp.ok) {
+                setStateText((data && data.detail) || "Control request failed", "is-off");
+                return;
+            }
+            if (action === "auto") {
+                setStateText("Returned to automatic control", "is-on");
+            } else {
+                setStateText("Command sent: " + action.toUpperCase(), action === "on" ? "is-on" : "is-off");
+            }
+            setTimeout(closeModal, 1500);
+        } catch (e) {
+            setStateText("Network error while sending command", "is-off");
+        }
+    }
+
+    function setupManualControlModal() {
+        var tbody = byId("loads-table-body");
+        var els = modalEls();
+        if (!tbody || !els.modal) return;
+
+        tbody.addEventListener("click", function(ev) {
+            var row = ev.target && ev.target.closest ? ev.target.closest("tr[data-device-id]") : null;
+            if (!row) return;
+            openModal(row.dataset.deviceId, row.dataset.deviceName, row.dataset.currentState);
+        });
+
+        document.addEventListener("click", function(ev) {
+            if (ev.target && ev.target.classList && ev.target.classList.contains("dm-modal-mode-btn")) {
+                setMode(ev.target.dataset.mode || "once");
+            }
+        });
+
+        if (els.close) els.close.addEventListener("click", closeModal);
+        if (els.modal) {
+            els.modal.addEventListener("click", function(ev) {
+                if (ev.target === els.modal) closeModal();
+            });
+        }
+        if (els.btnOn) els.btnOn.addEventListener("click", function() { sendControl("on"); });
+        if (els.btnOff) els.btnOff.addEventListener("click", function() { sendControl("off"); });
+        if (els.btnAuto) els.btnAuto.addEventListener("click", function() { sendControl("auto"); });
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", setupManualControlModal);
+    } else {
+        setupManualControlModal();
+    }
+}());
+
 /* ── Overload Alert Banner ───────────────────────────────── */
 (function() {
     var LEVELS = {
