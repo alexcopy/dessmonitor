@@ -207,6 +207,17 @@ class RelayChannelDevice:
 
     def mark_switched(self):
         self.last_switched = int(datetime.now().timestamp())
+        try:
+            from app.service.device_state_persist import _STATE_FILE
+            import json
+            data = {}
+            if _STATE_FILE.exists():
+                data = json.loads(_STATE_FILE.read_text())
+            data[self.name] = self.last_switched
+            _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _STATE_FILE.write_text(json.dumps(data))
+        except Exception:
+            pass
 
     def ready_to_switch_on(self, inverter_voltage: float, max_volt_override: float | None = None) -> bool:
         if self.is_device_on():

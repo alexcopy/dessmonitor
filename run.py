@@ -19,6 +19,7 @@ from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
 from app.service.overload_protector import OverloadProtector
 from app.service.solar_aware_controller import SolarAwareController
+from app.service.device_state_persist import save_last_switched, restore_last_switched
 from app.service.startup_reset_coordinator import StartupResetCoordinator
 from app.service.telemetry_registry import TelemetryRegistry
 from app.tuya.relay_tuya_controller import RelayTuyaController
