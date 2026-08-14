@@ -174,7 +174,10 @@ class RelayTuyaController:
     ):
         # Sort by priority ascending — low priority number = important = switch on first
         sorted_devices = sorted(
-            [d for d in devices if d.device_type.lower() == "switch" and d.name.lower() != "inverter"],
+            [d for d in devices if d.device_type.lower() == "switch"
+             and d.name.lower() != "inverter"
+             and getattr(d, "available", True)
+             and getattr(d, "enabled", True)],
             key=lambda d: getattr(d, "priority", 99)
         )
         for dev in sorted_devices:
@@ -202,7 +205,9 @@ class RelayTuyaController:
     ):
         # Sort by priority descending — less important (high number) switches off first
         sorted_devices = sorted(
-            [d for d in devices if d.device_type.lower() == "switch" and d.name.lower() != "inverter"],
+            [d for d in devices if d.device_type.lower() == "switch"
+             and d.name.lower() != "inverter"
+             and getattr(d, "enabled", True)],
             key=lambda d: getattr(d, "priority", 0),
             reverse=True,
         )
