@@ -203,7 +203,7 @@ class DeviceInitializer:
                 desc=cfg.get("desc", ""),
                 tuya_device_id=cfg["tuya_device_id"],
                 device_type=dtype,
-                available=cfg.get("available", False),
+                available=cfg.get("available", True),
                 enabled=cfg.get("enabled", True),
 
                 # управление / статус
