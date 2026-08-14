@@ -484,10 +484,10 @@
     function renderAlertStrip(data) {
         if (!dom.dashboardAlert) { return; }
         var apiStatus = (data && data.status) ? String(data.status) : "";
-        if (apiStatus === "degraded" || apiStatus === "blocked") {
+        if (apiStatus === "blocked") {
             dom.dashboardAlert.classList.remove("hidden");
             if (dom.alertText) {
-                dom.alertText.textContent = "Control state snapshot degraded — API reporting " + apiStatus + " state";
+                dom.alertText.textContent = "Control state blocked — API reporting " + apiStatus + " state";
             }
             if (dom.alertTime && data.snapshot && data.snapshot.created_at) {
                 dom.alertTime.textContent = "Snapshot: " + formatTimestamp(data.snapshot.created_at);

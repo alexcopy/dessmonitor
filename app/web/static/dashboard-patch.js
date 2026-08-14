@@ -583,3 +583,21 @@ document.addEventListener("DOMContentLoaded", function() {
     loadThresholds();
     setInterval(loadThresholds, 30000);
 });
+
+/* ── Mobile Nav Hamburger ───────────────────────────────── */
+(function() {
+    document.addEventListener("DOMContentLoaded", function() {
+        var btn = document.getElementById("navHamburger");
+        var links = document.getElementById("navLinks");
+        if (!btn || !links) return;
+        btn.addEventListener("click", function() {
+            links.classList.toggle("open");
+        });
+        // Close on link click
+        links.querySelectorAll("a").forEach(function(a) {
+            a.addEventListener("click", function() {
+                links.classList.remove("open");
+            });
+        });
+    });
+})();

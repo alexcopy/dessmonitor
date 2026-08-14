@@ -1297,3 +1297,45 @@ html, body { font-size: 15px; }
 .dm-text-dim { color: var(--text-dim) !important; }
 .dm-text-green { color: var(--green) !important; }
 .dm-text-amber { color: var(--amber) !important; }
+
+/* ── Mobile Navigation ──────────────────────────────────── */
+.dm-nav-hamburger {
+    display: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 1.2rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .dm-nav-hamburger { display: block; }
+    .dm-nav-links {
+        display: none;
+        position: absolute;
+        top: 48px;
+        left: 0;
+        right: 0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        flex-direction: column;
+        padding: 0.5rem 0;
+        z-index: 100;
+    }
+    .dm-nav-links.open { display: flex; }
+    .dm-nav-link {
+        padding: 0.75rem 1.5rem;
+        border-radius: 0;
+        font-size: 1rem;
+    }
+    .dm-nav-right {
+        display: none;
+    }
+    nav.dm-nav {
+        position: relative;
+        flex-wrap: wrap;
+    }
+}
