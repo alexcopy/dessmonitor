@@ -7,7 +7,7 @@ from shared_state.shared_state import shared_state
 
 
 class InverterMonitor:
-    def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None):
+    def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None, charge_controller=None):
         self.api      = dess_api
         self.interval = poll_sec
         self.logger   = InverterLogger()                  # файл + Loki
@@ -15,6 +15,7 @@ class InverterMonitor:
         self._stop    = asyncio.Event()
         self.last_data: DeviceData | None = None
         self.solar_controller = solar_controller
+        self.charge_controller = charge_controller
 
     async def run(self) -> None:
         while not self._stop.is_set():
@@ -32,6 +33,14 @@ class InverterMonitor:
                             exc,
                             extra={"type": "inverter", "evt": "solar_tick_fail"},
                         )
+                if self.charge_controller is not None:
+                    try:
+                        await self.charge_controller.tick(
+                            battery_voltage=self.last_data.battery_voltage if self.last_data else None
+                        )
+                    except Exception as exc:
+                        self.imp.warning("[INV_MON] charge tick failed: %s", exc,
+                            extra={"type": "inverter", "evt": "charge_tick_fail"})
             except Exception as exc:
                 # отправим в Loki причину ошибки
                 self.imp.warning("[INV_MON] fetch failed: %s", exc,

@@ -19,6 +19,7 @@ from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
 from app.service.overload_protector import OverloadProtector
 from app.service.solar_aware_controller import SolarAwareController
+from app.service.battery_charge_controller import BatteryChargeController
 from app.service.device_state_persist import save_last_switched, restore_last_switched
 from app.service.startup_reset_coordinator import StartupResetCoordinator
 from app.service.telemetry_registry import TelemetryRegistry
@@ -131,7 +132,8 @@ async def main() -> None:
                 "[STARTUP] DESS auth failed in %.1fs: %s — monitor will retry official auth on fetch",
                 __import__("time").monotonic() - t1, dess_exc,
             )
-    inverter_mon = InverterMonitor(dess_api, poll_sec=60)
+    charge_ctrl = BatteryChargeController(dess_api)
+    inverter_mon = InverterMonitor(dess_api, poll_sec=60, charge_controller=charge_ctrl)
     inverter_task = asyncio.create_task(inverter_mon.run())
 
     # ─── 4b. OPTIONAL WEB HOST (start early for reset visibility) ──

@@ -603,6 +603,28 @@ class DessAPI:
     # ──────────────────────────────────────────────────────────
     # Кеш токена
     # ──────────────────────────────────────────────────────────
+
+    def ctrl_device(self, field_id: str, value: str) -> dict:
+        """Send a control command to the inverter device."""
+        return self._do_api_request({
+            "action": "ctrlDevice",
+            "pn": self.pn,
+            "devcode": self.dev_code,
+            "devaddr": self.dev_addr,
+            "sn": self.sn,
+            "id": field_id,
+            "val": value,
+        }, need_auth=True)
+
+    def set_charger_source(self, mode: str) -> dict:
+        """Set charger source priority: solar_priority|solar_and_mains|solar_only"""
+        mode_map = {"solar_priority": "0", "solar_and_mains": "1", "solar_only": "2"}
+        val = mode_map.get(mode)
+        if val is None:
+            raise ValueError(f"Unknown mode: {mode}")
+        self.logger.info("[DESS] Charger source: %s (val=%s)", mode, val)
+        return self.ctrl_device("bat_charger_source_priority", val)
+
     def _load_cached_token(self):
         if not _TOKEN_FILE.exists():
             return
