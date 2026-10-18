@@ -2,24 +2,30 @@
 
 Logic:
   - After CHARGE_HOUR_START (02:00) if battery_voltage < CHARGE_ON_VOLT (24V)
-    → set charger to 'solar_and_mains' at 2A
+    → set charger to solar_and_mains at 2A
   - When battery_voltage > CHARGE_OFF_VOLT (25.5V)
-    → set charger back to 'solar_only'
+    → set charger back to solar_only
 
-Hysteresis prevents oscillation. Runs on every inverter tick (~2 min).
+Logs events to TimescaleDB grid_charge_events table.
 """
+import asyncio
 import logging
+import os
+import time
 from datetime import datetime
+
 from shared_state.shared_state import shared_state
 
-CHARGE_ON_VOLT      = 24.0   # enable grid charging below this
-CHARGE_OFF_VOLT     = 25.5   # disable grid charging above this
-CHARGE_HOUR_START   = 2      # only charge after 02:00
-CHARGE_HOUR_END     = 7      # stop before sunrise 07:00
+CHARGE_ON_VOLT      = 24.0
+CHARGE_OFF_VOLT     = 25.5
+CHARGE_HOUR_START   = 2
+CHARGE_HOUR_END     = 7
 SOLAR_ONLY          = "solar_only"
 SOLAR_AND_MAINS     = "solar_and_mains"
-GRID_CURRENT_FIELD  = "eybond_ctrl_5"  # GRID-tie current
-GRID_CURRENT_2A_VAL = "1"              # key for 2A
+GRID_CURRENT_FIELD  = "eybond_ctrl_5"
+GRID_CURRENT_2A_VAL = "1"
+GRID_VOLTAGE_V      = 240.0   # nominal AC voltage
+GRID_CURRENT_A      = 2.0     # charging current
 
 logger    = logging.getLogger("FULL")
 important = logging.getLogger("IMPORTANT")
@@ -31,6 +37,26 @@ class BatteryChargeController:
     def __init__(self, dess_api):
         self.api = dess_api
         self._charging_active = False
+        self._charge_started_at: float | None = None  # unix timestamp
+
+    async def _log_event(self, event: str, voltage: float,
+                         duration_min: float | None = None,
+                         energy_kwh: float | None = None) -> None:
+        """Write charge event to TimescaleDB."""
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return
+            conn = await asyncpg.connect(db_url)
+            await conn.execute("""
+                INSERT INTO grid_charge_events
+                    (time, event, voltage, duration_min, energy_kwh)
+                VALUES (NOW(), $1, $2, $3, $4)
+            """, event, voltage, duration_min, energy_kwh)
+            await conn.close()
+        except Exception as exc:
+            logger.warning("[ChargeCtrl] Failed to log event: %s", exc)
 
     async def tick(self, battery_voltage: float | None = None) -> None:
         """Called on every inverter data cycle."""
@@ -47,7 +73,6 @@ class BatteryChargeController:
         if not self._charging_active and v < CHARGE_ON_VOLT and in_window:
             # Enable grid charging at 2A
             try:
-                import asyncio
                 await asyncio.to_thread(
                     self.api.ctrl_device, GRID_CURRENT_FIELD, GRID_CURRENT_2A_VAL
                 )
@@ -55,13 +80,15 @@ class BatteryChargeController:
                     self.api.set_charger_source, SOLAR_AND_MAINS
                 )
                 self._charging_active = True
+                self._charge_started_at = time.time()
                 shared_state["grid_charging_active"] = True
                 important.warning(
                     "[CHARGE] Grid charging ENABLED at 2A — voltage=%.2fV < %.1fV (hour=%d)",
                     v, CHARGE_ON_VOLT, now_hour,
                 )
+                await self._log_event("enabled", v)
             except Exception as exc:
-                logger.error("[ChargeCtrl] Failed to enable grid charging: %s", exc)
+                logger.error("[ChargeCtrl] Failed to enable: %s", exc)
 
         elif not self._charging_active and v < CHARGE_ON_VOLT and not in_window:
             logger.debug(
@@ -70,20 +97,31 @@ class BatteryChargeController:
             )
 
         elif self._charging_active and v > CHARGE_OFF_VOLT:
-            # Disable grid charging
+            # Disable grid charging — calculate duration and energy
+            duration_min = None
+            energy_kwh = None
+            if self._charge_started_at is not None:
+                duration_sec = time.time() - self._charge_started_at
+                duration_min = round(duration_sec / 60.0, 1)
+                energy_kwh = round(
+                    GRID_CURRENT_A * GRID_VOLTAGE_V * duration_sec / 3600.0 / 1000.0, 3
+                )
             try:
-                import asyncio
                 await asyncio.to_thread(
                     self.api.set_charger_source, SOLAR_ONLY
                 )
                 self._charging_active = False
+                self._charge_started_at = None
                 shared_state["grid_charging_active"] = False
                 important.info(
-                    "[CHARGE] Grid charging DISABLED — voltage=%.2fV > %.1fV",
+                    "[CHARGE] Grid charging DISABLED — voltage=%.2fV > %.1fV "
+                    "duration=%.1fmin energy=%.3fkWh",
                     v, CHARGE_OFF_VOLT,
+                    duration_min or 0, energy_kwh or 0,
                 )
+                await self._log_event("disabled", v, duration_min, energy_kwh)
             except Exception as exc:
-                logger.error("[ChargeCtrl] Failed to disable grid charging: %s", exc)
+                logger.error("[ChargeCtrl] Failed to disable: %s", exc)
 
         else:
             logger.debug(
