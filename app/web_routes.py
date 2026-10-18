@@ -511,11 +511,54 @@ def create_auth_router(
                 })
             con.close()
             # today summary
-            today = rows[-1] if rows else {}
+            from datetime import datetime, timezone
+            today_day = datetime.now(timezone.utc).date().isoformat()
+            today = next((row for row in rows if row["day"] == today_day), {
+                "day": today_day, "charge_wh": 0, "grid_wh": 0,
+                "pv_wh": 0, "battery_wh": 0, "load_wh": 0, "solar_total_wh": 0,
+            })
             return JSONResponse({
                 "today": today,
                 "week": rows,
             })
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
+
+    # -- /api/energy/daily/balance GET ----------------------------------
+    @router.get("/api/energy/daily/balance")
+    async def api_energy_daily_balance(request: Request, days: int = 30) -> Any:
+        """Return mode-split daily energy in kWh from TimescaleDB."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if not 1 <= days <= 366:
+            return JSONResponse({"detail": "days must be between 1 and 366"}, status_code=422)
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+        try:
+            import asyncpg
+            conn = await asyncpg.connect(db_url)
+            try:
+                rows = await conn.fetch("""
+                    SELECT day::date AS day, pv_kwh, grid_kwh,
+                           battery_load_kwh, total_load_kwh, self_pct
+                    FROM daily_energy_balance
+                    WHERE day >= CURRENT_DATE - ($1::int - 1)
+                    ORDER BY day DESC
+                """, days)
+            finally:
+                await conn.close()
+            data = [{
+                "day": str(r["day"]),
+                **{key: float(r[key] or 0) for key in (
+                    "pv_kwh", "grid_kwh", "battery_load_kwh",
+                    "total_load_kwh", "self_pct",
+                )},
+            } for r in rows]
+            return JSONResponse({"days": data})
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
@@ -707,21 +750,7 @@ def create_auth_router(
                     "end_kwh": float(r["end_kwh"] or 0),
                     "samples": int(r["samples"] or 0),
                 })
-            today = data[0] if data else {}
-            return JSONResponse({"days": data, "today": {
-                "pv_kwh": today.get("pv_kwh", 0),
-                "grid_kwh": today.get("grid_kwh", 0),
-                "battery_load_kwh": today.get("battery_load_kwh", 0),
-                "total_load_kwh": today.get("total_load_kwh", 0),
-                "self_pct": today.get("self_pct", 0),
-                # legacy fields for dashboard-patch.js compatibility
-                "pv_wh": round((today.get("pv_kwh") or 0) * 1000),
-                "battery_wh": round((today.get("battery_load_kwh") or 0) * 1000),
-                "grid_wh": round((today.get("grid_kwh") or 0) * 1000),
-                "load_wh": round((today.get("total_load_kwh") or 0) * 1000),
-                "solar_total_wh": round(((today.get("pv_kwh") or 0) + (today.get("battery_load_kwh") or 0)) * 1000),
-                "charge_wh": 0,
-            }})
+            return JSONResponse({"days": data})
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 

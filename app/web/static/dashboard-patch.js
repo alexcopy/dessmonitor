@@ -228,8 +228,9 @@ function loadEnergyToday() {
             var eg = document.getElementById("energy-grid");
             var el = document.getElementById("energy-load");
             if (ep) {
-                var netBatt = (t.battery_wh || 0) - (t.charge_wh || 0);
-                var solarTotal = (t.pv_wh || 0) + Math.max(0, netBatt);
+                // The SQLite endpoint already subtracts charge from battery energy.
+                var netBatt = t.battery_wh || 0;
+                var solarTotal = t.solar_total_wh || 0;
                 ep.textContent = wh2kwh(solarTotal);
                 ep.title = "PV: " + wh2kwh(t.pv_wh) + " + Net Battery: " + wh2kwh(netBatt);
             }

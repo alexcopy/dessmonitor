@@ -40,7 +40,7 @@
         var tfoot = document.getElementById("dailyEnergyFoot");
         if (!tbody) return;
 
-        fetch("/api/energy/daily?days=30")
+        fetch("/api/energy/daily/balance?days=30")
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
                 if (!data || !data.days || !data.days.length) {
@@ -66,14 +66,15 @@
                         '<td class="dm-mono">' + r.day + '</td>' +
                         '<td class="dm-mono teal-text">' + pv.toFixed(2) + '</td>' +
                         '<td class="dm-mono amber-text">' + batt.toFixed(2) + '</td>' +
-                        '<td class="dm-mono teal-text">' + (pv + batt).toFixed(2) + '</td>' +
+                        '<td class="dm-mono teal-text">' + batt.toFixed(2) + '</td>' +
                         '<td class="dm-mono blue-text">' + grid.toFixed(2) + '</td>' +
                         '<td class="dm-mono green-text">' + load.toFixed(2) + '</td>' +
                         '<td class="dm-mono ' + selfClass + '">' + self_p.toFixed(1) + '%</td>' +
                         '</tr>';
                 }).join("");
 
-                var totSolar = totPv + totBatt;
+                // Invert Mode load already includes both PV and battery supply.
+                var totSolar = totBatt;
                 var totSelf = totLoad > 0 ? (totSolar / totLoad * 100) : 0;
                 var totSelfClass = totSelf >= 70 ? "teal-text"
                                  : totSelf >= 30 ? "amber-text" : "red-text";
