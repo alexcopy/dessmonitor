@@ -707,7 +707,21 @@ def create_auth_router(
                     "end_kwh": float(r["end_kwh"] or 0),
                     "samples": int(r["samples"] or 0),
                 })
-            return JSONResponse({"days": data})
+            today = data[0] if data else {}
+            return JSONResponse({"days": data, "today": {
+                "pv_kwh": today.get("pv_kwh", 0),
+                "grid_kwh": today.get("grid_kwh", 0),
+                "battery_load_kwh": today.get("battery_load_kwh", 0),
+                "total_load_kwh": today.get("total_load_kwh", 0),
+                "self_pct": today.get("self_pct", 0),
+                # legacy fields for dashboard-patch.js compatibility
+                "pv_wh": round((today.get("pv_kwh") or 0) * 1000),
+                "battery_wh": round((today.get("battery_load_kwh") or 0) * 1000),
+                "grid_wh": round((today.get("grid_kwh") or 0) * 1000),
+                "load_wh": round((today.get("total_load_kwh") or 0) * 1000),
+                "solar_total_wh": round(((today.get("pv_kwh") or 0) + (today.get("battery_load_kwh") or 0)) * 1000),
+                "charge_wh": 0,
+            }})
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 

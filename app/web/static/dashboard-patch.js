@@ -241,6 +241,14 @@ function loadEnergyToday() {
                 eb.title = "Self-sufficiency: solar / total load";
             }
             if (eg) eg.textContent = t.grid_wh > 0 ? wh2kwh(t.grid_wh) : "0.00 kWh";
+            var egc = document.getElementById("energy-grid-charge");
+            var egcv = document.getElementById("energy-grid-charge-val");
+            if (egc && egcv && t.charge_wh > 0) {
+                egcv.textContent = wh2kwh(t.charge_wh);
+                egc.style.display = "";
+            } else if (egc) {
+                egc.style.display = "none";
+            }
             if (el) el.textContent = wh2kwh(t.load_wh);
         })
         .catch(function() {});
