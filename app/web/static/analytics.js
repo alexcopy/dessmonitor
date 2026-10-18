@@ -43,44 +43,48 @@
         fetch("/api/energy/daily?days=30")
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
-                if (!data || !data.week) {
+                if (!data || !data.days || !data.days.length) {
                     tbody.innerHTML = '<tr><td colspan="7">No data</td></tr>';
                     return;
                 }
-                var rows = data.week.slice().reverse(); // newest first
+                var rows = data.days; // already newest first
                 var totPv = 0, totBatt = 0, totGrid = 0, totLoad = 0;
 
                 tbody.innerHTML = rows.map(function(r) {
-                    var solar = (r.pv_wh || 0) + (r.battery_wh || 0);
-                    totPv   += r.pv_wh || 0;
-                    totBatt += r.battery_wh || 0;
-                    totGrid += r.grid_wh || 0;
-                    totLoad += r.load_wh || 0;
-                    var self = selfPct(solar, r.load_wh);
-                    var selfClass = self === "100%" ? "green-text"
-                                  : parseInt(self) >= 70 ? "teal-text"
-                                  : parseInt(self) >= 30 ? "amber-text" : "red-text";
+                    var pv   = r.pv_kwh || 0;
+                    var batt = r.battery_load_kwh || 0;
+                    var grid = r.grid_kwh || 0;
+                    var load = r.total_load_kwh || 0;
+                    var self_p = r.self_pct || 0;
+                    totPv   += pv;
+                    totBatt += batt;
+                    totGrid += grid;
+                    totLoad += load;
+                    var selfClass = self_p >= 70 ? "teal-text"
+                                  : self_p >= 30 ? "amber-text" : "red-text";
                     return '<tr>' +
                         '<td class="dm-mono">' + r.day + '</td>' +
-                        '<td class="dm-mono teal-text">' + wh2kwh(r.pv_wh) + '</td>' +
-                        '<td class="dm-mono amber-text">' + wh2kwh(r.battery_wh) + '</td>' +
-                        '<td class="dm-mono teal-text">' + wh2kwh(solar) + '</td>' +
-                        '<td class="dm-mono blue-text">' + wh2kwh(r.grid_wh) + '</td>' +
-                        '<td class="dm-mono green-text">' + wh2kwh(r.load_wh) + '</td>' +
-                        '<td class="dm-mono ' + selfClass + '">' + self + '</td>' +
+                        '<td class="dm-mono teal-text">' + pv.toFixed(2) + '</td>' +
+                        '<td class="dm-mono amber-text">' + batt.toFixed(2) + '</td>' +
+                        '<td class="dm-mono teal-text">' + (pv + batt).toFixed(2) + '</td>' +
+                        '<td class="dm-mono blue-text">' + grid.toFixed(2) + '</td>' +
+                        '<td class="dm-mono green-text">' + load.toFixed(2) + '</td>' +
+                        '<td class="dm-mono ' + selfClass + '">' + self_p.toFixed(1) + '%</td>' +
                         '</tr>';
                 }).join("");
 
-                /* totals row */
                 var totSolar = totPv + totBatt;
+                var totSelf = totLoad > 0 ? (totSolar / totLoad * 100) : 0;
+                var totSelfClass = totSelf >= 70 ? "teal-text"
+                                 : totSelf >= 30 ? "amber-text" : "red-text";
                 tfoot.innerHTML = '<tr class="dm-table-total">' +
-                    '<td class="dm-mono">TOTAL</td>' +
-                    '<td class="dm-mono teal-text">' + wh2kwh(totPv) + '</td>' +
-                    '<td class="dm-mono amber-text">' + wh2kwh(totBatt) + '</td>' +
-                    '<td class="dm-mono teal-text">' + wh2kwh(totSolar) + '</td>' +
-                    '<td class="dm-mono blue-text">' + wh2kwh(totGrid) + '</td>' +
-                    '<td class="dm-mono green-text">' + wh2kwh(totLoad) + '</td>' +
-                    '<td class="dm-mono purple-text">' + selfPct(totSolar, totLoad) + '</td>' +
+                    '<td class="dm-mono">TOTAL 30d</td>' +
+                    '<td class="dm-mono teal-text">' + totPv.toFixed(2) + '</td>' +
+                    '<td class="dm-mono amber-text">' + totBatt.toFixed(2) + '</td>' +
+                    '<td class="dm-mono teal-text">' + totSolar.toFixed(2) + '</td>' +
+                    '<td class="dm-mono blue-text">' + totGrid.toFixed(2) + '</td>' +
+                    '<td class="dm-mono green-text">' + totLoad.toFixed(2) + '</td>' +
+                    '<td class="dm-mono ' + totSelfClass + '">' + totSelf.toFixed(1) + '%</td>' +
                     '</tr>';
             })
             .catch(function() {
