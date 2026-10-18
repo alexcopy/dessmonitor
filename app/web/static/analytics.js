@@ -387,6 +387,15 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (!data || !data.data || !data.data.length) return;
                 var labels = data.data.map(function(p) { return p.time; });
                 var values = data.data.map(function(p) { return p.battery_voltage; });
+                // Point colors: blue for Line Mode, amber for Invert Mode
+                var pointColors = data.data.map(function(p) {
+                    return p.working_mode === 'Line Mode' ? 'rgba(100,149,237,0.8)' : 'rgba(255,221,87,0.8)';
+                });
+                var bgColors = data.data.map(function(p) {
+                    return p.working_mode === 'Line Mode' ? 'rgba(100,149,237,0.1)' : 'rgba(255,221,87,0.1)';
+                });
+                var opts = baseOptions();
+                // Add annotations for Line Mode periods
                 renderChart('battVoltChart', {
                     type: 'line',
                     data: {
@@ -395,14 +404,15 @@ document.addEventListener("DOMContentLoaded", function() {
                             label: 'Battery Voltage (V)',
                             data: values,
                             borderColor: '#ffdd57',
-                            backgroundColor: 'rgba(255,221,87,0.15)',
+                            backgroundColor: bgColors,
+                            pointBackgroundColor: pointColors,
+                            pointRadius: 2,
                             borderWidth: 2,
-                            pointRadius: 0,
-                            fill: true,
+                            fill: false,
                             tension: 0.2
                         }]
                     },
-                    options: baseOptions()
+                    options: opts
                 });
             })
             .catch(function() {});

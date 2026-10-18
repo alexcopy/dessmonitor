@@ -727,7 +727,7 @@ def create_auth_router(
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
             conn = await asyncpg.connect(db_url)
             rows = await conn.fetch("""
-                SELECT time, pv_power_w, battery_voltage, output_power_w
+                SELECT time, pv_power_w, battery_voltage, output_power_w, working_mode
                 FROM inverter_metrics
                 WHERE time > NOW() - ($1 || ' hours')::interval
                 ORDER BY time
@@ -740,6 +740,7 @@ def create_auth_router(
                     "pv_power_w": r["pv_power_w"],
                     "battery_voltage": r["battery_voltage"],
                     "output_power_w": r["output_power_w"],
+                    "working_mode": r["working_mode"],
                 })
             return JSONResponse({"data": data})
         except Exception as exc:
