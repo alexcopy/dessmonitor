@@ -246,7 +246,7 @@ function loadEnergyToday() {
             var egcv = document.getElementById("energy-grid-charge-val");
             if (egc && egcv && t.charge_wh > 0) {
                 egcv.textContent = wh2kwh(t.charge_wh);
-                egc.style.display = "";
+                egc.style.display = "block";
             } else if (egc) {
                 egc.style.display = "none";
             }
