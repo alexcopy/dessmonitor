@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
     <link rel="stylesheet" href="/static/dashboard.css">
     <script defer src="/static/dashboard.js"></script>
+    <script defer src="/static/settings.js"></script>
 </head>
 <body>
 
@@ -68,6 +69,77 @@
                 </a>
             </div>
         </div>
+
+        <section class="dm-card accent-teal dm-settings-full-width" aria-labelledby="charge-policy-title">
+            <h2 id="charge-policy-title" class="dm-settings-editor-title">Battery Charging Policy</h2>
+            <p class="dm-settings-editor-desc mb-4">Controls mains charging of the battery. The recovery window extends a low-battery recovery; it never starts a nightly charge by itself.</p>
+            <form id="charge-policy-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <fieldset id="charge-policy-fields" disabled>
+                    <div class="dm-grid-2">
+                        <div><h3 class="dm-kpi-label mb-3">Battery Protection</h3>
+                            <div class="field">
+                                <label class="checkbox" for="cp-enabled"><input id="cp-enabled" name="enabled" type="checkbox"> Enable automatic battery protection</label>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-emergency-grid_charge_below_v">Emergency grid charge below (V)</label>
+                                <input class="input" id="cp-emergency-grid_charge_below_v" name="emergency.grid_charge_below_v" type="number" min="20" max="30" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-emergency-release_above_v">Emergency release at or above (V)</label>
+                                <input class="input" id="cp-emergency-release_above_v" name="emergency.release_above_v" type="number" min="20" max="30" step="0.1" required>
+                            </div>
+                        </div>
+                        <div><h3 class="dm-kpi-label mb-3">Long-Night Recovery</h3>
+                            <div class="field">
+                                <label class="checkbox" for="cp-seasonal_topup-enabled"><input id="cp-seasonal_topup-enabled" name="seasonal_topup.enabled" type="checkbox"> Extend emergency recovery during long nights</label>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-seasonal_topup-mode">Season mode</label>
+                                <div class="select is-fullwidth"><select id="cp-seasonal_topup-mode" name="seasonal_topup.mode"><option value="auto_long_night">Auto — long night</option><option value="always">Always</option><option value="off">Off</option></select></div>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-seasonal_topup-daylight_threshold_hours">Daylight threshold (hours)</label>
+                                <input class="input" id="cp-seasonal_topup-daylight_threshold_hours" name="seasonal_topup.daylight_threshold_hours" type="number" min="0.1" max="24" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-seasonal_topup-start_time">Recovery window from</label>
+                                <input class="input" id="cp-seasonal_topup-start_time" name="seasonal_topup.start_time" type="time"  required>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-seasonal_topup-end_time">Recovery window until</label>
+                                <input class="input" id="cp-seasonal_topup-end_time" name="seasonal_topup.end_time" type="time"  required>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-seasonal_topup-target_voltage_v">Long-night target (V)</label>
+                                <input class="input" id="cp-seasonal_topup-target_voltage_v" name="seasonal_topup.target_voltage_v" type="number" min="20" max="30" step="0.1" required>
+                            </div>
+                        </div>
+                        <div><h3 class="dm-kpi-label mb-3">Solar Takeover</h3>
+                            <div class="field">
+                                <label class="checkbox" for="cp-solar_takeover-enabled"><input id="cp-solar_takeover-enabled" name="solar_takeover.enabled" type="checkbox"> Switch back to solar when sufficient PV is available</label>
+                            </div>
+                            <div class="field">
+                                <label class="label" for="cp-solar_takeover-min_pv_w">Minimum PV (W)</label>
+                                <input class="input" id="cp-solar_takeover-min_pv_w" name="solar_takeover.min_pv_w" type="number" min="0" step="any" required>
+                            </div>
+                        </div>
+                        <div><h3 class="dm-kpi-label mb-3">Grid Charger</h3>
+                            <div class="field">
+                                <label class="label" for="cp-grid_charge-current_a">Charge current (A)</label>
+                                <div class="select is-fullwidth"><select id="cp-grid_charge-current_a" name="grid_charge.current_a"><option value="2">2 A (verified)</option></select></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="help mb-3">Disabling automatic protection leaves the charger unchanged. Solar takeover never interrupts emergency recovery below the release voltage.</p>
+                    <button class="button is-primary mt-4" id="charge-policy-save" type="submit">Save Charging Policy</button>
+                </fieldset>
+                <p id="charge-policy-feedback" class="mt-3" role="status" aria-live="polite">Loading charging policy…</p>
+            </form>
+            <h3 class="dm-kpi-label mt-5 mb-3">Current status</h3>
+            <p id="charge-policy-status-error" role="status"></p>
+            <table class="dm-table"><tbody id="charge-policy-status"><tr><td>Waiting for controller status</td></tr></tbody></table>
+        </section>
 
         <div class="dm-card accent-teal">
             <div class="dm-kpi-label dm-card-title-gap">&#9881; System Information</div>

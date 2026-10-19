@@ -2,6 +2,7 @@
 import asyncio, logging
 from app.api import DessAPI, DeviceData
 from app.monitoring.inverter_logger import InverterLogger
+from app.service.battery_charge_controller import charger_mode
 from app.utils.time_utils import smart_sleep
 from shared_state.shared_state import shared_state
 
@@ -75,6 +76,8 @@ class InverterMonitor:
             ac_input_frequency=dd.ac_input_frequency,
             ac_output_load=dd.ac_output_load,
             working_mode=dd.working_state,
+            charger_priority_raw=dd.charger_priority,
+            charger_priority=charger_mode(dd.charger_priority),
             mains_status=dd.mains_status,
             timestamp=dd.timestamp,
             inverter_summary=dd.summary(),  # красивая строка для UI

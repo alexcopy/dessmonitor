@@ -5,6 +5,9 @@ import os
 import shutil
 import logging
 import tempfile
+import math
+import re
+from threading import RLock
 from datetime import datetime
 
 from app.devices.relay_channel_device import RelayChannelDevice, ANALOG_TYPES
@@ -15,6 +18,7 @@ from app.devices.device_property_mapping import (
 )
 
 DEVICE_CONFIG = "devices.yaml"
+_CONFIG_LOCK = RLock()
 
 
 class DeviceConfigNotFoundError(Exception):
@@ -278,47 +282,130 @@ class DeviceInitializer:
     @staticmethod
     def read_devices_config(config_path: str) -> list:
         """Read only devices block — never exposes credentials."""
-        with open(config_path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
+        with _CONFIG_LOCK:
+            with open(config_path, encoding="utf-8") as f:
+                raw = yaml.safe_load(f)
         return raw.get("devices", [])
 
     @staticmethod
-    def write_devices_config(config_path: str, devices: list) -> None:
-        """Patch only devices key, preserve everything else verbatim.
+    def normalize_charge_policy(policy: dict) -> dict:
+        """Validate only known policy fields; omitted fields use safe defaults."""
+        defaults = {
+            "enabled": True,
+            "emergency": {"grid_charge_below_v": 24.0, "release_above_v": 24.5},
+            "seasonal_topup": {
+                "enabled": True, "mode": "auto_long_night",
+                "daylight_threshold_hours": 12.0, "start_time": "02:00",
+                "end_time": "07:00", "target_voltage_v": 26.0,
+            },
+            "grid_charge": {"current_a": 2.0},
+            "solar_takeover": {"enabled": True, "min_pv_w": 50.0},
+        }
 
-        Before overwriting:
-        1. Creates a timestamped backup copy in ``<config_dir>/backups/``.
-        2. Aborts if the backup cannot be created — original is never touched.
-        3. Writes the new YAML atomically: temp file -> fsync -> rename.
-        4. Never overwrites an existing backup file.
-        """
-        config_dir = os.path.dirname(config_path) or "."
-        backup_dir = os.path.join(config_dir, "backups")
-        os.makedirs(backup_dir, exist_ok=True)
+        def merge(value, template, path):
+            if not isinstance(value, dict) or set(value) - set(template):
+                raise ValueError(f"{path} must contain only supported fields")
+            result = {}
+            for key, default in template.items():
+                field = f"{path}.{key}"
+                item = value.get(key, default)
+                if isinstance(default, dict):
+                    item = merge(item, default, field)
+                elif isinstance(default, bool):
+                    if not isinstance(item, bool):
+                        raise ValueError(f"{field} must be boolean")
+                elif isinstance(default, float):
+                    try:
+                        valid = type(item) in (int, float) and math.isfinite(item)
+                    except OverflowError:
+                        valid = False
+                    if not valid:
+                        raise ValueError(f"{field} must be a finite number")
+                    item = float(item)
+                elif not isinstance(item, str):
+                    raise ValueError(f"{field} must be text")
+                result[key] = item
+            return result
 
-        # Timestamped backup: never overwrite old backups
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S.%f")
-        backup_path = os.path.join(backup_dir, f"devices.{timestamp}.yaml")
+        result = merge(policy, defaults, "charge_policy")
+        emergency, seasonal = result["emergency"], result["seasonal_topup"]
+        on, release = emergency["grid_charge_below_v"], emergency["release_above_v"]
+        target = seasonal["target_voltage_v"]
+        if not 20 <= on < release < target <= 30:
+            raise ValueError("Voltages must satisfy 20 <= emergency < release < target <= 30")
+        if seasonal["mode"] not in ("auto_long_night", "always", "off"):
+            raise ValueError("seasonal_topup.mode must be auto_long_night, always or off")
+        if not 0 < seasonal["daylight_threshold_hours"] <= 24:
+            raise ValueError("daylight_threshold_hours must be greater than 0 and at most 24")
+        for key in ("start_time", "end_time"):
+            if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", seasonal[key]):
+                raise ValueError(f"seasonal_topup.{key} must be HH:MM")
+        if seasonal["start_time"] == seasonal["end_time"]:
+            raise ValueError("Recovery window start and end must differ")
+        if result["grid_charge"]["current_a"] != 2.0:
+            raise ValueError("Only the verified 2 A grid charging current is supported")
+        if result["solar_takeover"]["min_pv_w"] < 0:
+            raise ValueError("solar_takeover.min_pv_w must be nonnegative")
+        return result
 
-        # Backup current config before touching it
-        if os.path.exists(config_path):
+    @staticmethod
+    def read_charge_policy_config(config_path: str) -> dict:
+        with _CONFIG_LOCK:
             try:
-                shutil.copy2(config_path, backup_path)
-            except OSError as exc:
-                raise OSError(
-                    f"Backup failed — config not saved: {exc}"
-                ) from exc
+                with open(config_path, encoding="utf-8") as f:
+                    raw = yaml.safe_load(f)
+            except yaml.YAMLError:
+                raise ValueError("Device configuration contains invalid YAML") from None
+        if not isinstance(raw, dict):
+            raise ValueError("Device configuration must be a mapping")
+        return DeviceInitializer.normalize_charge_policy(raw.get("charge_policy", {}))
 
-        # Read existing config, patch devices, write atomically
-        with open(config_path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
-        raw["devices"] = devices
+    @staticmethod
+    def write_charge_policy_config(config_path: str, charge_policy: dict) -> dict:
+        policy = DeviceInitializer.normalize_charge_policy(charge_policy)
+        DeviceInitializer._write_config_section(config_path, "charge_policy", policy)
+        return policy
 
-        # Direct write — atomic rename fails across ConfigMap mount boundaries
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(raw, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
-            f.flush()
-            os.fsync(f.fileno())
+    @staticmethod
+    def write_devices_config(config_path: str, devices: list) -> None:
+        DeviceInitializer._write_config_section(config_path, "devices", devices)
+
+    @staticmethod
+    def _write_config_section(config_path: str, key: str, value) -> None:
+        """Serialize section saves, back up first, preserve unrelated YAML values.
+
+        Keep the existing direct-write strategy for mounted configuration files,
+        where replacing the mount with an atomic rename is not supported.
+        Serialize before opening the destination and fsync before releasing lock.
+        """
+        with _CONFIG_LOCK:
+            with open(config_path, encoding="utf-8") as f:
+                try:
+                    raw = yaml.safe_load(f)
+                except yaml.YAMLError:
+                    raise ValueError("Device configuration contains invalid YAML") from None
+            if not isinstance(raw, dict):
+                raise ValueError("Device configuration must be a mapping")
+            raw[key] = value
+            serialized = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
+            backup_dir = os.path.join(os.path.dirname(config_path) or ".", "backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S.%f")
+            fd, _backup_path = tempfile.mkstemp(
+                prefix=f"devices.{timestamp}.", suffix=".yaml", dir=backup_dir,
+            )
+            try:
+                with os.fdopen(fd, "wb") as backup, open(config_path, "rb") as original:
+                    shutil.copyfileobj(original, backup)
+                    backup.flush()
+                    os.fsync(backup.fileno())
+                with open(config_path, "w", encoding="utf-8") as f:
+                    f.write(serialized)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except OSError:
+                # Keep the backup for recovery; do not claim the save succeeded.
+                raise OSError("Configuration save failed; check file permissions and backup") from None
 
     @property
     def device_controller(self) -> RelayDeviceManager:

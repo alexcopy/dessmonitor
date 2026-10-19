@@ -285,6 +285,47 @@ def create_auth_router(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @router.get("/api/settings/charge-policy")
+    async def api_charge_policy_get(request: Request) -> Any:
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        try:
+            policy = await asyncio.to_thread(
+                DeviceInitializer.read_charge_policy_config,
+                DeviceInitializer._resolve_config_path(None),
+            )
+            return JSONResponse({"policy": policy, "status": shared_state.get("charge_policy_status", {})})
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        except OSError:
+            return JSONResponse({"detail": "Unable to read charging policy"}, status_code=503)
+
+    @router.post("/api/settings/charge-policy")
+    async def api_charge_policy_post(request: Request) -> Any:
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        try:
+            body = await request.json()
+        except ValueError:
+            return JSONResponse({"detail": "Invalid JSON body"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"detail": "Expected a JSON object"}, status_code=400)
+        token = body.get("csrf_token")
+        if not isinstance(token, str) or not validate_csrf_token(request.session, token):
+            return JSONResponse({"detail": "Invalid CSRF token"}, status_code=403)
+        try:
+            policy = await asyncio.to_thread(
+                DeviceInitializer.write_charge_policy_config,
+                DeviceInitializer._resolve_config_path(None), body.get("policy"),
+            )
+            return JSONResponse({"policy": policy, "status": shared_state.get("charge_policy_status", {})})
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        except OSError:
+            return JSONResponse({"detail": "Unable to save charging policy; check configuration permissions"}, status_code=503)
+
     # -- /settings/devices GET ------------------------------------------
 
     @router.get("/settings/devices")
