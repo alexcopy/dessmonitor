@@ -1,16 +1,14 @@
-/* controls.js — Charging Session History chart and events table */
+/* controls.js — Grid Charging History: daily kWh bar chart + session table */
 (function () {
     var chartInst = null;
 
-    /* colour a bar by starting SOC:
-       0-30 % → red   30-60 % → amber   60-100 % → teal */
-    function socColor(soc) {
-        if (soc < 30)  return '#ef5350';   /* red    */
-        if (soc < 60)  return '#ffa726';   /* amber  */
-        return '#26a69a';                  /* teal   */
+    /* "19 Oct" from YYYY-MM-DD */
+    function fmtDay(iso) {
+        var d = new Date(iso + 'T00:00:00Z');
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
     }
 
-    /* "Oct 18 07:10" from ISO string (UTC→local) */
+    /* "Oct 19 07:10" from ISO datetime */
     function fmtDT(iso) {
         var d = new Date(iso);
         return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
@@ -18,19 +16,20 @@
              + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     }
 
-    function renderSessionChart(sessions) {
+    /* duration in minutes → "1h 50m" or "45 min" */
+    function fmtDur(min) {
+        min = Math.round(min);
+        if (min >= 60) return Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
+        return min + ' min';
+    }
+
+    function renderDailyChart(daily) {
         var canvas = document.getElementById('chargeVoltChart');
         if (!canvas) return;
 
-        /* newest first from API → reverse for chronological left→right */
-        var ordered = sessions.slice().reverse();
-
-        var labels  = ordered.map(function(s) { return fmtDT(s.start); });
-        var heights = ordered.map(function(s) {
-            /* SOC gained; floor at 1 so zero-gain sessions still show */
-            return Math.max(s.soc_end - s.soc_start, 1);
-        });
-        var colors  = ordered.map(function(s) { return socColor(s.soc_start); });
+        var labels  = daily.map(function(d) { return fmtDay(d.day); });
+        var kwh     = daily.map(function(d) { return d.energy_kwh; });
+        var counts  = daily.map(function(d) { return d.sessions; });
 
         if (chartInst) { chartInst.destroy(); }
         chartInst = new Chart(canvas, {
@@ -38,10 +37,10 @@
             data: {
                 labels: labels,
                 datasets: [{
-                    label: 'SOC gained (%)',
-                    data: heights,
-                    backgroundColor: colors,
-                    borderColor: colors,
+                    label: 'Grid energy (kWh)',
+                    data: kwh,
+                    backgroundColor: 'rgba(41,182,246,0.75)',
+                    borderColor:     '#29b6f6',
                     borderWidth: 1,
                     borderRadius: 3
                 }]
@@ -54,19 +53,14 @@
                     tooltip: {
                         callbacks: {
                             title: function(items) {
-                                var s = ordered[items[0].dataIndex];
-                                return fmtDT(s.start) + ' – ' + fmtDT(s.end);
+                                var idx = items[0].dataIndex;
+                                return fmtDay(daily[idx].day);
                             },
                             label: function(ctx) {
-                                var s = ordered[ctx.dataIndex];
-                                var dur = s.dur_min >= 60
-                                    ? Math.floor(s.dur_min/60) + 'h ' + (s.dur_min%60) + 'm'
-                                    : s.dur_min + ' min';
+                                var d = daily[ctx.dataIndex];
                                 return [
-                                    'SOC: ' + s.soc_start + '% → ' + s.soc_end + '%',
-                                    'Voltage: ' + s.v_start.toFixed(1) + 'V → ' + s.v_end.toFixed(1) + 'V',
-                                    'Duration: ' + dur,
-                                    'Max current: ' + s.max_chg_a.toFixed(1) + ' A'
+                                    'Energy: ' + d.energy_kwh.toFixed(3) + ' kWh',
+                                    'Sessions: ' + d.sessions
                                 ];
                             }
                         }
@@ -74,28 +68,21 @@
                 },
                 scales: {
                     x: {
-                        ticks: {
-                            color: '#888',
-                            font: { size: 9 },
-                            maxRotation: 45,
-                            autoSkip: true,
-                            maxTicksLimit: 16
-                        },
-                        grid: { color: 'rgba(255,255,255,0.04)' }
+                        ticks: { color: '#888', font: { size: 10 } },
+                        grid:  { color: 'rgba(255,255,255,0.04)' }
                     },
                     y: {
                         min: 0,
-                        max: 100,
                         title: {
                             display: true,
-                            text: 'SOC gained (%)',
+                            text: 'kWh from grid',
                             color: '#888',
                             font: { size: 10 }
                         },
                         ticks: {
                             color: '#888',
                             font: { size: 10 },
-                            callback: function(v) { return v + '%'; }
+                            callback: function(v) { return v.toFixed(2); }
                         },
                         grid: { color: 'rgba(255,255,255,0.06)' }
                     }
@@ -104,26 +91,21 @@
         });
     }
 
-    function renderEventsTable(sessions) {
+    function renderSessionsTable(sessions) {
         var tbody = document.getElementById('chargeEventsBody');
         if (!tbody) return;
         if (!sessions || !sessions.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="dm-mono">No charge sessions yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="dm-mono">No grid charge sessions yet</td></tr>';
             return;
         }
         tbody.innerHTML = sessions.map(function(s) {
-            var dur = s.dur_min >= 60
-                ? Math.floor(s.dur_min/60) + 'h ' + (s.dur_min % 60) + 'm'
-                : s.dur_min + ' min';
-            var socGain = s.soc_end - s.soc_start;
-            var color = s.soc_start < 30 ? 'red-text' : s.soc_start < 60 ? 'amber-text' : 'teal-text';
             return '<tr>' +
-                '<td class="dm-mono">' + (s.start || '').substring(0, 16).replace('T', ' ') + '</td>' +
-                '<td class="dm-mono ' + color + '">' + s.soc_start + '% → ' + s.soc_end + '%</td>' +
-                '<td class="dm-mono amber-text">' + s.v_start.toFixed(1) + 'V → ' + s.v_end.toFixed(1) + 'V</td>' +
-                '<td class="dm-mono blue-text">' + dur + '</td>' +
-                '<td class="dm-mono green-text">+' + socGain + '%</td>' +
-                '<td class="dm-mono teal-text">' + s.max_chg_a.toFixed(1) + ' A</td>' +
+                '<td class="dm-mono">'                            + fmtDT(s.start)                         + '</td>' +
+                '<td class="dm-mono blue-text">'                  + fmtDur(s.dur_min)                      + '</td>' +
+                '<td class="dm-mono amber-text">'                 + s.avg_a.toFixed(1) + ' A'              + '</td>' +
+                '<td class="dm-mono teal-text">'                  + Math.round(s.avg_w) + ' W'             + '</td>' +
+                '<td class="dm-mono green-text">'                 + s.energy_kwh.toFixed(3) + ' kWh'       + '</td>' +
+                '<td class="dm-mono" style="color:#aaa">'         + s.v_start.toFixed(1) + '→' + s.v_end.toFixed(1) + 'V</td>' +
                 '</tr>';
         }).join('');
     }
@@ -133,8 +115,8 @@
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
                 if (!data) return;
-                renderSessionChart(data.sessions || []);
-                renderEventsTable(data.sessions || []);
+                renderDailyChart(data.daily   || []);
+                renderSessionsTable(data.sessions || []);
             })
             .catch(function() {});
     }

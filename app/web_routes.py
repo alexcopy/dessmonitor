@@ -929,69 +929,100 @@ def create_auth_router(
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
             conn = await asyncpg.connect(db_url)
 
-            # Derive charging sessions from inverter_metrics.
-            # A new session starts when the gap between consecutive charging rows
-            # exceeds 30 minutes. No time-of-day filter — charger schedule may change.
+            # Derive GRID-ONLY charging sessions from inverter_metrics.
+            # working_mode = 'Line Mode' ensures only grid charging (not solar PV).
+            # A new session starts when gap between consecutive rows > 30 minutes.
+            # Energy per point = V * I * dt_hours (interval capped at 10 min to
+            # avoid inflating energy across session boundaries).
             sessions = await conn.fetch("""
                 WITH ordered AS (
-                    SELECT time, battery_voltage, battery_soc, battery_current_chg,
+                    SELECT time, battery_voltage, battery_current_chg, battery_soc,
                            LAG(time) OVER (ORDER BY time) AS prev_time
                     FROM inverter_metrics
-                    WHERE battery_current_chg > 0
+                    WHERE working_mode = 'Line Mode'
+                      AND battery_current_chg > 0
                       AND time >= NOW() - ($1 || ' days')::interval
                 ),
                 with_sid AS (
-                    SELECT time, battery_voltage, battery_soc, battery_current_chg,
+                    SELECT time, battery_voltage, battery_current_chg, battery_soc,
                            SUM(CASE WHEN prev_time IS NULL
                                          OR time - prev_time > INTERVAL '30 minutes'
                                     THEN 1 ELSE 0 END)
-                               OVER (ORDER BY time) AS sid
+                               OVER (ORDER BY time) AS sid,
+                           CASE
+                               WHEN prev_time IS NULL
+                                    OR time - prev_time > INTERVAL '30 minutes'
+                               THEN 0.0
+                               ELSE LEAST(
+                                   EXTRACT(EPOCH FROM (time - prev_time)) / 3600.0,
+                                   10.0 / 60.0
+                               )
+                           END AS dt_h
                     FROM ordered
+                ),
+                sessions_agg AS (
+                    SELECT
+                        sid,
+                        MIN(time)                                                AS start_time,
+                        MAX(time)                                                AS end_time,
+                        (array_agg(battery_voltage ORDER BY time))[1]           AS v_start,
+                        (array_agg(battery_voltage ORDER BY time DESC))[1]      AS v_end,
+                        (array_agg(battery_soc     ORDER BY time))[1]           AS soc_start,
+                        (array_agg(battery_soc     ORDER BY time DESC))[1]      AS soc_end,
+                        ROUND(CAST(AVG(battery_current_chg) AS numeric), 1)     AS avg_a,
+                        ROUND(CAST(MAX(battery_current_chg) AS numeric), 1)     AS max_a,
+                        ROUND(CAST(AVG(battery_voltage * battery_current_chg)
+                                   AS numeric), 0)                              AS avg_w,
+                        ROUND(CAST(
+                            SUM(battery_voltage * battery_current_chg * dt_h)
+                            AS numeric), 3)                                     AS energy_wh,
+                        ROUND(EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60) AS dur_min
+                    FROM with_sid
+                    GROUP BY sid
+                    HAVING COUNT(*) >= 3
                 )
                 SELECT
-                    MIN(time)                                               AS start_time,
-                    MAX(time)                                               AS end_time,
-                    (array_agg(battery_voltage      ORDER BY time))[1]      AS v_start,
-                    (array_agg(battery_voltage      ORDER BY time DESC))[1] AS v_end,
-                    (array_agg(battery_soc          ORDER BY time))[1]      AS soc_start,
-                    (array_agg(battery_soc          ORDER BY time DESC))[1] AS soc_end,
-                    ROUND(CAST(MAX(battery_current_chg) AS numeric), 1)     AS max_chg_a,
-                    ROUND(EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60) AS dur_min,
-                    COUNT(*)                                                AS pts
-                FROM with_sid
-                GROUP BY sid
-                HAVING COUNT(*) >= 3
+                    start_time, end_time,
+                    v_start, v_end, soc_start, soc_end,
+                    avg_a, max_a, avg_w,
+                    ROUND(energy_wh / 1000.0, 3) AS energy_kwh,
+                    dur_min
+                FROM sessions_agg
                 ORDER BY start_time DESC
-            """, str(days))
-
-            # Grid charge controller events (BatteryChargeController, may be sparse)
-            events = await conn.fetch("""
-                SELECT time, event, voltage, duration_min, energy_kwh
-                FROM grid_charge_events
-                WHERE time >= NOW() - ($1 || ' days')::interval
-                ORDER BY time DESC
             """, str(days))
 
             await conn.close()
 
+            sessions_list = [{
+                "start":      r["start_time"].isoformat(),
+                "end":        r["end_time"].isoformat(),
+                "v_start":    float(r["v_start"] or 0),
+                "v_end":      float(r["v_end"] or 0),
+                "soc_start":  int(r["soc_start"] or 0),
+                "soc_end":    int(r["soc_end"] or 0),
+                "avg_a":      float(r["avg_a"] or 0),
+                "max_a":      float(r["max_a"] or 0),
+                "avg_w":      float(r["avg_w"] or 0),
+                "energy_kwh": float(r["energy_kwh"] or 0),
+                "dur_min":    int(r["dur_min"] or 0),
+            } for r in sessions]
+
+            # Daily aggregates (UTC date from start_time)
+            from collections import defaultdict
+            daily: dict = defaultdict(lambda: {"energy_kwh": 0.0, "sessions": 0})
+            for s in sessions_list:
+                day = s["start"][:10]
+                daily[day]["energy_kwh"] = round(
+                    daily[day]["energy_kwh"] + s["energy_kwh"], 3)
+                daily[day]["sessions"] += 1
+            daily_list = [
+                {"day": d, "energy_kwh": v["energy_kwh"], "sessions": v["sessions"]}
+                for d, v in sorted(daily.items())
+            ]
+
             return JSONResponse({
-                "sessions": [{
-                    "start":     r["start_time"].isoformat(),
-                    "end":       r["end_time"].isoformat(),
-                    "v_start":   float(r["v_start"] or 0),
-                    "v_end":     float(r["v_end"] or 0),
-                    "soc_start": int(r["soc_start"] or 0),
-                    "soc_end":   int(r["soc_end"] or 0),
-                    "max_chg_a": float(r["max_chg_a"] or 0),
-                    "dur_min":   int(r["dur_min"] or 0),
-                } for r in sessions],
-                "events": [{
-                    "time":        str(r["time"]),
-                    "event":       r["event"],
-                    "voltage":     r["voltage"],
-                    "duration_min": float(r["duration_min"] or 0),
-                    "energy_kwh":   float(r["energy_kwh"] or 0),
-                } for r in events],
+                "sessions": sessions_list,
+                "daily":    daily_list,
             })
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
