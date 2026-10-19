@@ -59,6 +59,7 @@ class SolarAwareController:
         self._last_tick_context = (solar_period, min_volt_overrides)
         phase = self._solar_phase(sunrise_hour, sunset_hour)
 
+        shared_state["solar_period_active"] = solar_period
         self._important.info(
             "[SOLAR] phase=%s solar_period=%s voltage=%.2f clouds=%s sunrise=%s sunset=%s",
             phase,

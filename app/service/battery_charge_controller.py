@@ -123,6 +123,32 @@ class BatteryChargeController:
             except Exception as exc:
                 logger.error("[ChargeCtrl] Failed to disable: %s", exc)
 
+        elif self._charging_active:
+            # Check if solar period has started — switch back to Solar only
+            pv_power = shared_state.get("pv_total_power") or 0
+            solar_period = shared_state.get("solar_period_active", False)
+            if pv_power > 50 or solar_period:
+                try:
+                    await asyncio.to_thread(
+                        self.api.set_charger_source, SOLAR_ONLY
+                    )
+                    self._charging_active = False
+                    shared_state["grid_charging_active"] = False
+                    important.info(
+                        "[CHARGE] Solar arrived (PV=%.0fW) — switching to Solar only",
+                        pv_power,
+                    )
+                    await self._log_event("solar_takeover", v,
+                        duration_min=round((time.time() - self._charge_started_at) / 60.0, 1)
+                        if self._charge_started_at else None)
+                    self._charge_started_at = None
+                except Exception as exc:
+                    logger.error("[ChargeCtrl] Failed to switch to solar only: %s", exc)
+            else:
+                logger.debug(
+                    "[ChargeCtrl] voltage=%.2fV charging=%s in_window=%s pv=%.0fW — no action",
+                    v, self._charging_active, in_window, pv_power,
+                )
         else:
             logger.debug(
                 "[ChargeCtrl] voltage=%.2fV charging=%s in_window=%s — no action",
