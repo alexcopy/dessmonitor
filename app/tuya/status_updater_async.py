@@ -970,6 +970,21 @@ class TuyaStatusUpdaterAsync:
         shared_state[f"water_temp_{sensor_id}"] = normalized
         shared_state[f"water_temp_{display_name}"] = normalized
 
+        # Battery percentage for wireless sensors (TH06, etc.)
+        bat_pct = status_by_code.get("battery_percentage")
+        if isinstance(bat_pct, (int, float)) and not isinstance(bat_pct, bool):
+            key = f"sensor_battery_{dev.id}"
+            old_pct = shared_state.get(key)
+            shared_state[key] = int(bat_pct)
+            shared_state[f"sensor_battery_{display_name}"] = int(bat_pct)
+            if old_pct is None or abs(int(bat_pct) - (old_pct or 0)) >= 5:
+                import logging
+                logging.getLogger("IMPORTANT").info(
+                    "[SENSOR] %s battery: %d%%",
+                    display_name, int(bat_pct),
+                    extra={"type": "sensor", "dev": dev.name, "evt": "battery_pct"},
+                )
+
     @staticmethod
     def _extract_temperature_celsius(status_by_code: dict[str, object]) -> float | None:
         """Extract a Tuya temperature reading and return Celsius."""
