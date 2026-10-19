@@ -49,6 +49,7 @@ _STATIC_ALLOWLIST: frozenset[str] = frozenset({
         "alarms.js",
     "devices-editor.css",
     "devices-editor.js",
+    "controls.js",
 })
 
 # ---------------------------------------------------------------------------
