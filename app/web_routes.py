@@ -930,9 +930,9 @@ def create_auth_router(
             conn = await asyncpg.connect(db_url)
 
             # Derive GRID-ONLY charging sessions from inverter_metrics.
-            # working_mode = 'Line Mode' + charger_priority != 'solar_only' ensures
-            # we capture grid charging, not solar-only battery top-up in Line Mode.
-            # charger_priority IS NULL covers historical rows before column was added.
+            # Two-path filter to separate grid charging from solar top-up in Line Mode:
+            #   new rows  → charger_priority written by timescale_data_collector; exclude 'solar_only'
+            #   historical → charger_priority IS NULL; use pv_power_w < 50W as proxy (no sun = grid)
             # A new session starts when gap between consecutive rows > 30 minutes.
             # Energy per point = V * I * dt_hours (interval capped at 10 min to
             # avoid inflating energy across session boundaries).
@@ -944,7 +944,13 @@ def create_auth_router(
                     FROM inverter_metrics
                     WHERE working_mode = 'Line Mode'
                       AND battery_current_chg > 0
-                      AND COALESCE(charger_priority, 'solar_and_mains') != 'solar_only'
+                      AND (
+                          -- new rows: trust the recorded charger_priority
+                          (charger_priority IS NOT NULL AND charger_priority != 'solar_only')
+                          OR
+                          -- historical rows (pre-migration): no solar = must be grid
+                          (charger_priority IS NULL AND COALESCE(pv_power_w, 0) < 50)
+                      )
                       AND time >= NOW() - ($1 || ' days')::interval
                 ),
                 with_sid AS (
