@@ -937,6 +937,7 @@ def create_auth_router(
             sessions = await conn.fetch("""
                 WITH ordered AS (
                     SELECT time, battery_voltage, battery_current_chg, battery_soc,
+                           COALESCE(output_power_w, 0) AS output_power_w,
                            LAG(time) OVER (ORDER BY time) AS prev_time
                     FROM inverter_metrics
                     WHERE working_mode = 'Line Mode'
@@ -945,6 +946,7 @@ def create_auth_router(
                 ),
                 with_sid AS (
                     SELECT time, battery_voltage, battery_current_chg, battery_soc,
+                           output_power_w,
                            SUM(CASE WHEN prev_time IS NULL
                                          OR time - prev_time > INTERVAL '30 minutes'
                                     THEN 1 ELSE 0 END)
@@ -971,10 +973,10 @@ def create_auth_router(
                         (array_agg(battery_soc     ORDER BY time DESC))[1]      AS soc_end,
                         ROUND(CAST(AVG(battery_current_chg) AS numeric), 1)     AS avg_a,
                         ROUND(CAST(MAX(battery_current_chg) AS numeric), 1)     AS max_a,
-                        ROUND(CAST(AVG(battery_voltage * battery_current_chg)
+                        ROUND(CAST(AVG(output_power_w + battery_voltage * battery_current_chg)
                                    AS numeric), 0)                              AS avg_w,
                         ROUND(CAST(
-                            SUM(battery_voltage * battery_current_chg * dt_h)
+                            SUM((output_power_w + battery_voltage * battery_current_chg) * dt_h)
                             AS numeric), 3)                                     AS energy_wh,
                         ROUND(EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60) AS dur_min
                     FROM with_sid
