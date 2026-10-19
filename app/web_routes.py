@@ -913,6 +913,60 @@ def create_auth_router(
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+    # -- /api/charge/history GET -------------------------------------------
+    @router.get("/api/charge/history")
+    async def api_charge_history(request: Request, days: int = 14) -> Any:
+        """Return grid charge events and nightly battery voltage for charge analysis."""
+        import os
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        try:
+            import asyncpg
+            db_url = os.environ.get("DATABASE_URL")
+            if not db_url:
+                return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
+            conn = await asyncpg.connect(db_url)
+
+            # Charge events
+            events = await conn.fetch("""
+                SELECT time, event, voltage, duration_min, energy_kwh
+                FROM grid_charge_events
+                WHERE time >= NOW() - ($1 || ' days')::interval
+                ORDER BY time DESC
+            """, str(days))
+
+            # Nightly battery voltage (20:00-08:00)
+            voltage = await conn.fetch("""
+                SELECT time, battery_voltage, working_mode, pv_power_w
+                FROM inverter_metrics
+                WHERE time >= NOW() - ($1 || ' days')::interval
+                  AND battery_voltage IS NOT NULL
+                  AND (EXTRACT(HOUR FROM time) >= 20 OR EXTRACT(HOUR FROM time) < 8)
+                ORDER BY time
+            """, str(days))
+
+            await conn.close()
+
+            return JSONResponse({
+                "events": [{
+                    "time": str(r["time"]),
+                    "event": r["event"],
+                    "voltage": r["voltage"],
+                    "duration_min": float(r["duration_min"] or 0),
+                    "energy_kwh": float(r["energy_kwh"] or 0),
+                } for r in events],
+                "voltage": [{
+                    "time": r["time"].isoformat(),
+                    "v": r["battery_voltage"],
+                    "mode": r["working_mode"],
+                    "pv": r["pv_power_w"] or 0,
+                } for r in voltage],
+            })
+        except Exception as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+
     return router
 
 
