@@ -977,13 +977,35 @@ class TuyaStatusUpdaterAsync:
             old_pct = shared_state.get(key)
             shared_state[key] = int(bat_pct)
             shared_state[f"sensor_battery_{display_name}"] = int(bat_pct)
+            # Log to IMPORTANT when battery changes significantly or first seen
             if old_pct is None or abs(int(bat_pct) - (old_pct or 0)) >= 5:
                 import logging
-                logging.getLogger("IMPORTANT").info(
-                    "[SENSOR] %s battery: %d%%",
+                level = logging.WARNING if int(bat_pct) < 20 else logging.INFO
+                logging.getLogger("IMPORTANT").log(
+                    level,
+                    "[SENSOR] %s battery: %d%%%s",
                     display_name, int(bat_pct),
+                    " ⚠ LOW" if int(bat_pct) < 20 else "",
                     extra={"type": "sensor", "dev": dev.name, "evt": "battery_pct"},
                 )
+            # Write to device_metrics metadata (every update)
+            try:
+                import asyncio, json, os
+                async def _write_bat():
+                    import asyncpg
+                    db_url = os.environ.get("DATABASE_URL")
+                    if not db_url:
+                        return
+                    conn = await asyncpg.connect(db_url)
+                    await conn.execute("""
+                        INSERT INTO device_metrics
+                            (time, device_name, device_type, is_on, metadata)
+                        VALUES (NOW(), $1, 'thermo', true, $2::jsonb)
+                    """, display_name, json.dumps({"battery_pct": int(bat_pct)}))
+                    await conn.close()
+                asyncio.create_task(_write_bat())
+            except Exception:
+                pass
 
     @staticmethod
     def _extract_temperature_celsius(status_by_code: dict[str, object]) -> float | None:
