@@ -64,20 +64,21 @@
         </div>
         <canvas id="chargeVoltChart" height="80"></canvas>
     </div>
-    <div class="dm-section-label">&#128197; Charge Events</div>
+    <div class="dm-section-label">&#128197; Charge Sessions</div>
     <div class="dm-card">
         <table class="dm-table" id="chargeEventsTable">
             <thead>
                 <tr>
-                    <th>Time</th>
-                    <th>Event</th>
+                    <th>Started</th>
+                    <th class="dm-mono teal-text">SOC</th>
                     <th class="dm-mono amber-text">Voltage</th>
                     <th class="dm-mono blue-text">Duration</th>
-                    <th class="dm-mono green-text">Energy</th>
+                    <th class="dm-mono green-text">Gained</th>
+                    <th class="dm-mono teal-text">Max A</th>
                 </tr>
             </thead>
             <tbody id="chargeEventsBody">
-                <tr><td colspan="5" class="dm-mono">Loading...</td></tr>
+                <tr><td colspan="6" class="dm-mono">Loading...</td></tr>
             </tbody>
         </table>
     </div>

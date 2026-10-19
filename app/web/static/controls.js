@@ -1,143 +1,101 @@
-/* controls.js — Night Charge History chart and events table */
+/* controls.js — Charging Session History chart and events table */
 (function () {
     var chartInst = null;
 
-    /* palette for up to 14 night sessions */
-    var SESSION_COLORS = [
-        '#4fc3f7','#81d4fa','#29b6f6','#0288d1',
-        '#ffb74d','#ffa726','#fb8c00','#f57c00',
-        '#80cbc4','#4db6ac','#26a69a','#00897b',
-        '#ce93d8','#ba68c8'
-    ];
-
-    /* Split flat point array into sessions; gap > 3 h → new session */
-    function splitSessions(points) {
-        var GAP_MS = 3 * 60 * 60 * 1000;
-        var sessions = [];
-        var cur = [];
-        for (var i = 0; i < points.length; i++) {
-            if (cur.length && (new Date(points[i].time) - new Date(cur[cur.length-1].time)) > GAP_MS) {
-                sessions.push(cur);
-                cur = [];
-            }
-            cur.push(points[i]);
-        }
-        if (cur.length) sessions.push(cur);
-        return sessions;
+    /* colour a bar by starting SOC:
+       0-30 % → red   30-60 % → amber   60-100 % → teal */
+    function socColor(soc) {
+        if (soc < 30)  return '#ef5350';   /* red    */
+        if (soc < 60)  return '#ffa726';   /* amber  */
+        return '#26a69a';                  /* teal   */
     }
 
-    /* "Oct 18" label from ISO string */
-    function nightLabel(isoStr) {
-        var d = new Date(isoStr);
-        return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+    /* "Oct 18 07:10" from ISO string (UTC→local) */
+    function fmtDT(iso) {
+        var d = new Date(iso);
+        return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
+             + ' '
+             + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     }
 
-    function renderVoltChart(points) {
+    function renderSessionChart(sessions) {
         var canvas = document.getElementById('chargeVoltChart');
         if (!canvas) return;
 
-        var sessions = splitSessions(points);
+        /* newest first from API → reverse for chronological left→right */
+        var ordered = sessions.slice().reverse();
 
-        /* Build a merged time-axis (union of all session timestamps) */
-        var allTimes = [];
-        sessions.forEach(function(s) {
-            s.forEach(function(p) { allTimes.push(p.time); });
+        var labels  = ordered.map(function(s) { return fmtDT(s.start); });
+        var heights = ordered.map(function(s) {
+            /* SOC gained; floor at 1 so zero-gain sessions still show */
+            return Math.max(s.soc_end - s.soc_start, 1);
         });
-        allTimes.sort();
-
-        /* One dataset per session */
-        var datasets = sessions.map(function(sess, idx) {
-            var color = SESSION_COLORS[idx % SESSION_COLORS.length];
-            /* sparse array — null for timestamps not in this session */
-            var sessSet = {};
-            sess.forEach(function(p) { sessSet[p.time] = p; });
-            var data = allTimes.map(function(t) {
-                return sessSet[t] ? sessSet[t].v : null;
-            });
-            return {
-                label: nightLabel(sess[0].time),
-                data: data,
-                borderColor: color,
-                backgroundColor: color.replace(')', ',0.08)').replace('rgb', 'rgba'),
-                pointBackgroundColor: color,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                borderWidth: 2,
-                fill: false,
-                tension: 0.3,
-                spanGaps: false
-            };
-        });
+        var colors  = ordered.map(function(s) { return socColor(s.soc_start); });
 
         if (chartInst) { chartInst.destroy(); }
         chartInst = new Chart(canvas, {
-            type: 'line',
-            data: { labels: allTimes, datasets: datasets },
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'SOC gained (%)',
+                    data: heights,
+                    backgroundColor: colors,
+                    borderColor: colors,
+                    borderWidth: 1,
+                    borderRadius: 3
+                }]
+            },
             options: {
                 responsive: true,
                 animation: false,
-                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: {
-                        display: true,
-                        position: 'bottom',
-                        labels: {
-                            color: '#aaa',
-                            font: { size: 11 },
-                            boxWidth: 12,
-                            padding: 8,
-                            usePointStyle: true
-                        }
-                    },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
                             title: function(items) {
-                                var t = new Date(items[0].label);
-                                return t.toLocaleString('en-GB', {
-                                    month: 'short', day: 'numeric',
-                                    hour: '2-digit', minute: '2-digit'
-                                });
+                                var s = ordered[items[0].dataIndex];
+                                return fmtDT(s.start) + ' – ' + fmtDT(s.end);
                             },
                             label: function(ctx) {
-                                if (ctx.raw === null) return null;
-                                return ctx.dataset.label + ': ' + ctx.raw.toFixed(1) + ' V';
+                                var s = ordered[ctx.dataIndex];
+                                var dur = s.dur_min >= 60
+                                    ? Math.floor(s.dur_min/60) + 'h ' + (s.dur_min%60) + 'm'
+                                    : s.dur_min + ' min';
+                                return [
+                                    'SOC: ' + s.soc_start + '% → ' + s.soc_end + '%',
+                                    'Voltage: ' + s.v_start.toFixed(1) + 'V → ' + s.v_end.toFixed(1) + 'V',
+                                    'Duration: ' + dur,
+                                    'Max current: ' + s.max_chg_a.toFixed(1) + ' A'
+                                ];
                             }
-                        },
-                        filter: function(item) { return item.raw !== null; }
+                        }
                     }
                 },
                 scales: {
                     x: {
-                        display: true,
                         ticks: {
-                            maxTicksLimit: 8,
                             color: '#888',
-                            font: { size: 10 },
-                            callback: function(val, idx) {
-                                var t = new Date(allTimes[idx]);
-                                if (!allTimes[idx]) return '';
-                                /* show date only at midnight transitions */
-                                return t.toLocaleString('en-GB', {
-                                    month: 'short', day: 'numeric',
-                                    hour: '2-digit', minute: '2-digit'
-                                });
-                            }
+                            font: { size: 9 },
+                            maxRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 16
                         },
                         grid: { color: 'rgba(255,255,255,0.04)' }
                     },
                     y: {
-                        min: 22,
-                        max: 29,
+                        min: 0,
+                        max: 100,
                         title: {
                             display: true,
-                            text: 'Voltage (V)',
+                            text: 'SOC gained (%)',
                             color: '#888',
                             font: { size: 10 }
                         },
                         ticks: {
                             color: '#888',
                             font: { size: 10 },
-                            callback: function(v) { return v.toFixed(0) + 'V'; }
+                            callback: function(v) { return v + '%'; }
                         },
                         grid: { color: 'rgba(255,255,255,0.06)' }
                     }
@@ -146,23 +104,26 @@
         });
     }
 
-    function renderEventsTable(events) {
+    function renderEventsTable(sessions) {
         var tbody = document.getElementById('chargeEventsBody');
         if (!tbody) return;
-        if (!events.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="dm-mono">No charge events yet</td></tr>';
+        if (!sessions || !sessions.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="dm-mono">No charge sessions yet</td></tr>';
             return;
         }
-        tbody.innerHTML = events.map(function(e) {
-            var isOn  = e.event === 'enabled';
-            var color = isOn ? 'amber-text' : 'teal-text';
-            var icon  = isOn ? '&#8679;' : '&#8681;';
+        tbody.innerHTML = sessions.map(function(s) {
+            var dur = s.dur_min >= 60
+                ? Math.floor(s.dur_min/60) + 'h ' + (s.dur_min % 60) + 'm'
+                : s.dur_min + ' min';
+            var socGain = s.soc_end - s.soc_start;
+            var color = s.soc_start < 30 ? 'red-text' : s.soc_start < 60 ? 'amber-text' : 'teal-text';
             return '<tr>' +
-                '<td class="dm-mono">' + (e.time || '').substring(0, 19).replace('T', ' ') + '</td>' +
-                '<td class="dm-mono ' + color + '">' + icon + ' ' + e.event + '</td>' +
-                '<td class="dm-mono amber-text">' + (e.voltage ? e.voltage.toFixed(1) + 'V' : '—') + '</td>' +
-                '<td class="dm-mono blue-text">' + (e.duration_min ? e.duration_min.toFixed(0) + ' min' : '—') + '</td>' +
-                '<td class="dm-mono green-text">' + (e.energy_kwh ? e.energy_kwh.toFixed(3) + ' kWh' : '—') + '</td>' +
+                '<td class="dm-mono">' + (s.start || '').substring(0, 16).replace('T', ' ') + '</td>' +
+                '<td class="dm-mono ' + color + '">' + s.soc_start + '% → ' + s.soc_end + '%</td>' +
+                '<td class="dm-mono amber-text">' + s.v_start.toFixed(1) + 'V → ' + s.v_end.toFixed(1) + 'V</td>' +
+                '<td class="dm-mono blue-text">' + dur + '</td>' +
+                '<td class="dm-mono green-text">+' + socGain + '%</td>' +
+                '<td class="dm-mono teal-text">' + s.max_chg_a.toFixed(1) + ' A</td>' +
                 '</tr>';
         }).join('');
     }
@@ -172,8 +133,8 @@
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
                 if (!data) return;
-                renderVoltChart(data.voltage || []);
-                renderEventsTable(data.events || []);
+                renderSessionChart(data.sessions || []);
+                renderEventsTable(data.sessions || []);
             })
             .catch(function() {});
     }

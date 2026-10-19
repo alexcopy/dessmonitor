@@ -917,7 +917,7 @@ def create_auth_router(
     # -- /api/charge/history GET -------------------------------------------
     @router.get("/api/charge/history")
     async def api_charge_history(request: Request, days: int = 14) -> Any:
-        """Return grid charge events and nightly battery voltage for charge analysis."""
+        """Return charging sessions derived from inverter_metrics (battery_current_chg > 0)."""
         import os
         auth_ok, _ = _check_auth(request)
         if not auth_ok:
@@ -929,7 +929,42 @@ def create_auth_router(
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
             conn = await asyncpg.connect(db_url)
 
-            # Charge events
+            # Derive charging sessions from inverter_metrics.
+            # A new session starts when the gap between consecutive charging rows
+            # exceeds 30 minutes. No time-of-day filter — charger schedule may change.
+            sessions = await conn.fetch("""
+                WITH ordered AS (
+                    SELECT time, battery_voltage, battery_soc, battery_current_chg,
+                           LAG(time) OVER (ORDER BY time) AS prev_time
+                    FROM inverter_metrics
+                    WHERE battery_current_chg > 0
+                      AND time >= NOW() - ($1 || ' days')::interval
+                ),
+                with_sid AS (
+                    SELECT time, battery_voltage, battery_soc, battery_current_chg,
+                           SUM(CASE WHEN prev_time IS NULL
+                                         OR time - prev_time > INTERVAL '30 minutes'
+                                    THEN 1 ELSE 0 END)
+                               OVER (ORDER BY time) AS sid
+                    FROM ordered
+                )
+                SELECT
+                    MIN(time)                                               AS start_time,
+                    MAX(time)                                               AS end_time,
+                    (array_agg(battery_voltage      ORDER BY time))[1]      AS v_start,
+                    (array_agg(battery_voltage      ORDER BY time DESC))[1] AS v_end,
+                    (array_agg(battery_soc          ORDER BY time))[1]      AS soc_start,
+                    (array_agg(battery_soc          ORDER BY time DESC))[1] AS soc_end,
+                    ROUND(CAST(MAX(battery_current_chg) AS numeric), 1)     AS max_chg_a,
+                    ROUND(EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60) AS dur_min,
+                    COUNT(*)                                                AS pts
+                FROM with_sid
+                GROUP BY sid
+                HAVING COUNT(*) >= 3
+                ORDER BY start_time DESC
+            """, str(days))
+
+            # Grid charge controller events (BatteryChargeController, may be sparse)
             events = await conn.fetch("""
                 SELECT time, event, voltage, duration_min, energy_kwh
                 FROM grid_charge_events
@@ -937,32 +972,26 @@ def create_auth_router(
                 ORDER BY time DESC
             """, str(days))
 
-            # Nightly battery voltage (20:00-08:00)
-            voltage = await conn.fetch("""
-                SELECT time, battery_voltage, working_mode, pv_power_w
-                FROM inverter_metrics
-                WHERE time >= NOW() - ($1 || ' days')::interval
-                  AND battery_voltage IS NOT NULL
-                  AND (EXTRACT(HOUR FROM time) >= 20 OR EXTRACT(HOUR FROM time) < 8)
-                ORDER BY time
-            """, str(days))
-
             await conn.close()
 
             return JSONResponse({
+                "sessions": [{
+                    "start":     r["start_time"].isoformat(),
+                    "end":       r["end_time"].isoformat(),
+                    "v_start":   float(r["v_start"] or 0),
+                    "v_end":     float(r["v_end"] or 0),
+                    "soc_start": int(r["soc_start"] or 0),
+                    "soc_end":   int(r["soc_end"] or 0),
+                    "max_chg_a": float(r["max_chg_a"] or 0),
+                    "dur_min":   int(r["dur_min"] or 0),
+                } for r in sessions],
                 "events": [{
-                    "time": str(r["time"]),
-                    "event": r["event"],
-                    "voltage": r["voltage"],
+                    "time":        str(r["time"]),
+                    "event":       r["event"],
+                    "voltage":     r["voltage"],
                     "duration_min": float(r["duration_min"] or 0),
-                    "energy_kwh": float(r["energy_kwh"] or 0),
+                    "energy_kwh":   float(r["energy_kwh"] or 0),
                 } for r in events],
-                "voltage": [{
-                    "time": r["time"].isoformat(),
-                    "v": r["battery_voltage"],
-                    "mode": r["working_mode"],
-                    "pv": r["pv_power_w"] or 0,
-                } for r in voltage],
             })
         except Exception as exc:
             return JSONResponse({"detail": str(exc)}, status_code=500)
