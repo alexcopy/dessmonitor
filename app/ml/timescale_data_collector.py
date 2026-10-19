@@ -655,9 +655,9 @@ class TimescaleDataCollector:
                         battery_current_dis, battery_current_chg,
                         pv_power_w, output_power_w, output_voltage,
                         ac_input_voltage, ac_input_frequency, ac_output_load_pct,
-                        total_load_w, working_mode
+                        total_load_w, working_mode, charger_priority
                     ) VALUES (
-                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
                     ) ON CONFLICT (time) DO NOTHING
                 """,
                 timestamp,
@@ -673,6 +673,7 @@ class TimescaleDataCollector:
                 shared_state.get("ac_output_load"),
                 shared_state.get("output_power") or shared_state.get("output_apparent_power"),
                 shared_state.get("working_mode"),
+                shared_state.get("charger_priority"),
                 )
                 logger.debug("[TS] inverter_metrics written at %s", timestamp)
         except Exception as exc:
