@@ -7,6 +7,7 @@ TimescaleDB Data Collector для солнечной системы
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, time as dt_time
 from typing import Dict, Any, Optional, Literal
 from enum import Enum
@@ -85,6 +86,7 @@ class TimescaleDataCollector:
         self._mode_change_count = 0
         self._switching_detected_at = None
         self._last_weather_write: float = 0.0  # throttle weather writes
+        self._charge_detail_until: float = 0.0
 
     async def initialize(self) -> bool:
         """Инициализация: подключение к БД и создание таблиц"""
@@ -210,8 +212,17 @@ class TimescaleDataCollector:
                     ac_output_load_pct  DOUBLE PRECISION,
                     total_load_w        DOUBLE PRECISION,
                     working_mode        TEXT,
+                    charger_priority    TEXT,
+                    charger_priority_raw TEXT,
                     PRIMARY KEY (time)
                 );
+            """)
+            # Existing rows remain unknown; add nullable columns without backfill.
+            await conn.execute("""
+                ALTER TABLE inverter_metrics
+                ADD COLUMN IF NOT EXISTS charger_priority TEXT;
+                ALTER TABLE inverter_metrics
+                ADD COLUMN IF NOT EXISTS charger_priority_raw TEXT;
             """)
             try:
                 await conn.execute("""
@@ -655,9 +666,9 @@ class TimescaleDataCollector:
                         battery_current_dis, battery_current_chg,
                         pv_power_w, output_power_w, output_voltage,
                         ac_input_voltage, ac_input_frequency, ac_output_load_pct,
-                        total_load_w, working_mode, charger_priority
+                        total_load_w, working_mode, charger_priority, charger_priority_raw
                     ) VALUES (
-                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
                     ) ON CONFLICT (time) DO NOTHING
                 """,
                 timestamp,
@@ -666,14 +677,15 @@ class TimescaleDataCollector:
                 shared_state.get("battery_current_dis"),
                 shared_state.get("battery_current_chg"),
                 shared_state.get("pv_total_power"),
-                shared_state.get("output_power") or shared_state.get("output_apparent_power"),
+                shared_state.get("output_power"),
                 shared_state.get("output_voltage"),
                 shared_state.get("ac_input_voltage"),
                 shared_state.get("ac_input_frequency"),
                 shared_state.get("ac_output_load"),
-                shared_state.get("output_power") or shared_state.get("output_apparent_power"),
+                shared_state.get("output_power"),
                 shared_state.get("working_mode"),
                 shared_state.get("charger_priority"),
+                shared_state.get("charger_priority_raw"),
                 )
                 logger.debug("[TS] inverter_metrics written at %s", timestamp)
         except Exception as exc:
@@ -879,9 +891,18 @@ class TimescaleDataCollector:
 
     def get_current_interval(self) -> int:
         """Получить текущий интервал сбора данных (секунды).
-        In grid mode, shorten interval when battery voltage is low.
+        Persist active charging and its 10-minute grace window every minute.
+        Otherwise preserve the existing adaptive intervals.
         """
         from shared_state.shared_state import shared_state
+        now = time.monotonic()
+        charge_current = shared_state.get("battery_current_chg")
+        if shared_state.get("charger_priority") == "solar_and_mains" or (
+            isinstance(charge_current, (int, float)) and charge_current > 0
+        ):
+            self._charge_detail_until = now + 600
+        if now < self._charge_detail_until:
+            return 60
         base = self.intervals.get(self._current_mode, self.intervals[PowerMode.GRID])
         if self._current_mode == PowerMode.GRID:
             v = shared_state.get("battery_voltage")
@@ -944,25 +965,26 @@ async def timescale_collection_loop(
         logger.error("❌ Failed to initialize collector, exiting")
         return
 
+    last_collection_at = None
     try:
         while not stop_event.is_set():
-            # Собираем данные
-            stats = await collector.collect_data(dev_mgr)
-
-            if stats["status"] != "success":
-                logger.warning(f"Collection issue: {stats}")
-
-            # Используем АДАПТИВНЫЙ интервал
+            # Check shared_state even during long adaptive waits. This performs
+            # no network telemetry request and refreshes the charging grace timer.
             interval = collector.get_current_interval()
+            now = time.monotonic()
+            if last_collection_at is None or now - last_collection_at >= interval:
+                stats = await collector.collect_data(dev_mgr)
+                last_collection_at = time.monotonic()
+                if stats["status"] != "success":
+                    logger.warning(f"Collection issue: {stats}")
+                interval = collector.get_current_interval()
 
-            # Ждём интервал или stop_event
+            # Re-evaluate charging within a minute, without collecting full data
+            # early when the normal adaptive interval is still in effect.
+            remaining = interval - (time.monotonic() - last_collection_at)
             try:
-                await asyncio.wait_for(
-                    stop_event.wait(),
-                    timeout=interval
-                )
+                await asyncio.wait_for(stop_event.wait(), timeout=min(60, max(0, remaining)))
             except asyncio.TimeoutError:
-                # Нормально - просто прошёл интервал
                 pass
 
     except asyncio.CancelledError:

@@ -958,126 +958,47 @@ def create_auth_router(
     # -- /api/charge/history GET -------------------------------------------
     @router.get("/api/charge/history")
     async def api_charge_history(request: Request, days: int = 14) -> Any:
-        """Return charging sessions derived from inverter_metrics (battery_current_chg > 0)."""
-        import os
+        """Return recorded charger-source observations, preserving unknown values."""
         auth_ok, _ = _check_auth(request)
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if not 1 <= days <= 30:
+            return JSONResponse({"detail": "days must be between 1 and 30"}, status_code=422)
         try:
             import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
             conn = await asyncpg.connect(db_url)
-
-            # Derive GRID-ONLY charging sessions from inverter_metrics.
-            # Two-path filter to separate grid charging from solar top-up in Line Mode:
-            #   new rows  → charger_priority written by timescale_data_collector; exclude 'solar_only'
-            #   historical → charger_priority IS NULL; use pv_power_w < 50W as proxy (no sun = grid)
-            # A new session starts when gap between consecutive rows > 30 minutes.
-            # Energy per point = V * I * dt_hours (interval capped at 10 min to
-            # avoid inflating energy across session boundaries).
-            sessions = await conn.fetch("""
-                WITH ordered AS (
-                    SELECT time, battery_voltage, battery_current_chg, battery_soc,
-                           COALESCE(output_power_w, 0) AS output_power_w,
-                           LAG(time) OVER (ORDER BY time) AS prev_time
+            try:
+                verified_since = await conn.fetchval("""
+                    SELECT MIN(time) FROM inverter_metrics
+                    WHERE charger_priority IS NOT NULL OR charger_priority_raw IS NOT NULL
+                """)
+                rows = await conn.fetch("""
+                    SELECT time, charger_priority, charger_priority_raw, working_mode,
+                           battery_voltage, battery_soc, battery_current_chg,
+                           battery_current_dis, pv_power_w, output_power_w,
+                           output_voltage, ac_input_voltage, ac_input_frequency,
+                           ac_output_load_pct, total_load_w
                     FROM inverter_metrics
-                    WHERE working_mode = 'Line Mode'
-                      AND battery_current_chg > 0
-                      AND (
-                          -- new rows: trust the recorded charger_priority
-                          (charger_priority IS NOT NULL AND charger_priority != 'solar_only')
-                          OR
-                          -- historical rows (pre-migration): no solar = must be grid
-                          (charger_priority IS NULL AND COALESCE(pv_power_w, 0) < 50)
-                      )
-                      AND time >= NOW() - ($1 || ' days')::interval
-                ),
-                with_sid AS (
-                    SELECT time, battery_voltage, battery_current_chg, battery_soc,
-                           output_power_w,
-                           SUM(CASE WHEN prev_time IS NULL
-                                         OR time - prev_time > INTERVAL '30 minutes'
-                                    THEN 1 ELSE 0 END)
-                               OVER (ORDER BY time) AS sid,
-                           CASE
-                               WHEN prev_time IS NULL
-                                    OR time - prev_time > INTERVAL '30 minutes'
-                               THEN 0.0
-                               ELSE LEAST(
-                                   EXTRACT(EPOCH FROM (time - prev_time)) / 3600.0,
-                                   10.0 / 60.0
-                               )
-                           END AS dt_h
-                    FROM ordered
-                ),
-                sessions_agg AS (
-                    SELECT
-                        sid,
-                        MIN(time)                                                AS start_time,
-                        MAX(time)                                                AS end_time,
-                        (array_agg(battery_voltage ORDER BY time))[1]           AS v_start,
-                        (array_agg(battery_voltage ORDER BY time DESC))[1]      AS v_end,
-                        (array_agg(battery_soc     ORDER BY time))[1]           AS soc_start,
-                        (array_agg(battery_soc     ORDER BY time DESC))[1]      AS soc_end,
-                        ROUND(CAST(AVG(battery_current_chg) AS numeric), 1)     AS avg_a,
-                        ROUND(CAST(MAX(battery_current_chg) AS numeric), 1)     AS max_a,
-                        ROUND(CAST(AVG(output_power_w + battery_voltage * battery_current_chg)
-                                   AS numeric), 0)                              AS avg_w,
-                        ROUND(CAST(
-                            SUM((output_power_w + battery_voltage * battery_current_chg) * dt_h)
-                            AS numeric), 3)                                     AS energy_wh,
-                        ROUND(EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) / 60) AS dur_min
-                    FROM with_sid
-                    GROUP BY sid
-                    HAVING COUNT(*) >= 3
-                )
-                SELECT
-                    start_time, end_time,
-                    v_start, v_end, soc_start, soc_end,
-                    avg_a, max_a, avg_w,
-                    ROUND(energy_wh / 1000.0, 3) AS energy_kwh,
-                    dur_min
-                FROM sessions_agg
-                ORDER BY start_time DESC
-            """, str(days))
-
-            await conn.close()
-
-            sessions_list = [{
-                "start":      r["start_time"].isoformat(),
-                "end":        r["end_time"].isoformat(),
-                "v_start":    float(r["v_start"] or 0),
-                "v_end":      float(r["v_end"] or 0),
-                "soc_start":  int(r["soc_start"] or 0),
-                "soc_end":    int(r["soc_end"] or 0),
-                "avg_a":      float(r["avg_a"] or 0),
-                "max_a":      float(r["max_a"] or 0),
-                "avg_w":      float(r["avg_w"] or 0),
-                "energy_kwh": float(r["energy_kwh"] or 0),
-                "dur_min":    int(r["dur_min"] or 0),
-            } for r in sessions]
-
-            # Daily aggregates (UTC date from start_time)
-            from collections import defaultdict
-            daily: dict = defaultdict(lambda: {"energy_kwh": 0.0, "sessions": 0})
-            for s in sessions_list:
-                day = s["start"][:10]
-                daily[day]["energy_kwh"] = round(
-                    daily[day]["energy_kwh"] + s["energy_kwh"], 3)
-                daily[day]["sessions"] += 1
-            daily_list = [
-                {"day": d, "energy_kwh": v["energy_kwh"], "sessions": v["sessions"]}
-                for d, v in sorted(daily.items())
-            ]
-
+                    WHERE time >= NOW() - ($1::int * INTERVAL '1 day')
+                      AND (charger_priority IS NOT NULL OR charger_priority_raw IS NOT NULL)
+                    ORDER BY time DESC
+                """, days)
+            finally:
+                await conn.close()
+            observations = []
+            for row in rows:
+                observation = dict(row)
+                observation["time"] = row["time"].isoformat()
+                observations.append(observation)
             return JSONResponse({
-                "sessions": sessions_list,
-                "daily":    daily_list,
+                "verified_since": verified_since.isoformat() if verified_since is not None else None,
+                "observations": observations,
             })
-        except Exception as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=500)
+        except Exception:
+            return JSONResponse({"detail": "Unable to load charger-source telemetry"}, status_code=500)
 
     return router
 

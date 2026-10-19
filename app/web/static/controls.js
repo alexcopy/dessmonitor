@@ -1,133 +1,179 @@
-/* controls.js — Grid Charging History: daily kWh bar chart + session table */
+/* Direct charger-source observations; no reconstructed sessions or energy. */
 (function () {
-    var chartInst = null;
+    'use strict';
+    var requestVersion = 0;
+    var chart = null;
 
-    /* "19 Oct" from YYYY-MM-DD */
-    function fmtDay(iso) {
-        var d = new Date(iso + 'T00:00:00Z');
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    function fmtDT(value) {
+        if (value === null || value === undefined) return '—';
+        return new Date(value).toLocaleString('en-GB', {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
     }
 
-    /* "Oct 19 07:10" from ISO datetime */
-    function fmtDT(iso) {
-        var d = new Date(iso);
-        return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
-             + ' '
-             + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    function fmtNumber(value, unit) {
+        if (value === null || value === undefined) return '—';
+        return value.toFixed(1) + ' ' + unit;
     }
 
-    /* duration in minutes → "1h 50m" or "45 min" */
-    function fmtDur(min) {
-        min = Math.round(min);
-        if (min >= 60) return Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
-        return min + ' min';
+    function cell(row, value) {
+        var td = document.createElement('td');
+        td.className = 'dm-mono';
+        td.textContent = value === null || value === undefined ? '—' : value;
+        row.appendChild(td);
+        return td;
     }
 
-    function renderDailyChart(daily) {
-        var canvas = document.getElementById('chargeVoltChart');
-        if (!canvas) return;
+    function message(body, text) {
+        body.replaceChildren();
+        var row = document.createElement('tr');
+        cell(row, text).colSpan = 12;
+        body.appendChild(row);
+    }
 
-        var labels  = daily.map(function(d) { return fmtDay(d.day); });
-        var kwh     = daily.map(function(d) { return d.energy_kwh; });
-        var counts  = daily.map(function(d) { return d.sessions; });
+    function renderObservations(body, observations) {
+        body.replaceChildren();
+        if (!observations.length) {
+            message(body, 'No charger-source observations in this time range.');
+            return;
+        }
+        var fragment = document.createDocumentFragment();
+        observations.forEach(function (observation) {
+            var row = document.createElement('tr');
+            cell(row, fmtDT(observation.time));
+            var source = cell(row, observation.charger_priority);
+            if (observation.charger_priority_raw !== null && observation.charger_priority_raw !== undefined) {
+                var raw = document.createElement('small');
+                raw.className = 'is-block';
+                raw.textContent = observation.charger_priority_raw;
+                source.appendChild(raw);
+            }
+            cell(row, observation.working_mode);
+            cell(row, fmtNumber(observation.battery_voltage, 'V'));
+            cell(row, fmtNumber(observation.battery_soc, '%'));
+            cell(row, fmtNumber(observation.battery_current_chg, 'A'));
+            cell(row, fmtNumber(observation.battery_current_dis, 'A'));
+            cell(row, fmtNumber(observation.pv_power_w, 'W'));
+            cell(row, fmtNumber(observation.output_power_w, 'W'));
+            cell(row, fmtNumber(observation.ac_input_voltage, 'V'));
+            cell(row, fmtNumber(observation.output_voltage, 'V'));
+            cell(row, fmtNumber(observation.ac_output_load_pct, '%'));
+            fragment.appendChild(row);
+        });
+        body.appendChild(fragment);
+    }
 
-        if (chartInst) { chartInst.destroy(); }
-        chartInst = new Chart(canvas, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Grid energy (kWh)',
-                    data: kwh,
-                    backgroundColor: 'rgba(41,182,246,0.75)',
-                    borderColor:     '#29b6f6',
-                    borderWidth: 1,
-                    borderRadius: 3
-                }]
-            },
+    function renderChart(observations) {
+        var rows = observations.slice().sort(function (a, b) {
+            return Date.parse(a.time) - Date.parse(b.time);
+        });
+        var states = {solar_only: 0, solar_priority: 1, solar_and_mains: 2};
+        var sourceLabels = ['Solar only', 'Solar priority', 'Solar + mains'];
+        var current = [], output = [], source = [];
+        var previousTime = null, previousSource = null, changes = 0;
+        rows.forEach(function (row) {
+            var x = Date.parse(row.time);
+            var canonical = Object.prototype.hasOwnProperty.call(states, row.charger_priority)
+                ? row.charger_priority : null;
+            var changed = previousSource !== null && canonical !== null && canonical !== previousSource;
+            if (changed) changes += 1;
+            // An unmapped raw observation breaks canonical comparison continuity.
+            // Do not count a transition into, out of, or across an unknown state.
+            previousSource = canonical;
+            if (previousTime !== null && x - previousTime > 60 * 60 * 1000) {
+                // Null separators break rendering only; they are not measurements.
+                var gap = {x: previousTime + 1, y: null};
+                current.push(gap); output.push(gap); source.push(gap);
+            }
+            current.push({x: x, y: row.battery_current_chg == null ? null : row.battery_current_chg, row: row});
+            output.push({x: x, y: row.output_power_w == null ? null : row.output_power_w, row: row});
+            source.push({x: x, y: Object.prototype.hasOwnProperty.call(states, row.charger_priority)
+                ? states[row.charger_priority] : null, row: row, changed: changed});
+            previousTime = x;
+        });
+        document.getElementById('chargeSourceChanges').textContent = 'Observed source changes: ' + changes;
+        if (chart) chart.destroy();
+        var now = Date.now();
+        chart = new Chart(document.getElementById('chargerHistoryChart'), {
+            type: 'line',
+            data: {datasets: [
+                {label: 'Battery charge current (A DC)', data: current, yAxisID: 'current',
+                    borderColor: '#ffca28', pointRadius: 1, spanGaps: false},
+                {label: 'Inverter output (W)', data: output, yAxisID: 'output',
+                    borderColor: '#26a69a', pointRadius: 1, spanGaps: false},
+                {label: 'Charger source', data: source, yAxisID: 'source',
+                    borderColor: '#42a5f5', stepped: true, spanGaps: false,
+                    pointRadius: function (context) { return context.raw && context.raw.changed ? 4 : 0; }}
+            ]},
             options: {
-                responsive: true,
-                animation: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            title: function(items) {
-                                var idx = items[0].dataIndex;
-                                return fmtDay(daily[idx].day);
-                            },
-                            label: function(ctx) {
-                                var d = daily[ctx.dataIndex];
-                                return [
-                                    'Energy: ' + d.energy_kwh.toFixed(3) + ' kWh',
-                                    'Sessions: ' + d.sessions
-                                ];
-                            }
-                        }
-                    }
-                },
+                responsive: true, maintainAspectRatio: false, animation: false,
+                interaction: {mode: 'nearest', intersect: false},
                 scales: {
-                    x: {
-                        ticks: { color: '#888', font: { size: 10 } },
-                        grid:  { color: 'rgba(255,255,255,0.04)' }
-                    },
-                    y: {
-                        min: 0,
-                        title: {
-                            display: true,
-                            text: 'kWh from grid',
-                            color: '#888',
-                            font: { size: 10 }
-                        },
-                        ticks: {
-                            color: '#888',
-                            font: { size: 10 },
-                            callback: function(v) { return v.toFixed(2); }
-                        },
-                        grid: { color: 'rgba(255,255,255,0.06)' }
+                    x: {type: 'linear', min: now - 7 * 24 * 60 * 60 * 1000, max: now,
+                        ticks: {maxTicksLimit: 8, callback: function (value) {
+                            return new Date(value).toLocaleString('en-GB', {
+                                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                            });
+                        }}},
+                    current: {type: 'linear', position: 'left', beginAtZero: true,
+                        title: {display: true, text: 'Battery charge current (A DC)'}},
+                    output: {type: 'linear', position: 'right', beginAtZero: true,
+                        grid: {drawOnChartArea: false}, title: {display: true, text: 'Inverter output (W)'}},
+                    source: {type: 'linear', position: 'right', min: 0, max: 2,
+                        grid: {drawOnChartArea: false}, ticks: {stepSize: 1,
+                            callback: function (value) { return sourceLabels[value]; }}}
+                },
+                plugins: {tooltip: {callbacks: {
+                    title: function (items) { return items.length ? fmtDT(items[0].raw.row.time) : ''; },
+                    label: function (context) {
+                        var row = context.raw.row;
+                        function text(value) { return value == null ? '—' : value; }
+                        return [
+                            'Charger source: ' + text(row.charger_priority),
+                            'Raw charger source: ' + text(row.charger_priority_raw),
+                            'Working mode: ' + text(row.working_mode),
+                            'Battery voltage: ' + fmtNumber(row.battery_voltage, 'V'),
+                            'SOC: ' + fmtNumber(row.battery_soc, '%'),
+                            'Battery charge current: ' + fmtNumber(row.battery_current_chg, 'A DC'),
+                            'Battery discharge current: ' + fmtNumber(row.battery_current_dis, 'A DC'),
+                            'PV power: ' + fmtNumber(row.pv_power_w, 'W'),
+                            'Inverter output: ' + fmtNumber(row.output_power_w, 'W'),
+                            'AC input voltage: ' + fmtNumber(row.ac_input_voltage, 'V'),
+                            'Output voltage: ' + fmtNumber(row.output_voltage, 'V'),
+                            'Load: ' + fmtNumber(row.ac_output_load_pct, '%')
+                        ];
                     }
-                }
+                }}}
             }
         });
     }
 
-    function renderSessionsTable(sessions) {
-        var tbody = document.getElementById('chargeEventsBody');
-        if (!tbody) return;
-        if (!sessions || !sessions.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="dm-mono">No grid charge sessions yet</td></tr>';
-            return;
+    async function loadChargeHistory() {
+        var body = document.getElementById('chargeObservationsBody');
+        var since = document.getElementById('chargeVerifiedSince');
+        if (!body || !since) return;
+        var version = ++requestVersion;
+        message(body, 'Loading…');
+        since.textContent = 'Loading charger-source telemetry…';
+        try {
+            var response = await fetch('/api/charge/history?days=7', {cache: 'no-store'});
+            if (!response.ok) throw new Error('Request failed');
+            var data = await response.json();
+            if (version !== requestVersion) return;
+            since.textContent = data.verified_since === null
+                ? 'No charger-source telemetry has been recorded yet.'
+                : 'Charger-source telemetry recorded since: ' + fmtDT(data.verified_since);
+            renderObservations(body, data.observations);
+            renderChart(data.observations);
+        } catch (error) {
+            if (version !== requestVersion) return;
+            since.textContent = 'Charger-source telemetry unavailable.';
+            document.getElementById('chargeSourceChanges').textContent = 'Observed source changes: —';
+            if (chart) { chart.destroy(); chart = null; }
+            message(body, 'Failed to load observations. Reload the page to retry.');
         }
-        tbody.innerHTML = sessions.map(function(s) {
-            return '<tr>' +
-                '<td class="dm-mono">'                            + fmtDT(s.start)                         + '</td>' +
-                '<td class="dm-mono blue-text">'                  + fmtDur(s.dur_min)                      + '</td>' +
-                '<td class="dm-mono amber-text">'                 + s.avg_a.toFixed(1) + ' A'              + '</td>' +
-                '<td class="dm-mono teal-text">'                  + Math.round(s.avg_w) + ' W'             + '</td>' +
-                '<td class="dm-mono green-text">'                 + s.energy_kwh.toFixed(3) + ' kWh'       + '</td>' +
-                '<td class="dm-mono" style="color:#aaa">'         + s.v_start.toFixed(1) + '→' + s.v_end.toFixed(1) + 'V</td>' +
-                '</tr>';
-        }).join('');
     }
 
-    function loadChargeHistory(days) {
-        fetch('/api/charge/history?days=' + (days || 14))
-            .then(function(r) { return r.ok ? r.json() : null; })
-            .then(function(data) {
-                if (!data) return;
-                renderDailyChart(data.daily   || []);
-                renderSessionsTable(data.sessions || []);
-            })
-            .catch(function() {});
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        loadChargeHistory(14);
-        var sel = document.getElementById('chargeHistoryDays');
-        if (sel) {
-            sel.addEventListener('change', function() {
-                loadChargeHistory(parseInt(this.value));
-            });
-        }
-    });
-})();
+    document.addEventListener('DOMContentLoaded', loadChargeHistory);
+}());
