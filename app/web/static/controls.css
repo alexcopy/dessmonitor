@@ -1,0 +1,111 @@
+/* controls.css — page-specific styles for the charger history redesign */
+
+/* ── section note (e.g. "7 days" after the label text) ────────── */
+.dm-section-label-note {
+    font-size: 0.65rem;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: none;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.45rem;
+    margin-left: 0.4rem;
+    font-family: var(--mono);
+}
+
+/* ── KPI strip ─────────────────────────────────────────────────── */
+.dm-kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.dm-kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+}
+
+.dm-kpi-card--wide {
+    grid-column: span 1;
+}
+
+.dm-kpi-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.35rem;
+}
+
+.dm-kpi-val {
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text);
+}
+
+.dm-kpi-val--sm {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-dim);
+}
+
+/* ── chart section spacing ─────────────────────────────────────── */
+.dm-chart-section {
+    margin-bottom: 1.25rem;
+}
+
+/* ── events table hints ────────────────────────────────────────── */
+.dm-events-hint {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-bottom: 0.85rem;
+    line-height: 1.5;
+}
+
+/* ── source badge inside events table ─────────────────────────── */
+.dm-ev-badge {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+
+/* ── empty chart placeholder ───────────────────────────────────── */
+.dm-chart-empty {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    min-height: 80px;
+}
+
+/* ── compact table (tighter rows for events log) ───────────────── */
+.dm-table-compact td,
+.dm-table-compact th {
+    padding: 0.4rem 0.5rem;
+}
+
+/* ── responsive ────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .dm-kpi-strip { grid-template-columns: repeat(3, 1fr); }
+    .dm-kpi-card--wide { grid-column: span 1; }
+}
+
+@media (max-width: 720px) {
+    .dm-kpi-strip { grid-template-columns: 1fr 1fr; }
+    .dm-grid-2    { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+    .dm-kpi-strip { grid-template-columns: 1fr; }
+}

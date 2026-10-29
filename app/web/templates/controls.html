@@ -6,6 +6,7 @@
     <title>dessmonitor — Controls</title>
     <link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
     <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/controls.css">
     <script defer src="/static/dashboard.js"></script>
     <script defer src="/static/vendor/chart.umd.min.js"></script>
     <script defer src="/static/controls.js"></script>
@@ -15,22 +16,12 @@
 <nav class="dm-nav" role="banner">
     <div class="dm-nav-brand">dess<span>monitor</span></div>
     <button class="dm-nav-hamburger" id="navHamburger" aria-label="Menu">&#9776;</button>
-        <div class="dm-nav-links" id="navLinks">
-        <a href="/" class="dm-nav-link">
-            <span class="nav-icon">&#9632;</span> Dashboard
-        </a>
-        <a href="/analytics" class="dm-nav-link">
-            <span class="nav-icon">&#9776;</span> Analytics
-        </a>
-        <a href="/alarms" class="dm-nav-link">
-            <span class="nav-icon">&#9888;</span> Alarms
-        </a>
-        <a href="/controls" class="dm-nav-link active">
-            <span class="nav-icon">&#9881;</span> Controls
-        </a>
-        <a href="/settings" class="dm-nav-link">
-            <span class="nav-icon">&#9874;</span> Settings
-        </a>
+    <div class="dm-nav-links" id="navLinks">
+        <a href="/" class="dm-nav-link"><span class="nav-icon">&#9632;</span> Dashboard</a>
+        <a href="/analytics" class="dm-nav-link"><span class="nav-icon">&#9776;</span> Analytics</a>
+        <a href="/alarms" class="dm-nav-link"><span class="nav-icon">&#9888;</span> Alarms</a>
+        <a href="/controls" class="dm-nav-link active"><span class="nav-icon">&#9881;</span> Controls</a>
+        <a href="/settings" class="dm-nav-link"><span class="nav-icon">&#9874;</span> Settings</a>
     </div>
     <div class="dm-nav-right">
         <span class="dm-badge degraded" id="nav-status-badge">&#9888; API</span>
@@ -44,45 +35,132 @@
 
 <main class="dm-main">
 
+    <!-- Page header -->
     <div class="dm-analytics-header">
         <div>
-            <h1 class="dm-analytics-title dm-mono">Controls</h1>
-            <div class="dm-analytics-sub">Device control panel</div>
+            <h1 class="dm-analytics-title dm-mono">Charger History</h1>
+            <div class="dm-analytics-sub" id="sourceChangesCount">Loading…</div>
+        </div>
+        <div class="dm-daterange" role="group" aria-label="Time range">
+            <button class="dm-range-btn active" data-days="2">2 days</button>
+            <button class="dm-range-btn" data-days="3">3 days</button>
+            <button class="dm-range-btn" data-days="7">7 days</button>
         </div>
     </div>
 
-    <section aria-labelledby="chargerHistoryTitle">
-        <h2 class="dm-section-label" id="chargerHistoryTitle">Charger Source History</h2>
+    <!-- Load status / error -->
+    <p id="loadStatus" class="dm-mono" style="color:var(--text-dim);margin-bottom:1rem">Loading…</p>
+
+    <!-- ── KPI strip ──────────────────────────────────────────── -->
+    <div class="dm-kpi-strip">
+
+        <div class="dm-kpi-card">
+            <div class="dm-kpi-label">Current source</div>
+            <div class="dm-kpi-val dm-mono" id="kpi-source">—</div>
+        </div>
+
+        <div class="dm-kpi-card">
+            <div class="dm-kpi-label">Battery SOC</div>
+            <div class="dm-kpi-val dm-mono" id="kpi-soc">—</div>
+        </div>
+
+        <div class="dm-kpi-card">
+            <div class="dm-kpi-label">Battery voltage</div>
+            <div class="dm-kpi-val dm-mono" id="kpi-batv">—</div>
+        </div>
+
+        <div class="dm-kpi-card">
+            <div class="dm-kpi-label">Source changes (7d)</div>
+            <div class="dm-kpi-val dm-mono" id="kpi-changes">—</div>
+        </div>
+
+        <div class="dm-kpi-card">
+            <div class="dm-kpi-label">Grid charging (24h)</div>
+            <div class="dm-kpi-val dm-mono" id="kpi-mains24">—</div>
+        </div>
+
+        <div class="dm-kpi-card dm-kpi-card--wide">
+            <div class="dm-kpi-label">Telemetry since</div>
+            <div class="dm-kpi-val dm-kpi-val--sm dm-mono" id="kpi-since">—</div>
+        </div>
+
+    </div>
+
+    <!-- ── Charts ─────────────────────────────────────────────── -->
+
+    <!-- Source timeline (always 7 days, for big picture) -->
+    <section class="dm-chart-section" aria-labelledby="srcChartTitle">
+        <h2 class="dm-section-label" id="srcChartTitle">
+            Source timeline
+            <span class="dm-section-label-note">7 days</span>
+        </h2>
         <div class="dm-card">
-            <p class="mb-3">Direct inverter observations from the last 7 days. No inferred sessions or estimated grid energy.</p>
-            <p class="mb-3" id="chargeVerifiedSince" role="status">Loading charger-source telemetry…</p>
-            <p class="mb-3">Last 7 days</p>
-            <p id="chargeSourceChanges" class="mb-3" role="status">Observed source changes: —</p>
-            <p class="help mb-3">Changes are observed between stored samples; switches between samples may be missed. Lines break across telemetry gaps longer than one hour.</p>
-            <div class="dm-chart-wrap tall">
-                <canvas id="chargerHistoryChart" class="dm-chart-canvas" role="img" aria-label="Recorded battery charge current, inverter output and charger source over the last 7 days"></canvas>
+            <div class="dm-chart-wrap" style="height:110px">
+                <canvas id="sourceChart" class="dm-chart-canvas"
+                    aria-label="Charger source mode over 7 days"></canvas>
             </div>
-            <h3 class="dm-section-label mt-4">Recorded observations</h3>
+        </div>
+    </section>
+
+    <!-- Two charts side by side on wide screens -->
+    <div class="dm-grid-2 dm-chart-section">
+
+        <!-- Solar PV + SOC -->
+        <section aria-labelledby="solarChartTitle">
+            <h2 class="dm-section-label" id="solarChartTitle">
+                Solar output &amp; battery SOC
+                <span class="dm-section-label-note" id="solarRangeLabel">2 days</span>
+            </h2>
+            <div class="dm-card">
+                <div class="dm-chart-wrap" style="height:200px">
+                    <canvas id="solarChart" class="dm-chart-canvas"
+                        aria-label="PV power and battery SOC"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Grid charging -->
+        <section aria-labelledby="gridChartTitle">
+            <h2 class="dm-section-label" id="gridChartTitle">
+                Grid charging sessions
+                <span class="dm-section-label-note" id="gridRangeLabel">2 days</span>
+            </h2>
+            <div class="dm-card">
+                <div class="dm-chart-wrap" style="height:200px" id="gridChartWrap">
+                    <canvas id="gridChart" class="dm-chart-canvas"
+                        aria-label="Battery charge current and AC input voltage during grid charging"></canvas>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ── Events log ─────────────────────────────────────────── -->
+    <section class="dm-chart-section" aria-labelledby="eventsTitle">
+        <h2 class="dm-section-label" id="eventsTitle">
+            Significant changes
+            <span class="dm-section-label-note" id="events-count"></span>
+        </h2>
+        <div class="dm-card">
+            <p class="dm-events-hint">
+                Only rows where source, mode, SOC (±5&nbsp;%) or battery voltage (±0.3&nbsp;V) changed.
+                Use the range buttons above to narrow the window.
+            </p>
             <div class="table-container">
-                <table class="dm-table" id="chargeObservationsTable">
+                <table class="dm-table dm-table-compact" id="eventsTable">
                     <thead>
                         <tr>
-                            <th>Observed</th>
-                            <th>Charger Source</th>
-                            <th>Working Mode</th>
-                            <th>Battery V</th>
+                            <th>When</th>
+                            <th>Source</th>
+                            <th>Mode</th>
                             <th>SOC</th>
-                            <th title="Battery charging current reported by inverter (DC)">Charge A</th>
-                            <th>Discharge A</th>
-                            <th>PV W</th>
-                            <th>Output W</th>
-                            <th>AC Input V</th>
-                            <th>Output V</th>
-                            <th>Load %</th>
+                            <th>Bat V</th>
+                            <th>PV</th>
+                            <th>Duration</th>
                         </tr>
                     </thead>
-                    <tbody id="chargeObservationsBody">
-                        <tr><td colspan="12" class="dm-mono">Loading…</td></tr>
+                    <tbody id="eventsBody">
+                        <tr><td colspan="7" class="dm-mono" style="color:var(--text-dim);text-align:center">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
