@@ -78,6 +78,7 @@ class InverterMonitor:
             working_mode=dd.working_state,
             charger_priority_raw=dd.charger_priority,
             charger_priority=charger_mode(dd.charger_priority),
+            output_priority_raw=dd.output_priority,
             mains_status=dd.mains_status,
             timestamp=dd.timestamp,
             inverter_summary=dd.summary(),  # красивая строка для UI

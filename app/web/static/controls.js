@@ -1,532 +1,300 @@
-/* controls.js — redesigned charger source history */
+/* controls.js — observed inverter output-mode diagnostics */
 (function () {
     'use strict';
 
     var requestVersion = 0;
     var charts = {};
     var allObservations = [];
-    var currentDays = 2;
+    var apiTransitions = [];
+    var summary24h = {};
+    var currentDays = 1;
+    var GAP_MS = 60 * 60 * 1000;
 
-    /* ─── formatting helpers ─────────────────────────────────── */
     function fmtDT(value) {
         if (value == null) return '—';
-        return new Date(value).toLocaleString('en-GB', {
-            day: 'numeric', month: 'short',
-            hour: '2-digit', minute: '2-digit'
-        });
+        return new Date(value).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     }
-
     function fmtDTFull(value) {
         if (value == null) return '—';
-        return new Date(value).toLocaleString('en-GB', {
-            day: 'numeric', month: 'short',
-            hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
+        return new Date(value).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
-
-    function fmtNum(value, unit, decimals) {
+    function fmtValue(value, unit, decimals) {
         if (value == null) return '—';
-        return value.toFixed(decimals != null ? decimals : 1) + ' ' + unit;
+        var number = Number(value);
+        return Number.isFinite(number) ? number.toFixed(decimals == null ? 1 : decimals) + ' ' + unit : '—';
+    }
+    function fmtDuration(seconds) {
+        if (seconds == null) return '—';
+        var minutes = Math.round(Number(seconds) / 60);
+        if (minutes < 1) return '<1 min';
+        if (minutes < 60) return minutes + ' min';
+        var hours = Math.floor(minutes / 60), remainder = minutes % 60;
+        return hours + ' h' + (remainder ? ' ' + remainder + ' min' : '');
     }
 
-    function fmtDuration(ms) {
-        if (ms <= 0) return '<1 min';
-        var m = Math.round(ms / 60000);
-        if (m < 60) return m + ' min';
-        var h = Math.floor(m / 60), rm = m % 60;
-        return h + ' h' + (rm ? ' ' + rm + ' min' : '');
-    }
-
-    var SOURCE_LABEL = {
-        solar_only: 'Solar only',
-        solar_priority: 'Solar priority',
-        solar_and_mains: 'Solar + mains'
-    };
-
-    var SOURCE_COLOR = {
-        solar_only: '#26a69a',
-        solar_priority: '#ffca28',
-        solar_and_mains: '#42a5f5'
-    };
-
-    /* ─── smart events: collapse identical runs ──────────────── */
-    function buildEvents(rows, days) {
-        var cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-        var filtered = rows.filter(function (r) {
-            return Date.parse(r.time) >= cutoff;
-        });
-        if (!filtered.length) return [];
-
-        var events = [];
-        var prev = null;
-
-        filtered.forEach(function (row) {
-            var soc    = row.battery_soc    != null ? Math.round(row.battery_soc)    : null;
-            var batV   = row.battery_voltage != null ? Math.round(row.battery_voltage * 10) / 10 : null;
-            var src    = row.charger_priority  || '—';
-            var mode   = row.working_mode      || '—';
-
-            var changed = false;
-            if (!prev) {
-                changed = true;
-            } else {
-                if (src  !== prev.src)  changed = true;
-                if (mode !== prev.mode) changed = true;
-                if (soc  !== null && prev.soc  !== null && Math.abs(soc - prev.soc)   >= 5) changed = true;
-                if (batV !== null && prev.batV !== null && Math.abs(batV - prev.batV) >= 0.3) changed = true;
-            }
-
-            if (changed) {
-                if (prev && events.length) {
-                    events[events.length - 1].end = row.time;
-                    events[events.length - 1].duration =
-                        Date.parse(row.time) - Date.parse(events[events.length - 1].time);
-                }
-                events.push({
-                    time: row.time,
-                    end: null,
-                    duration: null,
-                    src: src, mode: mode,
-                    soc: soc, batV: batV,
-                    pvW:  row.pv_power_w,
-                    outW: row.output_power_w,
-                    acV:  row.ac_input_voltage,
-                    chgA: row.battery_current_chg,
-                    disA: row.battery_current_dis,
-                    raw:  row
-                });
-                prev = { src, mode, soc, batV };
-            }
-        });
-
-        return events.reverse(); // newest first
-    }
-
-    /* ─── summary KPIs ────────────────────────────────────────── */
-    function renderSummary(observations, verifiedSince) {
-        if (!observations.length) return;
-
-        // most recent row
-        var last = observations[observations.length - 1];
-        var now  = Date.now();
-
-        // count source changes
-        var changes = 0;
-        var prevSrc = null;
-        observations.forEach(function (r) {
-            if (prevSrc !== null && r.charger_priority !== prevSrc) changes++;
-            prevSrc = r.charger_priority;
-        });
-
-        // mains time in last 24h
-        var cutoff24 = now - 24 * 3600 * 1000;
-        var mainsMs = 0;
-        var sortedByTime = observations.slice().sort(function(a,b){ return Date.parse(a.time)-Date.parse(b.time); });
-        for (var i = 1; i < sortedByTime.length; i++) {
-            var t0 = Date.parse(sortedByTime[i-1].time);
-            var t1 = Date.parse(sortedByTime[i].time);
-            if (t1 < cutoff24) continue;
-            var start = Math.max(t0, cutoff24);
-            var gap = t1 - t0;
-            if (gap < 3600000 && sortedByTime[i-1].charger_priority === 'solar_and_mains') {
-                mainsMs += t1 - start;
-            }
-        }
-
-        setText('kpi-source', SOURCE_LABEL[last.charger_priority] || last.charger_priority || '—');
-        setText('kpi-soc',    last.battery_soc != null ? Math.round(last.battery_soc) + '%' : '—');
-        setText('kpi-batv',   last.battery_voltage != null ? last.battery_voltage.toFixed(1) + ' V' : '—');
-        setText('kpi-changes', changes);
-        setText('kpi-mains24', fmtDuration(mainsMs));
-        setText('kpi-since',   verifiedSince ? fmtDTFull(verifiedSince) : '—');
-
-        var srcEl = document.getElementById('kpi-source');
-        if (srcEl) {
-            srcEl.style.color = SOURCE_COLOR[last.charger_priority] || '';
-        }
-
-        // SOC color
-        var socEl = document.getElementById('kpi-soc');
-        if (socEl && last.battery_soc != null) {
-            var s = last.battery_soc;
-            socEl.style.color = s >= 80 ? 'var(--green)' : s >= 40 ? 'var(--amber)' : 'var(--red)';
-        }
-    }
+    var SOURCE_LABEL = { solar_only: 'Solar only', solar_priority: 'Solar priority', solar_and_mains: 'Solar + mains' };
+    var SOURCE_COLOR = { solar_only: '#26a69a', solar_priority: '#ffca28', solar_and_mains: '#42a5f5' };
 
     function setText(id, value) {
-        var el = document.getElementById(id);
-        if (el) el.textContent = value;
+        var element = document.getElementById(id);
+        if (element) element.textContent = value == null ? '—' : value;
+    }
+    function sortedRows(rows) {
+        return rows.slice().sort(function (a, b) { return Date.parse(a.time) - Date.parse(b.time); });
+    }
+    function rowsForDays(rows, days) {
+        var cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        return sortedRows(rows).filter(function (row) { return Date.parse(row.time) >= cutoff; });
     }
 
-    /* ─── events table ────────────────────────────────────────── */
-    function renderEvents(events) {
-        var body = document.getElementById('eventsBody');
-        if (!body) return;
-        body.replaceChildren();
-
-        if (!events.length) {
-            var tr = document.createElement('tr');
-            var td = document.createElement('td');
-            td.colSpan = 7;
-            td.className = 'dm-mono';
-            td.style.textAlign = 'center';
-            td.style.color = 'var(--text-dim)';
-            td.textContent = 'No significant changes in this period.';
-            tr.appendChild(td);
-            body.appendChild(tr);
-            return;
-        }
-
-        var frag = document.createDocumentFragment();
-        events.forEach(function (ev) {
-            var tr = document.createElement('tr');
-
-            // time
-            td_(tr, fmtDT(ev.time), 'dm-mono');
-
-            // source badge
-            var srcTd = document.createElement('td');
-            var badge = document.createElement('span');
-            badge.className = 'dm-ev-badge';
-            badge.style.color = SOURCE_COLOR[ev.src] || 'var(--text)';
-            badge.textContent = SOURCE_LABEL[ev.src] || ev.src;
-            srcTd.appendChild(badge);
-            tr.appendChild(srcTd);
-
-            // mode
-            td_(tr, ev.mode, 'dm-mono');
-
-            // SOC
-            var socTd = document.createElement('td');
-            socTd.className = 'dm-mono';
-            if (ev.soc != null) {
-                socTd.textContent = ev.soc + '%';
-                socTd.style.color = ev.soc >= 80 ? 'var(--green)' : ev.soc >= 40 ? 'var(--amber)' : 'var(--red)';
-            } else {
-                socTd.textContent = '—';
+    /* Fallback for cached/older API responses. SOC and voltage never create events. */
+    function buildObservedTransitions(rows, days) {
+        var filtered = rowsForDays(rows, days), transitions = [], previousMode = null, previousIndex = null;
+        filtered.forEach(function (row, index) {
+            var mode = row.working_mode;
+            if (mode == null || String(mode).trim() === '') {
+                previousMode = null; previousIndex = null; return;
             }
-            tr.appendChild(socTd);
-
-            // Battery V
-            td_(tr, ev.batV != null ? ev.batV.toFixed(1) + ' V' : '—', 'dm-mono');
-
-            // PV W
-            td_(tr, ev.pvW != null ? Math.round(ev.pvW) + ' W' : '—', 'dm-mono');
-
-            // Duration
-            td_(tr, ev.duration != null ? fmtDuration(ev.duration) : '…', 'dm-mono');
-
-            frag.appendChild(tr);
+            mode = String(mode);
+            if (previousMode !== null && mode !== previousMode && previousIndex !== null) {
+                transitions.push({
+                    observed_at: row.time, from_mode: previousMode, to_mode: mode,
+                    battery_voltage: row.battery_voltage, battery_soc: row.battery_soc,
+                    battery_current_chg: row.battery_current_chg, battery_current_dis: row.battery_current_dis,
+                    pv_power_w: row.pv_power_w, output_power_w: row.output_power_w,
+                    ac_input_voltage: row.ac_input_voltage, output_voltage: row.output_voltage,
+                    charger_priority: row.charger_priority, output_priority_raw: row.output_priority_raw,
+                    mains_status: row.mains_status, observed_dwell: null, _index: index
+                });
+            }
+            previousMode = mode; previousIndex = index;
         });
-        body.appendChild(frag);
+        transitions.forEach(function (transition, index) {
+            var next = transitions[index + 1];
+            if (!next) return;
+            var continuous = true;
+            for (var rowIndex = transition._index; rowIndex < next._index; rowIndex++) {
+                if (Date.parse(filtered[rowIndex + 1].time) - Date.parse(filtered[rowIndex].time) > GAP_MS) {
+                    continuous = false; break;
+                }
+            }
+            if (continuous) transition.observed_dwell = (Date.parse(next.observed_at) - Date.parse(transition.observed_at)) / 1000;
+        });
+        transitions.forEach(function (transition) { delete transition._index; });
+        return transitions.reverse();
+    }
+    function transitionsForDays(days) {
+        var cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        var transitions = apiTransitions.length ? apiTransitions : buildObservedTransitions(allObservations, days);
+        return transitions.filter(function (transition) { return Date.parse(transition.observed_at) >= cutoff; });
+    }
+
+    function renderSummary(observations, summary) {
+        var sorted = sortedRows(observations);
+        var ids = ['kpi-source', 'kpi-mode', 'kpi-mode-changes', 'kpi-line-invert', 'kpi-invert-line',
+            'kpi-source-changes', 'kpi-shortest-dwell', 'kpi-median-dwell', 'kpi-soc', 'kpi-batv'];
+        if (!sorted.length) { ids.forEach(function (id) { setText(id, '—'); }); return; }
+        var last = sorted[sorted.length - 1]; summary = summary || {};
+        setText('kpi-source', SOURCE_LABEL[last.charger_priority] || last.charger_priority || '—');
+        setText('kpi-mode', last.working_mode || '—');
+        setText('kpi-mode-changes', summary.output_mode_changes == null ? 0 : summary.output_mode_changes);
+        setText('kpi-line-invert', summary.line_to_invert == null ? 0 : summary.line_to_invert);
+        setText('kpi-invert-line', summary.invert_to_line == null ? 0 : summary.invert_to_line);
+        setText('kpi-source-changes', summary.charger_source_changes == null ? 0 : summary.charger_source_changes);
+        setText('kpi-shortest-dwell', fmtDuration(summary.shortest_observed_dwell));
+        setText('kpi-median-dwell', fmtDuration(summary.median_observed_dwell));
+        setText('kpi-soc', last.battery_soc == null ? '—' : Math.round(last.battery_soc) + '%');
+        setText('kpi-batv', fmtValue(last.battery_voltage, 'V', 1));
+        var sourceElement = document.getElementById('kpi-source');
+        if (sourceElement) sourceElement.style.color = SOURCE_COLOR[last.charger_priority] || '';
+        var modeElement = document.getElementById('kpi-mode');
+        if (modeElement) modeElement.style.color = last.working_mode === 'Invert Mode' ? 'var(--amber)' : '';
+        setText('sourceChangesCount', (summary.output_mode_changes == null ? 0 : summary.output_mode_changes) +
+            ' output-mode changes · ' + (summary.charger_source_changes == null ? 0 : summary.charger_source_changes) +
+            ' charger-source changes in 24h');
     }
 
     function td_(row, text, cls) {
-        var td = document.createElement('td');
-        if (cls) td.className = cls;
-        td.textContent = text == null ? '—' : text;
-        row.appendChild(td);
-        return td;
+        var cell = document.createElement('td');
+        if (cls) cell.className = cls;
+        cell.textContent = text == null ? '—' : text;
+        row.appendChild(cell);
+        return cell;
+    }
+    function renderTransitions(transitions) {
+        var body = document.getElementById('eventsBody');
+        if (!body) return;
+        body.replaceChildren();
+        transitions = transitions.slice().sort(function (a, b) {
+            return Date.parse(b.observed_at) - Date.parse(a.observed_at);
+        });
+        setText('events-count', transitions.length + ' transition' + (transitions.length === 1 ? '' : 's'));
+        if (!transitions.length) {
+            var empty = document.createElement('tr'), emptyCell = document.createElement('td');
+            emptyCell.colSpan = 10;
+            emptyCell.className = 'dm-mono';
+            emptyCell.style.cssText = 'color:var(--text-dim);text-align:center';
+            emptyCell.textContent = 'No observed output-mode transitions in this period.';
+            empty.appendChild(emptyCell);
+            body.appendChild(empty);
+            return;
+        }
+        var fragment = document.createDocumentFragment();
+        transitions.forEach(function (transition) {
+            var row = document.createElement('tr');
+            row.title = transition.battery_soc == null ? '' : 'Reported SOC at transition: ' + Math.round(transition.battery_soc) + '%';
+            td_(row, fmtDT(transition.observed_at), 'dm-mono');
+            td_(row, transition.from_mode + ' → ' + transition.to_mode, 'dm-mono');
+            td_(row, fmtValue(transition.battery_voltage, 'V', 1), 'dm-mono');
+            td_(row, fmtValue(transition.pv_power_w, 'W', 0), 'dm-mono');
+            td_(row, fmtValue(transition.battery_current_chg, 'A', 1), 'dm-mono');
+            td_(row, fmtValue(transition.battery_current_dis, 'A', 1), 'dm-mono');
+            td_(row, fmtValue(transition.output_power_w, 'W', 0), 'dm-mono');
+            td_(row, SOURCE_LABEL[transition.charger_priority] || transition.charger_priority || '—', 'dm-mono');
+            td_(row, transition.output_priority_raw || '—', 'dm-mono');
+            td_(row, fmtDuration(transition.observed_dwell), 'dm-mono');
+            fragment.appendChild(row);
+        });
+        body.appendChild(fragment);
     }
 
-    /* ─── charts ──────────────────────────────────────────────── */
     function destroyCharts() {
-        Object.values(charts).forEach(function (c) { if (c) c.destroy(); });
+        Object.keys(charts).forEach(function (key) { if (charts[key]) charts[key].destroy(); });
         charts = {};
     }
-
-    function buildTimePoints(rows, days) {
-        var cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-        var sorted = rows.filter(function (r) {
-            return Date.parse(r.time) >= cutoff;
-        }).sort(function (a, b) {
-            return Date.parse(a.time) - Date.parse(b.time);
-        });
-        return sorted;
-    }
-
-    function withGaps(rows, valueKey) {
-        var points = [];
-        var prev = null;
-        rows.forEach(function (r) {
-            var x = Date.parse(r.time);
-            if (prev !== null && x - prev > 3600000) {
-                points.push({ x: prev + 1, y: null });
-            }
-            points.push({ x: x, y: r[valueKey] });
-            prev = x;
+    function withGaps(rows, key) {
+        var points = [], previous = null;
+        rows.forEach(function (row) {
+            var x = Date.parse(row.time);
+            if (previous !== null && x - previous > GAP_MS) points.push({ x: previous + 1, y: null });
+            points.push({ x: x, y: row[key] == null ? null : row[key] });
+            previous = x;
         });
         return points;
     }
-
     var TICK_OPTS = {
         maxTicksLimit: 7,
         callback: function (value) {
-            return new Date(value).toLocaleString('en-GB', {
-                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-            });
+            return new Date(value).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
         }
     };
-
     function xScale(days) {
-        return {
-            type: 'linear',
-            min: Date.now() - days * 24 * 60 * 60 * 1000,
-            max: Date.now(),
-            ticks: TICK_OPTS
-        };
+        return { type: 'linear', min: Date.now() - days * 24 * 60 * 60 * 1000, max: Date.now(), ticks: TICK_OPTS };
     }
 
-    /* Chart 1 — Solar PV power + battery SOC over selected period */
-    function renderSolarChart(rows, days) {
-        var canvas = document.getElementById('solarChart');
+    function renderOutputChart(rows, days) {
+        var canvas = document.getElementById('outputChart');
         if (!canvas) return;
-        var data = buildTimePoints(rows, days);
-
-        if (charts.solar) charts.solar.destroy();
-        charts.solar = new Chart(canvas, {
+        var data = rowsForDays(rows, days), states = {};
+        data.forEach(function (row) {
+            if (row.working_mode != null && String(row.working_mode).trim() !== '') {
+                var label = String(row.working_mode);
+                if (!Object.prototype.hasOwnProperty.call(states, label)) states[label] = Object.keys(states).length;
+            }
+        });
+        var labels = Object.keys(states);
+        var modePoints = data.map(function (row) {
+            var mode = row.working_mode == null ? null : String(row.working_mode);
+            return { x: Date.parse(row.time), y: Object.prototype.hasOwnProperty.call(states, mode) ? states[mode] : null };
+        });
+        var transitionPoints = transitionsForDays(days).map(function (transition) {
+            return { x: Date.parse(transition.observed_at), y: Object.prototype.hasOwnProperty.call(states, transition.to_mode) ? states[transition.to_mode] : null };
+        });
+        if (charts.output) charts.output.destroy();
+        charts.output = new Chart(canvas, {
             type: 'line',
             data: { datasets: [
-                {
-                    label: 'PV power (W)',
-                    data: withGaps(data, 'pv_power_w'),
-                    yAxisID: 'pv',
-                    borderColor: '#26a69a',
-                    backgroundColor: 'rgba(38,166,154,0.08)',
-                    fill: true,
-                    pointRadius: 0,
-                    spanGaps: false,
-                    tension: 0.3
-                },
-                {
-                    label: 'SOC (%)',
-                    data: withGaps(data, 'battery_soc'),
-                    yAxisID: 'soc',
-                    borderColor: '#ffca28',
-                    pointRadius: 0,
-                    spanGaps: false,
-                    tension: 0.2
-                }
+                { label: 'Battery voltage (V)', data: withGaps(data, 'battery_voltage'), yAxisID: 'voltage', borderColor: '#26a69a', pointRadius: 0, borderWidth: 2, spanGaps: false, tension: 0 },
+                { label: 'Output mode', data: modePoints, yAxisID: 'mode', borderColor: '#ffca28', pointRadius: 0, borderWidth: 2, spanGaps: false, stepped: true, tension: 0 },
+                { label: 'Observed transition', data: transitionPoints, yAxisID: 'mode', borderColor: '#ef5350', backgroundColor: '#ef5350', pointRadius: 5, pointHoverRadius: 7, showLine: false, pointStyle: 'triangle' }
             ]},
             options: {
-                responsive: true, maintainAspectRatio: false, animation: false,
-                interaction: { mode: 'nearest', intersect: false },
+                responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false },
                 scales: {
                     x: xScale(days),
-                    pv: {
-                        type: 'linear', position: 'left', beginAtZero: true,
-                        title: { display: true, text: 'PV (W)' }
-                    },
-                    soc: {
-                        type: 'linear', position: 'right', min: 0, max: 100,
-                        grid: { drawOnChartArea: false },
-                        title: { display: true, text: 'SOC (%)' }
-                    }
+                    voltage: { type: 'linear', position: 'left', title: { display: true, text: 'Battery voltage (V)' } },
+                    mode: { type: 'linear', position: 'right', min: -0.5, max: Math.max(0.5, labels.length - 0.5), grid: { drawOnChartArea: false }, ticks: { stepSize: 1, callback: function (value) { return labels[value] || ''; } }, title: { display: true, text: 'Output mode' } }
                 },
                 plugins: { tooltip: { callbacks: {
-                    title: function (items) {
-                        return items.length ? fmtDTFull(items[0].raw.x) : '';
+                    title: function (items) { return items.length ? fmtDTFull(items[0].raw.x) : ''; },
+                    label: function (context) {
+                        if (context.dataset.label === 'Observed transition') return 'Observed transition';
+                        if (context.dataset.yAxisID === 'mode') return 'Output mode: ' + (labels[context.raw.y] || '—');
+                        return context.dataset.label + ': ' + fmtValue(context.raw.y, 'V', 1);
                     }
                 }}}
             }
         });
     }
 
-    /* Chart 2 — Grid charging: charge current + AC input voltage (only solar_and_mains rows) */
-    function renderGridChart(rows, days) {
-        var canvas = document.getElementById('gridChart');
+    function renderPvChart(rows, days) {
+        var canvas = document.getElementById('pvChart');
         if (!canvas) return;
-        var data = buildTimePoints(rows, days)
-            .filter(function (r) { return r.charger_priority === 'solar_and_mains'; });
-
-        if (!data.length) {
-            var wrap = canvas.parentElement;
-            wrap.innerHTML = '<div class="dm-chart-empty">No grid charging in this period</div>';
-            return;
-        }
-
-        var pts_chg = [], pts_acv = [];
-        data.forEach(function (r) {
-            var x = Date.parse(r.time);
-            pts_chg.push({ x: x, y: r.battery_current_chg });
-            pts_acv.push({ x: x, y: r.ac_input_voltage });
-        });
-
-        if (charts.grid) charts.grid.destroy();
-        charts.grid = new Chart(canvas, {
+        var data = rowsForDays(rows, days);
+        if (charts.pv) charts.pv.destroy();
+        charts.pv = new Chart(canvas, {
             type: 'line',
-            data: { datasets: [
-                {
-                    label: 'Charge current (A DC)',
-                    data: pts_chg,
-                    yAxisID: 'chg',
-                    borderColor: '#42a5f5',
-                    backgroundColor: 'rgba(66,165,245,0.08)',
-                    fill: true,
-                    pointRadius: 2,
-                    spanGaps: false,
-                    tension: 0.2
-                },
-                {
-                    label: 'AC input (V)',
-                    data: pts_acv,
-                    yAxisID: 'acv',
-                    borderColor: '#ab47bc',
-                    pointRadius: 0,
-                    spanGaps: false,
-                    tension: 0.2
-                }
-            ]},
-            options: {
-                responsive: true, maintainAspectRatio: false, animation: false,
-                interaction: { mode: 'nearest', intersect: false },
-                scales: {
-                    x: xScale(days),
-                    chg: {
-                        type: 'linear', position: 'left', beginAtZero: true,
-                        title: { display: true, text: 'Charge A (DC)' }
-                    },
-                    acv: {
-                        type: 'linear', position: 'right',
-                        grid: { drawOnChartArea: false },
-                        title: { display: true, text: 'AC input (V)' }
-                    }
-                },
-                plugins: { tooltip: { callbacks: {
-                    title: function (items) {
-                        return items.length ? fmtDTFull(items[0].raw.x) : '';
-                    }
-                }}}
-            }
+            data: { datasets: [{ label: 'PV power (W)', data: withGaps(data, 'pv_power_w'), borderColor: '#42a5f5', backgroundColor: 'rgba(66,165,245,0.10)', pointRadius: 0, borderWidth: 2, spanGaps: false, tension: 0, fill: true }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false }, scales: { x: xScale(days), y: { beginAtZero: true, title: { display: true, text: 'PV power (W)' } } }, plugins: { tooltip: { callbacks: { title: function (items) { return items.length ? fmtDTFull(items[0].raw.x) : ''; } } } } }
         });
     }
 
-    /* Chart 3 — Source timeline (7 days only, stepped) */
     function renderSourceChart(rows) {
         var canvas = document.getElementById('sourceChart');
         if (!canvas) return;
-
-        var STATES = { solar_only: 0, solar_priority: 1, solar_and_mains: 2 };
-        var SRC_LABELS = ['Solar only', 'Solar priority', 'Solar + mains'];
-        var sorted = rows.slice().sort(function (a, b) {
-            return Date.parse(a.time) - Date.parse(b.time);
+        var states = { solar_only: 0, solar_priority: 1, solar_and_mains: 2 };
+        var labels = ['Solar only', 'Solar priority', 'Solar + mains'];
+        var data = sortedRows(rows), points = [], previous = null;
+        data.forEach(function (row) {
+            var x = Date.parse(row.time);
+            if (previous !== null && x - previous > GAP_MS) points.push({ x: previous + 1, y: null });
+            points.push({ x: x, y: Object.prototype.hasOwnProperty.call(states, row.charger_priority) ? states[row.charger_priority] : null });
+            previous = x;
         });
-
-        var pts = [], prev = null;
-        sorted.forEach(function (r) {
-            var x = Date.parse(r.time);
-            if (prev !== null && x - prev > 3600000) {
-                pts.push({ x: prev + 1, y: null });
-            }
-            pts.push({
-                x: x,
-                y: Object.prototype.hasOwnProperty.call(STATES, r.charger_priority)
-                    ? STATES[r.charger_priority] : null
-            });
-            prev = x;
-        });
-
         if (charts.source) charts.source.destroy();
         charts.source = new Chart(canvas, {
             type: 'line',
-            data: { datasets: [{
-                label: 'Charger source',
-                data: pts,
-                borderColor: '#42a5f5',
-                stepped: true,
-                pointRadius: 0,
-                spanGaps: false
-            }]},
-            options: {
-                responsive: true, maintainAspectRatio: false, animation: false,
-                interaction: { mode: 'nearest', intersect: false },
-                scales: {
-                    x: xScale(7),
-                    y: {
-                        type: 'linear', min: 0, max: 2,
-                        ticks: {
-                            stepSize: 1,
-                            callback: function (v) { return SRC_LABELS[v] || ''; }
-                        }
-                    }
-                },
-                plugins: { tooltip: { callbacks: {
-                    title: function (items) {
-                        return items.length ? fmtDTFull(items[0].raw.x) : '';
-                    },
-                    label: function (ctx) {
-                        return 'Source: ' + (SRC_LABELS[ctx.raw.y] || '—');
-                    }
-                }}}
-            }
-        });
-    }
-
-    /* ─── date range tabs ────────────────────────────────────── */
-    function bindRangeButtons() {
-        document.querySelectorAll('[data-days]').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                document.querySelectorAll('[data-days]').forEach(function (b) {
-                    b.classList.remove('active');
-                });
-                btn.classList.add('active');
-                currentDays = parseInt(btn.dataset.days, 10);
-                renderAll(currentDays);
-            });
+            data: { datasets: [{ label: 'Charger source', data: points, borderColor: '#ab47bc', stepped: true, pointRadius: 0, spanGaps: false }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false }, scales: { x: xScale(7), y: { min: -0.5, max: 2.5, ticks: { stepSize: 1, callback: function (value) { return labels[value] || ''; } } } }, plugins: { tooltip: { callbacks: { title: function (items) { return items.length ? fmtDTFull(items[0].raw.x) : ''; }, label: function (context) { return 'Charger source: ' + (labels[context.raw.y] || '—'); } } } } }
         });
     }
 
     function renderAll(days) {
-        var events = buildEvents(allObservations, days);
-        renderEvents(events);
-
-        // Update events count badge
-        setText('events-count', events.length + ' event' + (events.length !== 1 ? 's' : ''));
-
-        renderSolarChart(allObservations, days);
-        renderGridChart(allObservations, days);
+        renderTransitions(transitionsForDays(days));
+        renderOutputChart(allObservations, days);
+        renderPvChart(allObservations, days);
+        setText('solarRangeLabel', days === 1 ? '24h' : days + ' days');
+        setText('gridRangeLabel', days === 1 ? '24h' : days + ' days');
     }
-
-    /* ─── load data ───────────────────────────────────────────── */
+    function bindRangeButtons() {
+        document.querySelectorAll('[data-days]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                document.querySelectorAll('[data-days]').forEach(function (other) { other.classList.remove('active'); });
+                button.classList.add('active');
+                currentDays = parseInt(button.dataset.days, 10);
+                renderAll(currentDays);
+            });
+        });
+    }
     async function load() {
         var version = ++requestVersion;
         setText('loadStatus', 'Loading…');
-
         try {
             var response = await fetch('/api/charge/history?days=7', { cache: 'no-store' });
             if (!response.ok) throw new Error('Request failed');
-            var data = await response.json();
+            var payload = await response.json();
             if (version !== requestVersion) return;
-
-            allObservations = (data.observations || []).slice().sort(function (a, b) {
-                return Date.parse(a.time) - Date.parse(b.time);
-            });
-
-            // hide load status
-            var statusEl = document.getElementById('loadStatus');
-            if (statusEl) statusEl.style.display = 'none';
-
-            renderSummary(allObservations, data.verified_since);
+            allObservations = payload.observations || [];
+            apiTransitions = payload.transitions || [];
+            summary24h = payload.summary_24h || {};
+            var status = document.getElementById('loadStatus');
+            if (status) status.style.display = 'none';
+            renderSummary(allObservations, summary24h);
             renderSourceChart(allObservations);
             renderAll(currentDays);
-
-            // count changes for header
-            var changes = 0;
-            var prevSrc = null;
-            allObservations.forEach(function (r) {
-                if (prevSrc !== null && r.charger_priority !== prevSrc) changes++;
-                prevSrc = r.charger_priority;
-            });
-            setText('sourceChangesCount', changes + ' source change' + (changes !== 1 ? 's' : '') + ' in 7 days');
-
-        } catch (err) {
-            if (version !== requestVersion) return;
-            setText('loadStatus', 'Failed to load. Reload to retry.');
+        } catch (error) {
+            if (version === requestVersion) setText('loadStatus', 'Failed to load. Reload to retry.');
         }
     }
-
-    document.addEventListener('DOMContentLoaded', function () {
-        bindRangeButtons();
-        load();
-    });
+    document.addEventListener('DOMContentLoaded', function () { bindRangeButtons(); load(); });
 }());

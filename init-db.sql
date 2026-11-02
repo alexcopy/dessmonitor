@@ -58,6 +58,45 @@ CREATE INDEX IF NOT EXISTS idx_power_mode_events_mode
 ON power_mode_events (to_mode, time DESC);
 
 -- ============================================================================
+-- Raw inverter observations used by the controls diagnostics
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS inverter_metrics (
+    time                TIMESTAMPTZ NOT NULL,
+    battery_voltage     DOUBLE PRECISION,
+    battery_soc         DOUBLE PRECISION,
+    battery_current_dis DOUBLE PRECISION,
+    battery_current_chg DOUBLE PRECISION,
+    pv_power_w          DOUBLE PRECISION,
+    output_power_w      DOUBLE PRECISION,
+    output_voltage      DOUBLE PRECISION,
+    ac_input_voltage    DOUBLE PRECISION,
+    ac_input_frequency  DOUBLE PRECISION,
+    ac_output_load_pct  DOUBLE PRECISION,
+    total_load_w        DOUBLE PRECISION,
+    working_mode        TEXT,
+    charger_priority    TEXT,
+    charger_priority_raw TEXT,
+    output_priority_raw TEXT,
+    mains_status        TEXT,
+    PRIMARY KEY (time)
+);
+
+SELECT create_hypertable(
+    'inverter_metrics',
+    'time',
+    if_not_exists => TRUE,
+    chunk_time_interval => INTERVAL '1 day'
+);
+
+ALTER TABLE inverter_metrics
+    ADD COLUMN IF NOT EXISTS output_priority_raw TEXT;
+ALTER TABLE inverter_metrics
+    ADD COLUMN IF NOT EXISTS mains_status TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_inverter_metrics_mode
+ON inverter_metrics (working_mode, time DESC);
+
+-- ============================================================================
 -- 🆕 Таблица погоды
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS weather_data (
