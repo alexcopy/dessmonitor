@@ -214,6 +214,8 @@ class TimescaleDataCollector:
                     working_mode        TEXT,
                     charger_priority    TEXT,
                     charger_priority_raw TEXT,
+                    output_priority_raw TEXT,
+                    mains_status        TEXT,
                     PRIMARY KEY (time)
                 );
             """)
@@ -223,6 +225,10 @@ class TimescaleDataCollector:
                 ADD COLUMN IF NOT EXISTS charger_priority TEXT;
                 ALTER TABLE inverter_metrics
                 ADD COLUMN IF NOT EXISTS charger_priority_raw TEXT;
+                ALTER TABLE inverter_metrics
+                ADD COLUMN IF NOT EXISTS output_priority_raw TEXT;
+                ALTER TABLE inverter_metrics
+                ADD COLUMN IF NOT EXISTS mains_status TEXT;
             """)
             try:
                 await conn.execute("""
@@ -666,9 +672,10 @@ class TimescaleDataCollector:
                         battery_current_dis, battery_current_chg,
                         pv_power_w, output_power_w, output_voltage,
                         ac_input_voltage, ac_input_frequency, ac_output_load_pct,
-                        total_load_w, working_mode, charger_priority, charger_priority_raw
+                        total_load_w, working_mode, charger_priority, charger_priority_raw,
+                        output_priority_raw, mains_status
                     ) VALUES (
-                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
+                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
                     ) ON CONFLICT (time) DO NOTHING
                 """,
                 timestamp,
@@ -686,6 +693,8 @@ class TimescaleDataCollector:
                 shared_state.get("working_mode"),
                 shared_state.get("charger_priority"),
                 shared_state.get("charger_priority_raw"),
+                shared_state.get("output_priority_raw"),
+                shared_state.get("mains_status"),
                 )
                 logger.debug("[TS] inverter_metrics written at %s", timestamp)
         except Exception as exc:
