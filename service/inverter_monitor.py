@@ -1,5 +1,6 @@
 # app/service/inverter_monitor.py
-import asyncio, logging
+import asyncio, logging, time
+from datetime import datetime, timezone
 from app.api import DessAPI, DeviceData
 from app.monitoring.inverter_logger import InverterLogger
 from app.service.battery_charge_controller import charger_mode
@@ -8,7 +9,7 @@ from shared_state.shared_state import shared_state
 
 
 class InverterMonitor:
-    def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None, charge_controller=None):
+    def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None, charge_controller=None, shadow_monitor=None):
         self.api      = dess_api
         self.interval = poll_sec
         self.logger   = InverterLogger()                  # файл + Loki
@@ -17,6 +18,8 @@ class InverterMonitor:
         self.last_data: DeviceData | None = None
         self.solar_controller = solar_controller
         self.charge_controller = charge_controller
+        self.shadow_monitor = shadow_monitor
+        self._shadow_last_error_log = None
 
     async def run(self) -> None:
         while not self._stop.is_set():
@@ -42,6 +45,14 @@ class InverterMonitor:
                     except Exception as exc:
                         self.imp.warning("[INV_MON] charge tick failed: %s", exc,
                             extra={"type": "inverter", "evt": "charge_tick_fail"})
+                if self.shadow_monitor is not None:
+                    try:
+                        await asyncio.to_thread(self.shadow_monitor.observe, dd, evaluated_at=datetime.now(timezone.utc))
+                    except Exception:
+                        now = time.monotonic()
+                        if self._shadow_last_error_log is None or now - self._shadow_last_error_log >= 300:
+                            self.imp.exception("[OUTPUT_SHADOW] evaluation failed; monitoring continues")
+                            self._shadow_last_error_log = now
             except Exception as exc:
                 # отправим в Loki причину ошибки
                 self.imp.warning("[INV_MON] fetch failed: %s", exc,

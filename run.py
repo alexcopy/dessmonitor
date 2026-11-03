@@ -133,7 +133,25 @@ async def main() -> None:
                 __import__("time").monotonic() - t1, dess_exc,
             )
     charge_ctrl = BatteryChargeController(dess_api)
-    inverter_mon = InverterMonitor(dess_api, poll_sec=60, charge_controller=charge_ctrl)
+    shadow_monitor = None
+    if os.getenv("ADAPTIVE_OUTPUT_SHADOW_ENABLED", "false").lower() in ("1", "true", "yes", "on"):
+        try:
+            from app.control.output_policy_config import load_output_policy, OutputPolicyConfig
+            from app.control.shadow_output_monitor import ShadowOutputMonitor
+            config_path = DeviceInitializer._resolve_config_path(None)
+            try:
+                policy_config = load_output_policy(config_path)
+                baseline = policy_config.to_baseline() if isinstance(policy_config, OutputPolicyConfig) else None
+                if baseline is None:
+                    important_log.warning("[OUTPUT_SHADOW] policy unconfigured; limits remain unknown")
+            except Exception as exc:
+                important_log.warning("[OUTPUT_SHADOW] policy unavailable (%s); limits remain unknown", type(exc).__name__)
+                baseline = None
+            shadow_monitor = ShadowOutputMonitor(baseline, important_log)
+            important_log.info("[OUTPUT_SHADOW] enabled; observe only")
+        except Exception:
+            important_log.exception("[OUTPUT_SHADOW] startup failed; monitoring continues")
+    inverter_mon = InverterMonitor(dess_api, poll_sec=60, charge_controller=charge_ctrl, shadow_monitor=shadow_monitor)
     inverter_task = asyncio.create_task(inverter_mon.run())
 
     # ─── 4b. OPTIONAL WEB HOST (start early for reset visibility) ──
