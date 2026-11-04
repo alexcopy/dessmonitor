@@ -34,6 +34,25 @@ class ShadowOutputMonitor:
         self.history = deque(maxlen=12000)
         self._last_log = None
         self._last_signature = None
+        self._last_reported_mode = None
+        self._last_reported_at = None
+        self._last_reported_change_at = None
+
+    def _record_mode_report(self, mode, received, evaluated):
+        """Log changes seen at receipt; never use them as measurement-time evidence."""
+        if (mode not in ("Line Mode", "Invert Mode") or received is None or received > evaluated
+                or (self._last_reported_at is not None and received <= self._last_reported_at)):
+            self._last_reported_mode = self._last_reported_at = self._last_reported_change_at = None
+            return
+        if self._last_reported_mode is not None and mode != self._last_reported_mode:
+            interval = (received - self._last_reported_change_at).total_seconds() if self._last_reported_change_at else None
+            self.logger.info(
+                "[OUTPUT_SHADOW_REPORT] from=%s to=%s received_at=%s interval_between_reported_changes_s=%s device_time=not_used",
+                self._last_reported_mode, mode, received, interval,
+            )
+            self._last_reported_change_at = received
+        self._last_reported_mode = mode
+        self._last_reported_at = received
 
     def observe(self, data, *, evaluated_at, received_at=None, sun_times=None):
         evaluated = _observed_at(evaluated_at)
@@ -60,6 +79,7 @@ class ShadowOutputMonitor:
             sunrise=sunrise, sunset=sunset, forecast=None,
         )
         result = evaluate_output_policy(snapshot, self.baseline, tuple(self.history), evaluated_at=evaluated)
+        self._record_mode_report(data.working_state, received, evaluated)
         # Only accepted, ordered, non-future samples may prune retained history.
         if (observed is not None and observed <= evaluated
                 and (received is None or observed <= received <= evaluated)
