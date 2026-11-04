@@ -9,6 +9,9 @@
     var summary24h = {};
     var currentDays = 1;
     var GAP_MS = 60 * 60 * 1000;
+    var REFRESH_MS = 60 * 1000;
+    var loading = false;
+    var hasData = false;
 
     function fmtDT(value) {
         if (value == null) return '—';
@@ -93,7 +96,11 @@
         var sorted = sortedRows(observations);
         var ids = ['kpi-source', 'kpi-mode', 'kpi-mode-changes', 'kpi-line-invert', 'kpi-invert-line',
             'kpi-source-changes', 'kpi-shortest-dwell', 'kpi-median-dwell', 'kpi-soc', 'kpi-batv'];
-        if (!sorted.length) { ids.forEach(function (id) { setText(id, '—'); }); return; }
+        if (!sorted.length) {
+            ids.forEach(function (id) { setText(id, '—'); });
+            setText('sourceChangesCount', 'No observations available');
+            return;
+        }
         var last = sorted[sorted.length - 1]; summary = summary || {};
         setText('kpi-source', SOURCE_LABEL[last.charger_priority] || last.charger_priority || '—');
         setText('kpi-mode', last.working_mode || '—');
@@ -267,34 +274,61 @@
         setText('gridRangeLabel', days === 1 ? '24h' : days + ' days');
     }
     function bindRangeButtons() {
+        try {
+            var saved = Number(sessionStorage.getItem('controls.days'));
+            if ([1, 2, 7].indexOf(saved) !== -1) currentDays = saved;
+        } catch (_) { /* Storage may be disabled. */ }
         document.querySelectorAll('[data-days]').forEach(function (button) {
+            button.classList.toggle('active', Number(button.dataset.days) === currentDays);
             button.addEventListener('click', function () {
                 document.querySelectorAll('[data-days]').forEach(function (other) { other.classList.remove('active'); });
                 button.classList.add('active');
                 currentDays = parseInt(button.dataset.days, 10);
+                try { sessionStorage.setItem('controls.days', String(currentDays)); } catch (_) { /* Optional. */ }
                 renderAll(currentDays);
             });
         });
     }
     async function load() {
+        if (loading) return;
+        loading = true;
         var version = ++requestVersion;
-        setText('loadStatus', 'Loading…');
+        var controller = new AbortController();
+        var timeout = setTimeout(function () { controller.abort(); }, 20000);
+        if (!hasData) setText('loadStatus', 'Loading…');
         try {
-            var response = await fetch('/api/charge/history?days=7', { cache: 'no-store' });
+            var response = await fetch('/api/charge/history?days=7', { cache: 'no-store', signal: controller.signal });
             if (!response.ok) throw new Error('Request failed');
             var payload = await response.json();
+            if (!payload || !Array.isArray(payload.observations) || !Array.isArray(payload.transitions) ||
+                !payload.summary_24h || typeof payload.summary_24h !== 'object' || Array.isArray(payload.summary_24h) ||
+                payload.observations.some(function (row) { return !row || typeof row !== 'object' || !Number.isFinite(Date.parse(row.time)); }) ||
+                payload.transitions.some(function (row) { return !row || typeof row !== 'object' || !Number.isFinite(Date.parse(row.observed_at)); })) {
+                throw new Error('Invalid response');
+            }
             if (version !== requestVersion) return;
-            allObservations = payload.observations || [];
-            apiTransitions = payload.transitions || [];
-            summary24h = payload.summary_24h || {};
-            var status = document.getElementById('loadStatus');
-            if (status) status.style.display = 'none';
+            allObservations = payload.observations;
+            apiTransitions = payload.transitions;
+            summary24h = payload.summary_24h;
             renderSummary(allObservations, summary24h);
             renderSourceChart(allObservations);
             renderAll(currentDays);
+            hasData = true;
+            setText('loadStatus', 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' · refreshes every minute');
         } catch (error) {
-            if (version === requestVersion) setText('loadStatus', 'Failed to load. Reload to retry.');
+            if (version === requestVersion) {
+                setText('loadStatus', hasData ? 'Refresh failed; showing the last successful results. Retrying automatically.' : 'Unable to load diagnostics. Retrying automatically.');
+                if (!hasData) setText('sourceChangesCount', 'Diagnostics unavailable');
+            }
+        } finally {
+            clearTimeout(timeout);
+            loading = false;
         }
     }
-    document.addEventListener('DOMContentLoaded', function () { bindRangeButtons(); load(); });
+    document.addEventListener('DOMContentLoaded', function () {
+        bindRangeButtons();
+        load();
+        setInterval(function () { if (!document.hidden) load(); }, REFRESH_MS);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
+    });
 }());

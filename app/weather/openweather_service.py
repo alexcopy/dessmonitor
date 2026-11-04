@@ -114,6 +114,19 @@ class OpenWeatherService:
         # ========== ТЕКУЩЕЕ СОСТОЯНИЕ ==========
         current = data.get("current", {})
 
+        # One Call current.dt/sunrise/sunset are UTC Unix seconds. Keep this
+        # evidence separate from the existing hour-based control inputs.
+        def utc_instant(value):
+            if type(value) is not int:
+                return None
+            try:
+                return datetime.fromtimestamp(value, timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+
+        sun_times = tuple(utc_instant(current.get(key)) for key in ("dt", "sunrise", "sunset"))
+        shared_state["output_shadow_sun_times"] = sun_times if all(sun_times) else None
+
         # ✅ Dict-like синтаксис вместо .set()
         shared_state["ambient_temp"] = current.get("temp")
         shared_state["humidity"] = current.get("humidity")

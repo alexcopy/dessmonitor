@@ -48,6 +48,9 @@ class DeviceData:
     load_status: Optional[str] = None
     charger_priority: Optional[str] = None
     output_priority: Optional[str] = None
+    # Only populate when the source contract verifies device measurement time.
+    # The existing DESS Timestamp and gts semantics have not been established.
+    device_observed_at: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)  # type: ignore[arg-type]

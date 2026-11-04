@@ -98,6 +98,17 @@
 }
 
 /* ── compact table (tighter rows for events log) ───────────────── */
+.dm-events-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+}
+
+.dm-events-scroll .dm-table {
+    width: max-content;
+    min-width: 100%;
+}
+
 .dm-table-compact td,
 .dm-table-compact th {
     padding: 0.4rem 0.5rem;

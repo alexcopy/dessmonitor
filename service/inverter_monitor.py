@@ -25,6 +25,7 @@ class InverterMonitor:
         while not self._stop.is_set():
             try:
                 dd = await asyncio.to_thread(self.api.fetch_device_data)
+                received_at = datetime.now(timezone.utc) if self.shadow_monitor is not None else None
                 self.last_data = dd
                 self.logger.log(dd)                       # Inverter log
                 self._process_business_metrics(dd)
@@ -47,7 +48,11 @@ class InverterMonitor:
                             extra={"type": "inverter", "evt": "charge_tick_fail"})
                 if self.shadow_monitor is not None:
                     try:
-                        await asyncio.to_thread(self.shadow_monitor.observe, dd, evaluated_at=datetime.now(timezone.utc))
+                        await asyncio.to_thread(
+                            self.shadow_monitor.observe, dd, received_at=received_at,
+                            evaluated_at=datetime.now(timezone.utc),
+                            sun_times=shared_state.get("output_shadow_sun_times"),
+                        )
                     except Exception:
                         now = time.monotonic()
                         if self._shadow_last_error_log is None or now - self._shadow_last_error_log >= 300:
