@@ -34,6 +34,13 @@
         var hours = Math.floor(minutes / 60), remainder = minutes % 60;
         return hours + ' h' + (remainder ? ' ' + remainder + ' min' : '');
     }
+    function fmtSignificantDuration(ms) {
+        if (ms <= 0) return '<1 min';
+        var minutes = Math.round(ms / 60000);
+        if (minutes < 60) return minutes + ' min';
+        var hours = Math.floor(minutes / 60), remainder = minutes % 60;
+        return hours + ' h' + (remainder ? ' ' + remainder + ' min' : '');
+    }
 
     var SOURCE_LABEL = { solar_only: 'Solar only', solar_priority: 'Solar priority', solar_and_mains: 'Solar + mains' };
     var SOURCE_COLOR = { solar_only: '#26a69a', solar_priority: '#ffca28', solar_and_mains: '#42a5f5' };
@@ -48,6 +55,30 @@
     function rowsForDays(rows, days) {
         var cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
         return sortedRows(rows).filter(function (row) { return Date.parse(row.time) >= cutoff; });
+    }
+
+    /* Historical significant events compare against the last recorded event. */
+    function buildSignificantEvents(rows, days) {
+        var events = [], prev = null;
+        rowsForDays(rows, days).forEach(function (row) {
+            var soc = typeof row.battery_soc === 'number' && Number.isFinite(row.battery_soc)
+                ? Math.round(row.battery_soc) : null;
+            var batTenths = typeof row.battery_voltage === 'number' && Number.isFinite(row.battery_voltage)
+                ? Math.round(row.battery_voltage * 10) : null;
+            var src = row.charger_priority || '—', mode = row.working_mode || '—';
+            var changed = !prev || src !== prev.src || mode !== prev.mode ||
+                (soc !== null && prev.soc !== null && Math.abs(soc - prev.soc) >= 5) ||
+                (batTenths !== null && prev.batTenths !== null && Math.abs(batTenths - prev.batTenths) >= 3);
+            if (!changed) return;
+            if (prev && events.length) {
+                events[events.length - 1].duration = Date.parse(row.time) - Date.parse(events[events.length - 1].time);
+            }
+            events.push({ time: row.time, duration: null, src: src, mode: mode,
+                soc: soc, batV: batTenths === null ? null : batTenths / 10,
+                pvW: row.pv_power_w, outW: row.output_power_w });
+            prev = { src: src, mode: mode, soc: soc, batTenths: batTenths };
+        });
+        return events.reverse();
     }
 
     /* Fallback for cached/older API responses. SOC and voltage never create events. */
@@ -127,6 +158,42 @@
         cell.textContent = text == null ? '—' : text;
         row.appendChild(cell);
         return cell;
+    }
+    function renderSignificantEvents(events) {
+        var body = document.getElementById('significantEventsBody');
+        if (!body) return;
+        body.replaceChildren();
+        setText('significant-events-count', events.length + ' event' + (events.length !== 1 ? 's' : ''));
+        if (!events.length) {
+            var empty = document.createElement('tr'), cell = document.createElement('td');
+            cell.colSpan = 7;
+            cell.className = 'dm-mono';
+            cell.style.textAlign = 'center';
+            cell.style.color = 'var(--text-dim)';
+            cell.textContent = 'No significant changes in this period.';
+            empty.appendChild(cell);
+            body.appendChild(empty);
+            return;
+        }
+        var fragment = document.createDocumentFragment();
+        events.forEach(function (event) {
+            var row = document.createElement('tr');
+            td_(row, fmtDT(event.time), 'dm-mono');
+            var sourceCell = document.createElement('td'), badge = document.createElement('span');
+            badge.className = 'dm-ev-badge';
+            badge.style.color = SOURCE_COLOR[event.src] || 'var(--text)';
+            badge.textContent = SOURCE_LABEL[event.src] || event.src;
+            sourceCell.appendChild(badge);
+            row.appendChild(sourceCell);
+            td_(row, event.mode, 'dm-mono');
+            var socCell = td_(row, event.soc === null ? '—' : event.soc + '%', 'dm-mono');
+            if (event.soc !== null) socCell.style.color = event.soc >= 80 ? 'var(--green)' : event.soc >= 40 ? 'var(--amber)' : 'var(--red)';
+            td_(row, event.batV === null ? '—' : event.batV.toFixed(1) + ' V', 'dm-mono');
+            td_(row, typeof event.pvW === 'number' && Number.isFinite(event.pvW) ? Math.round(event.pvW) + ' W' : '—', 'dm-mono');
+            td_(row, event.duration === null ? '…' : fmtSignificantDuration(event.duration), 'dm-mono');
+            fragment.appendChild(row);
+        });
+        body.appendChild(fragment);
     }
     function renderTransitions(transitions) {
         var body = document.getElementById('eventsBody');
@@ -268,6 +335,7 @@
 
     function renderAll(days) {
         renderTransitions(transitionsForDays(days));
+        renderSignificantEvents(buildSignificantEvents(allObservations, days));
         renderOutputChart(allObservations, days);
         renderPvChart(allObservations, days);
         setText('solarRangeLabel', days === 1 ? '24h' : days + ' days');
