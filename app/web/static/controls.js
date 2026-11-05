@@ -8,10 +8,13 @@
     var apiTransitions = [];
     var summary24h = {};
     var currentDays = 1;
+    var displayedDays = 0;
     var GAP_MS = 60 * 60 * 1000;
     var REFRESH_MS = 60 * 1000;
     var loading = false;
     var hasData = false;
+    var activeController = null;
+    var pendingRangeLoad = false;
 
     function fmtDT(value) {
         if (value == null) return '—';
@@ -232,9 +235,14 @@
         body.appendChild(fragment);
     }
 
-    function destroyCharts() {
-        Object.keys(charts).forEach(function (key) { if (charts[key]) charts[key].destroy(); });
-        charts = {};
+    function updateChart(key, canvas, config) {
+        if (charts[key]) {
+            charts[key].data = config.data;
+            charts[key].options = config.options;
+            charts[key].update('none');
+        } else {
+            charts[key] = new Chart(canvas, config);
+        }
     }
     function withGaps(rows, key) {
         var points = [], previous = null;
@@ -274,8 +282,7 @@
         var transitionPoints = transitionsForDays(days).map(function (transition) {
             return { x: Date.parse(transition.observed_at), y: Object.prototype.hasOwnProperty.call(states, transition.to_mode) ? states[transition.to_mode] : null };
         });
-        if (charts.output) charts.output.destroy();
-        charts.output = new Chart(canvas, {
+        var config = {
             type: 'line',
             data: { datasets: [
                 { label: 'Battery voltage (V)', data: withGaps(data, 'battery_voltage'), yAxisID: 'voltage', borderColor: '#26a69a', pointRadius: 0, borderWidth: 2, spanGaps: false, tension: 0 },
@@ -298,39 +305,40 @@
                     }
                 }}}
             }
-        });
+        };
+        updateChart('output', canvas, config);
     }
 
     function renderPvChart(rows, days) {
         var canvas = document.getElementById('pvChart');
         if (!canvas) return;
         var data = rowsForDays(rows, days);
-        if (charts.pv) charts.pv.destroy();
-        charts.pv = new Chart(canvas, {
+        var config = {
             type: 'line',
             data: { datasets: [{ label: 'PV power (W)', data: withGaps(data, 'pv_power_w'), borderColor: '#42a5f5', backgroundColor: 'rgba(66,165,245,0.10)', pointRadius: 0, borderWidth: 2, spanGaps: false, tension: 0, fill: true }] },
             options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false }, scales: { x: xScale(days), y: { beginAtZero: true, title: { display: true, text: 'PV power (W)' } } }, plugins: { tooltip: { callbacks: { title: function (items) { return items.length ? fmtDTFull(items[0].raw.x) : ''; } } } } }
-        });
+        };
+        updateChart('pv', canvas, config);
     }
 
-    function renderSourceChart(rows) {
+    function renderSourceChart(rows, days) {
         var canvas = document.getElementById('sourceChart');
         if (!canvas) return;
         var states = { solar_only: 0, solar_priority: 1, solar_and_mains: 2 };
         var labels = ['Solar only', 'Solar priority', 'Solar + mains'];
-        var data = sortedRows(rows), points = [], previous = null;
+        var data = rowsForDays(rows, days), points = [], previous = null;
         data.forEach(function (row) {
             var x = Date.parse(row.time);
             if (previous !== null && x - previous > GAP_MS) points.push({ x: previous + 1, y: null });
             points.push({ x: x, y: Object.prototype.hasOwnProperty.call(states, row.charger_priority) ? states[row.charger_priority] : null });
             previous = x;
         });
-        if (charts.source) charts.source.destroy();
-        charts.source = new Chart(canvas, {
+        var config = {
             type: 'line',
             data: { datasets: [{ label: 'Charger source', data: points, borderColor: '#ab47bc', stepped: true, pointRadius: 0, spanGaps: false }] },
-            options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false }, scales: { x: xScale(7), y: { min: -0.5, max: 2.5, ticks: { stepSize: 1, callback: function (value) { return labels[value] || ''; } } } }, plugins: { tooltip: { callbacks: { title: function (items) { return items.length ? fmtDTFull(items[0].raw.x) : ''; }, label: function (context) { return 'Charger source: ' + (labels[context.raw.y] || '—'); } } } } }
-        });
+            options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false }, scales: { x: xScale(days), y: { min: -0.5, max: 2.5, ticks: { stepSize: 1, callback: function (value) { return labels[value] || ''; } } } }, plugins: { tooltip: { callbacks: { title: function (items) { return items.length ? fmtDTFull(items[0].raw.x) : ''; }, label: function (context) { return 'Charger source: ' + (labels[context.raw.y] || '—'); } } } } }
+        };
+        updateChart('source', canvas, config);
     }
 
     function renderAll(days) {
@@ -338,8 +346,10 @@
         renderSignificantEvents(buildSignificantEvents(allObservations, days));
         renderOutputChart(allObservations, days);
         renderPvChart(allObservations, days);
+        renderSourceChart(allObservations, days);
         setText('solarRangeLabel', days === 1 ? '24h' : days + ' days');
         setText('gridRangeLabel', days === 1 ? '24h' : days + ' days');
+        setText('sourceRangeLabel', days === 1 ? '24h' : days + ' days');
     }
     function bindRangeButtons() {
         try {
@@ -353,19 +363,28 @@
                 button.classList.add('active');
                 currentDays = parseInt(button.dataset.days, 10);
                 try { sessionStorage.setItem('controls.days', String(currentDays)); } catch (_) { /* Optional. */ }
-                renderAll(currentDays);
+                setText('loadStatus', 'Loading ' + (currentDays === 1 ? '24h' : currentDays + ' days') + ' history…');
+                load(true);
             });
         });
     }
-    async function load() {
-        if (loading) return;
+    async function load(forceRangeRequest) {
+        if (loading) {
+            if (forceRangeRequest) {
+                pendingRangeLoad = true;
+                if (activeController) activeController.abort();
+            }
+            return;
+        }
         loading = true;
         var version = ++requestVersion;
+        var requestedDays = currentDays;
         var controller = new AbortController();
+        activeController = controller;
         var timeout = setTimeout(function () { controller.abort(); }, 20000);
-        if (!hasData) setText('loadStatus', 'Loading…');
+        if (!hasData) setText('loadStatus', 'Loading ' + (requestedDays === 1 ? '24h' : requestedDays + ' days') + '…');
         try {
-            var response = await fetch('/api/charge/history?days=7', { cache: 'no-store', signal: controller.signal });
+            var response = await fetch('/api/charge/history?days=' + requestedDays, { cache: 'no-store', signal: controller.signal });
             if (!response.ok) throw new Error('Request failed');
             var payload = await response.json();
             if (!payload || !Array.isArray(payload.observations) || !Array.isArray(payload.transitions) ||
@@ -374,23 +393,33 @@
                 payload.transitions.some(function (row) { return !row || typeof row !== 'object' || !Number.isFinite(Date.parse(row.observed_at)); })) {
                 throw new Error('Invalid response');
             }
-            if (version !== requestVersion) return;
+            if (version !== requestVersion || requestedDays !== currentDays) return;
             allObservations = payload.observations;
             apiTransitions = payload.transitions;
             summary24h = payload.summary_24h;
             renderSummary(allObservations, summary24h);
-            renderSourceChart(allObservations);
             renderAll(currentDays);
             hasData = true;
+            displayedDays = requestedDays;
             setText('loadStatus', 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' · refreshes every minute');
         } catch (error) {
-            if (version === requestVersion) {
-                setText('loadStatus', hasData ? 'Refresh failed; showing the last successful results. Retrying automatically.' : 'Unable to load diagnostics. Retrying automatically.');
+            if (version === requestVersion && requestedDays === currentDays) {
+                var previousRange = displayedDays === 1 ? '24h' : displayedDays + ' days';
+                setText('loadStatus', hasData
+                    ? (requestedDays !== displayedDays
+                        ? 'Range refresh failed; showing the last successful ' + previousRange + ' results. Retrying automatically.'
+                        : 'Refresh failed; showing the last successful results. Retrying automatically.')
+                    : 'Unable to load diagnostics. Retrying automatically.');
                 if (!hasData) setText('sourceChangesCount', 'Diagnostics unavailable');
             }
         } finally {
             clearTimeout(timeout);
+            if (activeController === controller) activeController = null;
             loading = false;
+            if (pendingRangeLoad) {
+                pendingRangeLoad = false;
+                load();
+            }
         }
     }
     document.addEventListener('DOMContentLoaded', function () {

@@ -52,6 +52,8 @@ _STATIC_ALLOWLIST: frozenset[str] = frozenset({
     "controls.js",
     "controls.css",
     "settings.js",
+    "adaptive_decisions.js",
+    "global_nav.js",
 })
 
 # ---------------------------------------------------------------------------

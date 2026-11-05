@@ -21,6 +21,7 @@
         <a href="/analytics" class="dm-nav-link"><span class="nav-icon">&#9776;</span> Analytics</a>
         <a href="/alarms" class="dm-nav-link"><span class="nav-icon">&#9888;</span> Alarms</a>
         <a href="/controls" class="dm-nav-link active"><span class="nav-icon">&#9881;</span> Controls</a>
+        <a href="/controls/decisions" class="dm-nav-link"><span class="nav-icon">&#9776;</span> Log</a>
         <a href="/settings" class="dm-nav-link"><span class="nav-icon">&#9874;</span> Settings</a>
     </div>
     <div class="dm-nav-right">
@@ -32,6 +33,7 @@
         </form>
     </div>
 </nav>
+<script defer src="/static/global_nav.js"></script>
 
 <main class="dm-main">
 
@@ -40,7 +42,6 @@
         <div>
             <h1 class="dm-analytics-title dm-mono">Controls diagnostics</h1>
             <div class="dm-analytics-sub" id="sourceChangesCount">Loading…</div>
-            <a href="/controls/decisions">Adaptive Decision Log</a>
         </div>
         <div class="dm-daterange" role="group" aria-label="Time range">
             <button class="dm-range-btn active" data-days="1">24h</button>
@@ -113,12 +114,12 @@
     <section class="dm-chart-section" aria-labelledby="srcChartTitle">
         <h2 class="dm-section-label" id="srcChartTitle">
             <span class="dm-section-kicker">CHARGER SOURCE</span>
-            <span class="dm-section-label-note">controls where battery charging may come from · 7 days</span>
+            <span class="dm-section-label-note">controls where battery charging may come from · <span id="sourceRangeLabel">24h</span></span>
         </h2>
         <div class="dm-card">
             <div class="dm-chart-wrap" style="height:110px">
                 <canvas id="sourceChart" class="dm-chart-canvas"
-                    aria-label="Charger source over 7 days"></canvas>
+                    aria-label="Charger source for selected range"></canvas>
             </div>
         </div>
     </section>
