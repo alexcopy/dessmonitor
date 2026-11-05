@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Decision Log</title>
+<link rel="stylesheet" href="/static/vendor/bulma/1.0.4/bulma.min.css">
+<link rel="stylesheet" href="/static/dashboard.css"><link rel="stylesheet" href="/static/controls.css">
+<script defer src="/static/adaptive_decisions.js"></script></head>
+<body><main class="dm-main">
+<a href="/controls">← Controls</a>
+<h1 class="dm-analytics-title dm-mono">Adaptive Decision Log</h1>
+<p>DRY-RUN — NO HARDWARE WRITE. Proposals are hypothetical. Collection-time evidence stays exploratory.</p>
+<section class="box" aria-labelledby="decision-worker-heading">
+<h2 id="decision-worker-heading" class="title is-5">Worker health and latest evaluation</h2>
+<dl>
+<dt>Worker</dt><dd id="worker-status">Loading…</dd>
+<dt>Last evaluation</dt><dd id="worker-last-evaluation">—</dd>
+<dt>Last successful evaluation</dt><dd id="worker-last-success">—</dd>
+<dt>Last error or blocking reason</dt><dd id="worker-reason">—</dd>
+<dt>Observation count / effective window</dt><dd id="worker-window">—</dd>
+<dt>Evidence level</dt><dd id="worker-evidence">—</dd>
+<dt>Current threshold settings</dt><dd id="worker-current">Unknown</dd>
+<dt>Historical reference, not current</dt><dd id="worker-baseline">—</dd>
+<dt>Hypothetical proposal</dt><dd id="worker-proposed">—</dd>
+<dt>Confirmation / remaining cooldown</dt><dd id="worker-stability">—</dd>
+<dt>Confidence / reasons</dt><dd id="worker-confidence">—</dd>
+</dl>
+</section>
+<div role="group" aria-label="Time range">
+<button type="button" data-decision-days="1">24h</button>
+<button type="button" data-decision-days="2">48h</button>
+<button type="button" data-decision-days="7">7d</button>
+<a id="decision-export" href="/api/controls/decisions?days=1" download="adaptive-decisions.json">Export JSON</a>
+</div>
+<p id="decision-status" role="status">Loading…</p>
+<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Adaptive decisions, scroll horizontally">
+<table class="dm-table dm-table-compact"><thead><tr>
+<th>Time</th><th>Decision</th><th>Evidence</th><th>Time provenance</th><th>Threshold</th>
+<th>Current threshold</th><th>Historical reference, not current</th><th>Hypothetical proposal</th><th>Confirmation</th><th>Cooldown remaining</th>
+<th>PV power</th><th>Load</th><th>Battery voltage</th><th>Confidence</th><th>Reasons and evidence</th>
+</tr></thead><tbody id="decision-body"></tbody></table></div>
+</main></body></html>
