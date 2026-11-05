@@ -442,6 +442,17 @@ async def main() -> None:
     else:
         ml_db_task = None
 
+    # The learning worker reads stored history and writes diagnostic entries
+    # only. It never receives an inverter client or actuator.
+    learning_task = None
+    if os.getenv("ADAPTIVE_OUTPUT_LEARNING_ENABLED", "false").lower() in ("true", "1", "yes", "on"):
+        database_url = os.getenv("DATABASE_URL")
+        if database_url:
+            from app.control.online_output_learning import learning_loop
+            learning_task = asyncio.create_task(learning_loop(database_url, stop_event))
+        else:
+            important_log.warning("[OUTPUT_LEARNING] DATABASE_URL unavailable; diagnostics disabled")
+
     # ─── 7b. OPTIONAL EMBEDDED WEB HOST START ───────────────────
     # (started earlier in step 4b)
 
@@ -503,6 +514,8 @@ async def main() -> None:
         ml_csv_task.cancel()
         if ml_db_task is not None:
             ml_db_task.cancel()
+        if learning_task is not None:
+            learning_task.cancel()
         updater_task.cancel()
         inverter_task.cancel()
 
@@ -515,6 +528,8 @@ async def main() -> None:
         ]
         if ml_db_task is not None:
             gather_tasks.insert(3, ml_db_task)
+        if learning_task is not None:
+            gather_tasks.append(learning_task)
 
         # Ждём, пока они корректно завершатся
         await asyncio.gather(

@@ -14,9 +14,11 @@ No imports of hardware, Tuya, relay, device, monitoring, ML, or weather modules.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import statistics
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -43,6 +45,82 @@ _TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "web", "templates")
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
 OBSERVED_TELEMETRY_GAP_SECONDS = 60 * 60
+
+_DECISION_EXPORT_FIELDS = frozenset((
+    'evaluation_id', 'evaluated_at', 'algorithm_version', 'decision', 'threshold', 'proposed_voltage',
+    'observation_time', 'observation_age_seconds', 'receipt_time', 'collection_time', 'mode', 'pv_w',
+    'load_w', 'battery_v', 'charge_a', 'discharge_a', 'soc', 'soc_provenance',
+    'recent_reported_mode_changes', 'transitions_provenance', 'short_cycles', 'sag_estimate_v',
+    'rebound_estimate_v', 'window_seconds', 'collection_count', 'confidence', 'reason_codes',
+    'safety_blockers', 'explanation', 'hardware_write_attempted',
+    'time_provenance', 'evidence_level', 'exploratory_voltage_contrast', 'verified_sag', 'stability', 'candidate_voltage',
+    'actionability', 'confirmation_progress', 'cooldown_remaining_seconds', 'effective_window_seconds',
+    'collection_window_seconds', 'unique_observation_count', 'worker_health',
+))
+
+
+def _decision_export(entry):
+    """Export only fields produced by the diagnostics, excluding configuration."""
+    if not isinstance(entry, dict):
+        raise ValueError('invalid journal entry')
+    result = {key: value for key, value in entry.items() if key in _DECISION_EXPORT_FIELDS}
+    for name in ('current_settings', 'historical_settings'):
+        settings = entry.get(name)
+        if isinstance(settings, dict):
+            result[name] = {key: settings[key] for key in ('utility', 'battery', 'provenance') if key in settings}
+    return result
+
+
+def _adaptive_worker_enabled():
+    return os.environ.get('ADAPTIVE_OUTPUT_LEARNING_ENABLED', 'false').lower() in ('true', '1', 'yes', 'on')
+
+
+def _worker_health_from_journal(latest, *, enabled, unavailable_reason=None):
+    """Expose persisted worker timestamps and derive staleness without inventing success."""
+    stored = latest.get('worker_health') if isinstance(latest, dict) else None
+    stored = stored if isinstance(stored, dict) else {}
+    last_evaluation = stored.get('last_evaluation_at') or (latest.get('evaluated_at') if isinstance(latest, dict) else None)
+    last_success = stored.get('last_successful_evaluation_at')
+    last_error = stored.get('last_error')
+    blocking = stored.get('blocking_reason')
+    status_source = 'PERSISTED_JOURNAL' if stored else 'NOT_PERSISTED'
+    persisted_status = stored.get('status')
+    status = 'disabled' if not enabled else persisted_status if persisted_status in ('healthy', 'degraded') else 'degraded'
+    if unavailable_reason:
+        status = 'disabled' if not enabled else 'degraded'
+        blocking = unavailable_reason if enabled else 'ADAPTIVE_OUTPUT_LEARNING_DISABLED'
+        last_error = None if not enabled else last_error
+        status_source = 'CURRENT_RUNTIME_CHECK'
+    elif enabled:
+        try:
+            stamp = datetime.fromisoformat(last_evaluation.replace('Z', '+00:00')) if isinstance(last_evaluation, str) else None
+            if stamp is None or stamp.tzinfo is None or (datetime.now(timezone.utc) - stamp.astimezone(timezone.utc)).total_seconds() > 180:
+                status = 'degraded'
+                blocking = blocking or 'WORKER_EVALUATION_STALE'
+        except (TypeError, ValueError):
+            status = 'degraded'
+            blocking = blocking or 'WORKER_EVALUATION_TIME_INVALID'
+        if not stored:
+            status = 'degraded'
+            blocking = blocking or 'NO_PERSISTED_WORKER_EVALUATION'
+    return {
+        'enabled': enabled,
+        'status': status,
+        'status_source': status_source,
+        'last_evaluation_at': last_evaluation,
+        'last_successful_evaluation_at': last_success,
+        'last_error': last_error,
+        'blocking_reason': blocking,
+        'observation_count': stored.get('observation_count'),
+        'collection_count': stored.get('collection_count'),
+        'effective_window_seconds': stored.get('effective_window_seconds'),
+        'evidence_level': latest.get('evidence_level') if isinstance(latest, dict) else None,
+        'proposed_voltage': latest.get('proposed_voltage') if isinstance(latest, dict) else None,
+        'confirmation_progress': latest.get('confirmation_progress') if isinstance(latest, dict) else None,
+        'cooldown_remaining_seconds': latest.get('cooldown_remaining_seconds') if isinstance(latest, dict) else None,
+        'confidence': latest.get('confidence') if isinstance(latest, dict) else None,
+        'reason_codes': latest.get('reason_codes') if isinstance(latest, dict) else [],
+    }
 
 
 def _row_time(row: Any) -> Any:
@@ -386,6 +464,49 @@ def create_auth_router(
         )
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @router.get("/controls/decisions")
+    async def adaptive_decisions_page(request: Request) -> Any:
+        valid, user = _check_auth(request)
+        if not valid:
+            return RedirectResponse("/login", status_code=303)
+        response = templates.TemplateResponse(request=request, name="adaptive_decisions.html",
+            context={"username": user, "csrf_token": generate_csrf_token(request.session)})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @router.get("/api/controls/decisions")
+    async def adaptive_decisions_api(request: Request, days: int = 1) -> Any:
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if days not in (1, 2, 7):
+            return JSONResponse({"detail": "Invalid range"}, status_code=422)
+        enabled = _adaptive_worker_enabled()
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            return JSONResponse({"decisions": [], "worker_health": _worker_health_from_journal(
+                None, enabled=enabled, unavailable_reason='DATABASE_URL_UNAVAILABLE')},
+                headers={"Cache-Control": "no-store"})
+        try:
+            import asyncpg
+            conn = await asyncpg.connect(database_url, command_timeout=10)
+            try:
+                rows = await conn.fetch('''SELECT entry FROM adaptive_decision_journal
+                    WHERE evaluated_at >= now() - ($1::int * INTERVAL '1 day')
+                    ORDER BY evaluated_at DESC LIMIT 10000''', days)
+                parsed = [json.loads(row['entry']) for row in rows]
+                entries = [_decision_export(entry) for entry in parsed]
+                latest = parsed[0] if parsed else None
+                health = _worker_health_from_journal(latest, enabled=enabled,
+                    unavailable_reason=None if latest else 'NO_PERSISTED_WORKER_EVALUATION')
+            finally:
+                await conn.close()
+            return JSONResponse({"decisions": entries, "worker_health": health}, headers={"Cache-Control": "no-store"})
+        except Exception:
+            return JSONResponse({"decisions": [], "worker_health": _worker_health_from_journal(
+                None, enabled=enabled, unavailable_reason='DECISION_JOURNAL_UNAVAILABLE')},
+                headers={"Cache-Control": "no-store"})
 
     # -- /settings GET --------------------------------------------------
 
