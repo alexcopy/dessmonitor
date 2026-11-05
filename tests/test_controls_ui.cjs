@@ -22,13 +22,17 @@ function element(tag) {
     };
 }
 
-function setup(fetchImpl, initialStore = {}) {
+function setup(fetchImpl, initialStore = {}, withCharts = false) {
     const handlers = {};
     const timers = [];
     const values = { ...initialStore };
     const elements = {};
-    for (const id of ['loadStatus', 'sourceChangesCount', 'solarRangeLabel', 'gridRangeLabel', 'kpi-mode']) {
+    for (const id of ['loadStatus', 'sourceChangesCount', 'solarRangeLabel', 'gridRangeLabel', 'sourceRangeLabel', 'kpi-mode', 'kpi-mode-changes']) {
         elements[id] = { textContent: '', style: {} };
+    }
+    const chartInstances = [];
+    if (withCharts) {
+        for (const id of ['outputChart', 'pvChart', 'sourceChart']) elements[id] = element('canvas');
     }
     for (const id of ['eventsBody', 'significantEventsBody', 'events-count', 'significant-events-count']) {
         elements[id] = element(id);
@@ -58,32 +62,65 @@ function setup(fetchImpl, initialStore = {}) {
         sessionStorage: { getItem: k => values[k] ?? null, setItem: (k, v) => { values[k] = v; } },
         setInterval: (fn, ms) => { timers.push({ fn, ms }); },
     };
+    if (withCharts) {
+        context.Chart = function (canvas, config) {
+            this.canvas = canvas; this.data = config.data; this.options = config.options;
+            this.updates = 0; this.destroys = 0; chartInstances.push(this);
+        };
+        context.Chart.prototype.update = function () { this.updates++; };
+        context.Chart.prototype.destroy = function () { this.destroys++; };
+    }
     vm.runInNewContext(source, context);
     handlers.DOMContentLoaded();
-    return { handlers, timers, elements, buttons, values, document };
+    return { handlers, timers, elements, buttons, values, document, chartInstances };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const payload = () => ({ observations: [{ time: new Date().toISOString(), working_mode: 'Line Mode' }], transitions: [], summary_24h: {} });
 const response = data => ({ ok: true, json: async () => data });
 
-test('refresh preserves selected range and restores it on page reload', async () => {
-    let calls = 0;
-    const fetcher = async () => { calls++; return response(payload()); };
+test('initial request is 24h and selected range is requested on change and refresh', async () => {
+    const calls = [];
+    const fetcher = async url => { calls.push(url); return response(payload()); };
     const ui = setup(fetcher);
     await tick();
+    assert.equal(calls[0], '/api/charge/history?days=1');
     assert.equal(ui.timers[0].ms, 60000);
-    ui.buttons[2].click();
+    ui.buttons[1].click(); await tick();
+    assert.equal(calls[1], '/api/charge/history?days=2');
+    assert.equal(ui.values['controls.days'], '2');
+    ui.buttons[2].click(); await tick();
+    assert.equal(calls[2], '/api/charge/history?days=7');
     assert.equal(ui.values['controls.days'], '7');
     assert.equal(ui.elements.solarRangeLabel.textContent, '7 days');
     ui.timers[0].fn();
     await tick();
-    assert.equal(calls, 2);
+    assert.equal(calls[3], '/api/charge/history?days=7');
     assert.equal(ui.elements.solarRangeLabel.textContent, '7 days');
     assert.match(ui.elements.loadStatus.textContent, /Updated/);
     const reloaded = setup(fetcher, ui.values);
     await tick();
     assert.ok(reloaded.buttons[2].classes.has('active'));
     assert.equal(reloaded.elements.solarRangeLabel.textContent, '7 days');
+    assert.equal(calls[4], '/api/charge/history?days=7');
+});
+
+test('24-hour summary remains fixed when the selected observation range changes', async () => {
+    const calls = [];
+    const fetcher = async url => {
+        calls.push(url);
+        const days = Number(url.split('=')[1]);
+        const observations = Array.from({length: days * 2}, (_, index) => row(5 + index));
+        return response({observations, transitions: [], summary_24h: {
+            output_mode_changes: 6, line_to_invert: 3, invert_to_line: 3,
+            charger_source_changes: 2, shortest_observed_dwell: 60, median_observed_dwell: 120
+        }});
+    };
+    const ui = setup(fetcher);
+    await tick();
+    assert.equal(ui.elements['kpi-mode-changes'].textContent, 6);
+    ui.buttons[2].click(); await tick();
+    assert.equal(calls[1], '/api/charge/history?days=7');
+    assert.equal(ui.elements['kpi-mode-changes'].textContent, 6);
 });
 
 test('failures and malformed responses retain data and show a retry message', async () => {
@@ -119,6 +156,33 @@ test('slow requests do not overlap; hidden pages refresh when visible', async ()
     assert.equal(calls, 1);
     ui.document.hidden = false; ui.handlers.visibilitychange(); await tick();
     assert.equal(calls, 2);
+});
+
+test('changing range during a request aborts and queues one request for the latest range', async () => {
+    let active = 0, maxActive = 0;
+    const calls = [];
+    const ui = setup((url, options) => {
+        calls.push(url); active++; maxActive = Math.max(maxActive, active);
+        if (calls.length === 1) return new Promise((resolve, reject) => {
+            options.signal.addEventListener('abort', () => { active--; reject(new Error('aborted')); }, {once:true});
+        });
+        active--;
+        return Promise.resolve(response(payload()));
+    });
+    ui.buttons[1].click();
+    await tick(); await tick();
+    assert.deepEqual(calls, ['/api/charge/history?days=1', '/api/charge/history?days=2']);
+    assert.equal(maxActive, 1);
+});
+
+test('charts update in place instead of being destroyed and recreated', async () => {
+    const ui = setup(async () => response(payload()), {}, true);
+    await tick();
+    assert.equal(ui.chartInstances.length, 3);
+    assert.ok(ui.chartInstances.every(chart => chart.updates === 0));
+    ui.timers[0].fn(); await tick();
+    assert.equal(ui.chartInstances.length, 3);
+    assert.ok(ui.chartInstances.every(chart => chart.updates === 1 && chart.destroys === 0));
 });
 
 test('wide transition table has a keyboard accessible horizontal scroll region', () => {
@@ -200,6 +264,7 @@ test('both tables filter the selected range and refresh without duplicate rows',
     assert.equal(ui.elements['significant-events-count'].textContent, '2 events');
     assert.equal(ui.elements['events-count'].textContent, '1 transition');
     ui.buttons[1].click();
+    await tick();
     assert.equal(ui.elements['significant-events-count'].textContent, '3 events');
     assert.equal(ui.elements['events-count'].textContent, '2 transitions');
     rows = [...rows, row(10, {working_mode:'Invert Mode', battery_soc:55})];

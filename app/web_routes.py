@@ -16,15 +16,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import statistics
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 
+from app import web_queries
+from app.web_history_analysis import (OBSERVED_TELEMETRY_GAP_SECONDS, build_observed_output_transitions, _transition_summary, analyze_history)
 from app.web_auth import (
     LoginThrottle,
     WebAuthConfig,
@@ -44,7 +45,6 @@ from shared_state.shared_state import shared_state
 _TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "web", "templates")
 templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
-OBSERVED_TELEMETRY_GAP_SECONDS = 60 * 60
 
 _DECISION_EXPORT_FIELDS = frozenset((
     'evaluation_id', 'evaluated_at', 'algorithm_version', 'decision', 'threshold', 'proposed_voltage',
@@ -122,121 +122,6 @@ def _worker_health_from_journal(latest, *, enabled, unavailable_reason=None):
         'reason_codes': latest.get('reason_codes') if isinstance(latest, dict) else [],
     }
 
-
-def _row_time(row: Any) -> Any:
-    """Return a row timestamp without changing its timezone or precision."""
-    return row["time"]
-
-
-def _row_value(row: Any, key: str) -> Any:
-    """Read a value from either an asyncpg Record or a plain test mapping."""
-    try:
-        return row[key]
-    except (KeyError, IndexError):
-        return None
-
-
-def build_observed_output_transitions(
-    rows: list[Any],
-    max_gap_seconds: int = OBSERVED_TELEMETRY_GAP_SECONDS,
-) -> list[dict[str, Any]]:
-    """Build transitions from adjacent known working-mode observations.
-
-    A transition is observed at the first stored observation in the new mode.
-    Dwell is only reported when every sample-to-sample gap until the next
-    transition is within the conservative telemetry-gap threshold.
-    """
-    ordered = sorted(rows, key=lambda row: _row_time(row))
-    transitions: list[dict[str, Any]] = []
-    previous_mode: str | None = None
-    previous_index: int | None = None
-
-    for index, row in enumerate(ordered):
-        mode = _row_value(row, "working_mode")
-        if mode is None or not str(mode).strip():
-            previous_mode = None
-            previous_index = None
-            continue
-        mode = str(mode)
-        if previous_mode is not None and mode != previous_mode and previous_index is not None:
-            transition = {
-                "observed_at": _row_time(row),
-                "from_mode": previous_mode,
-                "to_mode": mode,
-                "battery_voltage": _row_value(row, "battery_voltage"),
-                "battery_soc": _row_value(row, "battery_soc"),
-                "battery_current_chg": _row_value(row, "battery_current_chg"),
-                "battery_current_dis": _row_value(row, "battery_current_dis"),
-                "pv_power_w": _row_value(row, "pv_power_w"),
-                "output_power_w": _row_value(row, "output_power_w"),
-                "ac_input_voltage": _row_value(row, "ac_input_voltage"),
-                "output_voltage": _row_value(row, "output_voltage"),
-                "charger_priority": _row_value(row, "charger_priority"),
-                "output_priority_raw": _row_value(row, "output_priority_raw"),
-                "mains_status": _row_value(row, "mains_status"),
-                "observed_dwell": None,
-                "_row_index": index,
-            }
-            transitions.append(transition)
-        previous_mode = mode
-        previous_index = index
-
-    for current, following in zip(transitions, transitions[1:]):
-        start = current["_row_index"]
-        end = following["_row_index"]
-        continuous = True
-        for left, right in zip(ordered[start:end], ordered[start + 1:end + 1]):
-            gap = (_row_time(right) - _row_time(left)).total_seconds()
-            if gap > max_gap_seconds:
-                continuous = False
-                break
-        if continuous:
-            current["observed_dwell"] = (
-                following["observed_at"] - current["observed_at"]
-            ).total_seconds()
-
-    for transition in transitions:
-        transition.pop("_row_index", None)
-    return transitions
-
-
-def _count_known_changes(rows: list[Any], field: str) -> int:
-    """Count changes between adjacent observations with known values."""
-    ordered = sorted(rows, key=lambda row: _row_time(row))
-    changes = 0
-    previous: Any = None
-    for row in ordered:
-        value = _row_value(row, field)
-        if value is None:
-            previous = None
-            continue
-        if previous is not None and value != previous:
-            changes += 1
-        previous = value
-    return changes
-
-
-def _transition_summary(rows: list[Any]) -> dict[str, Any]:
-    transitions = build_observed_output_transitions(rows)
-    dwells = [
-        transition["observed_dwell"]
-        for transition in transitions
-        if transition["observed_dwell"] is not None
-    ]
-    return {
-        "output_mode_changes": len(transitions),
-        "line_to_invert": sum(
-            t["from_mode"] == "Line Mode" and t["to_mode"] == "Invert Mode"
-            for t in transitions
-        ),
-        "invert_to_line": sum(
-            t["from_mode"] == "Invert Mode" and t["to_mode"] == "Line Mode"
-            for t in transitions
-        ),
-        "shortest_observed_dwell": min(dwells) if dwells else None,
-        "median_observed_dwell": statistics.median(dwells) if dwells else None,
-        "charger_source_changes": _count_known_changes(rows, "charger_priority"),
-    }
 
 # ---------------------------------------------------------------------------
 # Route factory
@@ -420,10 +305,11 @@ def create_auth_router(
         auth_ok, username = _check_auth(request)
         if not auth_ok:
             return RedirectResponse("/login", status_code=302)
+        csrf = generate_csrf_token(request.session)
         return templates.TemplateResponse(
             request=request,
             name="alarms.html",
-            context={"username": username},
+            context={"username": username, "csrf_token": csrf},
         )
 
     # -- /analytics GET --------------------------------------------------
@@ -489,19 +375,12 @@ def create_auth_router(
                 None, enabled=enabled, unavailable_reason='DATABASE_URL_UNAVAILABLE')},
                 headers={"Cache-Control": "no-store"})
         try:
-            import asyncpg
-            conn = await asyncpg.connect(database_url, command_timeout=10)
-            try:
-                rows = await conn.fetch('''SELECT entry FROM adaptive_decision_journal
-                    WHERE evaluated_at >= now() - ($1::int * INTERVAL '1 day')
-                    ORDER BY evaluated_at DESC LIMIT 10000''', days)
-                parsed = [json.loads(row['entry']) for row in rows]
-                entries = [_decision_export(entry) for entry in parsed]
-                latest = parsed[0] if parsed else None
-                health = _worker_health_from_journal(latest, enabled=enabled,
-                    unavailable_reason=None if latest else 'NO_PERSISTED_WORKER_EVALUATION')
-            finally:
-                await conn.close()
+            rows = await web_queries.decision_journal(database_url, days)
+            parsed = [json.loads(row['entry']) for row in rows]
+            entries = [_decision_export(entry) for entry in parsed]
+            latest = parsed[0] if parsed else None
+            health = _worker_health_from_journal(latest, enabled=enabled,
+                unavailable_reason=None if latest else 'NO_PERSISTED_WORKER_EVALUATION')
             return JSONResponse({"decisions": entries, "worker_health": health}, headers={"Cache-Control": "no-store"})
         except Exception:
             return JSONResponse({"decisions": [], "worker_health": _worker_health_from_journal(
@@ -728,57 +607,16 @@ def create_auth_router(
     @router.get("/api/energy/daily")
     async def api_energy_daily(request: Request, days: int = 7) -> Any:
         """Return daily energy totals for the last 7 days from SQLite."""
-        import sqlite3, json as _json, os
-        from pathlib import Path
         auth_ok, _ = _check_auth(request)
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            _sqlite_candidates = [
-                os.getenv("ML_SQLITE_PATH"),
-                "/app/ml_data/data.sqlite",
-                "ml_data/data.sqlite",
-                "/srv/dessmonitor/ml/data.sqlite",
-            ]
-            db_path = next((p for p in _sqlite_candidates if p and Path(p).exists()), None)
-            if db_path is None:
+            try:
+                records = await web_queries.sqlite_energy_daily(days)
+            except FileNotFoundError:
                 return JSONResponse({"detail": "SQLite DB not found"}, status_code=503)
-            con = sqlite3.connect(db_path)
-            cur = con.cursor()
-            cur.execute("""
-                WITH intervals AS (
-                    SELECT
-                        substr(timestamp, 1, 10) as day,
-                        CAST(json_extract(data_json, '$.energy_from_pv_wh') AS REAL) as pv_wh,
-                        CAST(json_extract(data_json, '$.energy_from_battery_wh') AS REAL) as batt_wh,
-                        CAST(json_extract(data_json, '$.energy_from_grid_wh') AS REAL) as grid_wh,
-                        CAST(json_extract(data_json, '$.energy_to_battery_wh') AS REAL) as chg_wh,
-                        CAST(json_extract(data_json, '$.total_load_watt') AS REAL) as load_w,
-                        CAST(json_extract(data_json, '$.unix_ts') AS INTEGER) as ts,
-                        LAG(CAST(json_extract(data_json, '$.unix_ts') AS INTEGER))
-                            OVER (ORDER BY unix_ts) as prev_ts
-                    FROM ml_points
-                    WHERE timestamp >= date('now', '-' || ? || ' days')
-                )
-                SELECT
-                    day,
-                    ROUND(SUM(pv_wh), 1),
-                    ROUND(MAX(0, SUM(batt_wh) - SUM(chg_wh)), 1),
-                    ROUND(SUM(grid_wh), 1),
-                    ROUND(SUM(chg_wh), 1),
-                    ROUND(SUM(
-                        CASE
-                            WHEN prev_ts IS NOT NULL AND (ts - prev_ts) BETWEEN 60 AND 7200
-                            THEN load_w * (ts - prev_ts) / 3600.0
-                            ELSE load_w * 5.0 / 60.0
-                        END
-                    ), 1)
-                FROM intervals
-                GROUP BY day
-                ORDER BY day
-            """, (days,))
             rows = []
-            for day, pv, batt, grid, chg, load in cur.fetchall():
+            for day, pv, batt, grid, chg, load in records:
                 pv_val = pv or 0
                 batt_val = batt or 0
                 rows.append({
@@ -790,7 +628,6 @@ def create_auth_router(
                     "charge_wh": chg or 0,
                     "load_wh": load or 0,
                 })
-            con.close()
             # today summary
             from datetime import datetime, timezone
             today_day = datetime.now(timezone.utc).date().isoformat()
@@ -820,18 +657,7 @@ def create_auth_router(
         if not db_url:
             return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
         try:
-            import asyncpg
-            conn = await asyncpg.connect(db_url)
-            try:
-                rows = await conn.fetch("""
-                    SELECT day::date AS day, pv_kwh, grid_kwh,
-                           battery_load_kwh, total_load_kwh, self_pct
-                    FROM daily_energy_balance
-                    WHERE day >= CURRENT_DATE - ($1::int - 1)
-                    ORDER BY day DESC
-                """, days)
-            finally:
-                await conn.close()
+            rows = await web_queries.energy_daily_balance(db_url, days)
             data = [{
                 "day": str(r["day"]),
                 **{key: float(r[key] or 0) for key in (
@@ -853,20 +679,10 @@ def create_auth_router(
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            rows = await conn.fetch("""
-                SELECT time, working_mode, pv_power_w, battery_voltage,
-                       battery_soc, battery_current_dis, output_power_w,
-                       total_load_w, ac_output_load_pct
-                FROM inverter_metrics
-                ORDER BY time DESC
-                LIMIT 50
-            """)
-            await conn.close()
+            rows = await web_queries.inverter_metrics(db_url)
             data = []
             for r in rows:
                 data.append({
@@ -906,45 +722,10 @@ def create_auth_router(
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            rows = await conn.fetch("""
-                WITH power_stats AS (
-                    SELECT
-                        device_name,
-                        COUNT(*) FILTER (WHERE is_on = true) as on_count,
-                        ROUND((COUNT(*) FILTER (WHERE is_on = true) * 2.0 / 60.0)::numeric, 2) as on_hours,
-                        ROUND(AVG(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL)::numeric, 1) as avg_power_w,
-                        ROUND((SUM(power_watts) FILTER (WHERE is_on = true AND power_watts IS NOT NULL) * 2.0 / 60.0)::numeric, 1) as real_wh
-                    FROM device_metrics
-                    WHERE time >= DATE_TRUNC('day', NOW())
-                    GROUP BY device_name
-                ),
-                energy_counters AS (
-                    SELECT
-                        device_name,
-                        ROUND((MAX(add_ele_kwh) - MIN(add_ele_kwh))::numeric, 3) as delta_kwh,
-                        COUNT(*) as counter_records
-                    FROM device_energy_counters
-                    WHERE time >= DATE_TRUNC('day', NOW())
-                    GROUP BY device_name
-                )
-                SELECT
-                    p.device_name,
-                    p.on_count,
-                    p.on_hours,
-                    p.avg_power_w,
-                    p.real_wh,
-                    e.delta_kwh,
-                    e.counter_records > 0 as has_energy_meter
-                FROM power_stats p
-                LEFT JOIN energy_counters e USING (device_name)
-                ORDER BY p.device_name
-            """)
-            await conn.close()
+            rows = await web_queries.energy_devices_today(db_url)
             data = []
             for r in rows:
                 # Prefer add_ele delta from dedicated counter table (reliable across pod restarts)
@@ -1005,23 +786,10 @@ def create_auth_router(
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            rows = await conn.fetch("""
-                SELECT
-                    day::date as day,
-                    device_name,
-                    ROUND(consumed_kwh::numeric, 3) as consumed_kwh,
-                    ROUND(end_kwh::numeric, 3) as end_kwh,
-                    samples
-                FROM device_daily_energy
-                WHERE day >= NOW() - ($1 || ' days')::interval
-                ORDER BY day DESC, device_name
-            """, str(days))
-            await conn.close()
+            rows = await web_queries.energy_meter_daily(db_url, str(days))
             data = []
             for r in rows:
                 data.append({
@@ -1045,18 +813,10 @@ def create_auth_router(
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            rows = await conn.fetch("""
-                SELECT time, pv_power_w, battery_voltage, output_power_w, working_mode
-                FROM inverter_metrics
-                WHERE time > NOW() - ($1 || ' hours')::interval
-                ORDER BY time
-            """, str(hours))
-            await conn.close()
+            rows = await web_queries.charts_inverter(db_url, str(hours))
             data = []
             for r in rows:
                 data.append({
@@ -1080,21 +840,10 @@ def create_auth_router(
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            rows = await conn.fetch("""
-                SELECT time_bucket('1 hour', time) as hour,
-                       ROUND(AVG(power_watts)::numeric, 1) as avg_power_w,
-                       COUNT(DISTINCT device_name) as device_count
-                FROM device_metrics
-                WHERE time > NOW() - ($1 || ' hours')::interval
-                  AND power_watts IS NOT NULL
-                GROUP BY hour ORDER BY hour
-            """, str(hours))
-            await conn.close()
+            rows = await web_queries.charts_hourly_load(db_url, str(hours))
             data = []
             for r in rows:
                 data.append({
@@ -1174,18 +923,10 @@ def create_auth_router(
         if not auth_ok:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            rows = await conn.fetch("""
-                SELECT time, ambient_temp, humidity
-                FROM weather_data
-                WHERE time > NOW() - ($1 || ' hours')::interval
-                ORDER BY time
-            """, str(hours))
-            await conn.close()
+            rows = await web_queries.charts_weather(db_url, str(hours))
             data = [{"time": r["time"].isoformat(),
                      "temp": float(r["ambient_temp"]) if r["ambient_temp"] else None,
                      "humidity": float(r["humidity"]) if r["humidity"] else None}
@@ -1205,41 +946,19 @@ def create_auth_router(
         if not 1 <= days <= 30:
             return JSONResponse({"detail": "days must be between 1 and 30"}, status_code=422)
         try:
-            import asyncpg
             db_url = os.environ.get("DATABASE_URL")
             if not db_url:
                 return JSONResponse({"detail": "DATABASE_URL not set"}, status_code=503)
-            conn = await asyncpg.connect(db_url)
-            try:
-                verified_since = await conn.fetchval("""
-                    SELECT MIN(time) FROM inverter_metrics
-                """)
-                rows = await conn.fetch("""
-                    SELECT time, working_mode, charger_priority, charger_priority_raw,
-                           output_priority_raw, mains_status,
-                           battery_voltage, battery_soc, battery_current_chg,
-                           battery_current_dis, pv_power_w, output_power_w,
-                           output_voltage, ac_input_voltage, ac_output_load_pct
-                    FROM inverter_metrics
-                    WHERE time >= NOW() - ($1::int * INTERVAL '1 day')
-                    ORDER BY time DESC
-                """, days)
-            finally:
-                await conn.close()
-            observations = []
-            for row in rows:
-                observation = dict(row)
-                observation["time"] = row["time"].isoformat()
-                observations.append(observation)
-            # The UI can request up to seven days for context, but the summary
-            # metrics are deliberately fixed to the requested last 24 hours.
-            cutoff_24h = time.time() - 24 * 60 * 60
-            summary_rows = [
-                row for row in rows
-                if row["time"].timestamp() >= cutoff_24h
-            ]
-            transitions = build_observed_output_transitions(rows)
-            summary = _transition_summary(summary_rows)
+            as_of = datetime.now(timezone.utc)
+            window_start = as_of - timedelta(days=days)
+            summary_start = as_of - timedelta(days=1)
+            rows = await web_queries.charge_history(db_url, window_start, as_of)
+            # Legacy name: this is the earliest collection time, not verified device time.
+            verified_since = rows[0]['verified_since'] if rows else None
+            rows = [row for row in rows if row['time'] is not None]
+            observations, transitions, summary = analyze_history(rows, window_start, as_of, summary_start)
+            for observation in observations:
+                observation["time"] = observation["time"].isoformat()
             for transition in transitions:
                 transition["observed_at"] = transition["observed_at"].isoformat()
             return JSONResponse({
