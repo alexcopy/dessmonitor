@@ -56,6 +56,7 @@ _DECISION_EXPORT_FIELDS = frozenset((
     'time_provenance', 'evidence_level', 'exploratory_voltage_contrast', 'verified_sag', 'stability', 'candidate_voltage',
     'actionability', 'confirmation_progress', 'cooldown_remaining_seconds', 'effective_window_seconds',
     'collection_window_seconds', 'unique_observation_count', 'worker_health',
+    'confidence_breakdown', 'decision_diagnostics',
 ))
 
 

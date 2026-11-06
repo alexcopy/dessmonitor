@@ -18,13 +18,38 @@ from zoneinfo import ZoneInfo
 
 from app.control.sag_learning import SagLearner, SagSample
 
-VERSION = 'online-exploratory-4'
+VERSION = 'online-exploratory-5'
+# Proposal confirmation/cooldown state written by these versions is carried forward
+# so an upgrade cannot silently reset a durable dry-run cooldown.
+STATE_COMPATIBLE_VERSIONS = frozenset(('online-exploratory-4', VERSION))
 WINDOW = timedelta(hours=3)
 LOGGER = logging.getLogger('IMPORTANT')
 LOCK_ID = 5276389241085182
 PAIR_MAX_GAP = timedelta(minutes=60)
 RESPONSE_CHANGE_MIN_V = 0.25
 RESPONSE_BOUND_V = 2.0
+MIN_CANDIDATE_PAIRS = 3
+# Bounded analysis memory: three hours at a 15 s cadence. The previous fixed cap of
+# 24 unique observations (~35 min at the production cadence) discarded most of the
+# window, including earlier Line-not-charging readings and mode transitions.
+MAX_ANALYSIS_OBSERVATIONS = 720
+SHORT_RUN_MAX = timedelta(minutes=20)
+CYCLING_MIN_TRANSITIONS = 4
+CYCLING_MIN_SHORT_RUNS = 2
+COLLECTION_GAP_LIMIT = timedelta(minutes=10)
+MODES = ('Line Mode', 'Invert Mode')
+NUMERIC_KEYS = ('battery_voltage', 'battery_current_chg', 'battery_current_dis', 'pv_power_w', 'output_power_w')
+EVIDENCE_CLASSES = ('INVERT_DISCHARGING', 'LINE_CHARGING', 'LINE_NOT_CHARGING', 'LINE_DISCHARGING',
+                    'INVERT_CHARGING', 'INVERT_IDLE', 'CONFLICTING_CURRENT', 'UNKNOWN_CURRENT')
+# Why each class cannot enter the primary (sag-proxy) voltage contrast.
+PRIMARY_EXCLUSION = {
+    'LINE_CHARGING': 'LINE_MODE_CHARGING_CONFOUNDED',
+    'LINE_DISCHARGING': 'LINE_MODE_DISCHARGING_CONFOUNDED',
+    'INVERT_CHARGING': 'INVERT_MODE_NOT_DISCHARGING',
+    'INVERT_IDLE': 'INVERT_MODE_NOT_DISCHARGING',
+    'CONFLICTING_CURRENT': 'CONFLICTING_CURRENT_STATE',
+    'UNKNOWN_CURRENT': 'CURRENT_STATE_UNKNOWN',
+}
 
 
 def _configured_historical_baseline():
@@ -135,100 +160,326 @@ def _observation_signature(row):
     return (mode, *numeric)
 
 
-def _explore_collections(rows, changes, now):
-    """Recency-weighted research contrast after de-duplication and matched operating conditions."""
-    usable = [r for r in rows if r.get('working_mode') in ('Line Mode', 'Invert Mode')
-              and all(_number(r.get(k)) is not None and r[k] >= 0 for k in
-                      ('battery_voltage', 'battery_current_chg', 'battery_current_dis', 'pv_power_w', 'output_power_w'))]
-    # A changed collection timestamp does not make a repeated cached payload new evidence.
+def _evidence_class(row):
+    """Classify one collection by reported mode and battery current direction."""
+    mode = row.get('working_mode')
+    charge, discharge = _number(row.get('battery_current_chg')), _number(row.get('battery_current_dis'))
+    if mode not in MODES or charge is None or discharge is None or charge < 0 or discharge < 0:
+        return 'UNKNOWN_CURRENT'
+    if charge > 0 and discharge > 0:
+        return 'CONFLICTING_CURRENT'
+    if mode == 'Line Mode':
+        return 'LINE_CHARGING' if charge > 0 else 'LINE_DISCHARGING' if discharge > 0 else 'LINE_NOT_CHARGING'
+    return 'INVERT_DISCHARGING' if discharge > 0 else 'INVERT_CHARGING' if charge > 0 else 'INVERT_IDLE'
+
+
+def _prepare_observations(valid):
+    """Stage-by-stage filtering with an explicit count for every rejected collection."""
+    rejected = {'unknown_mode': 0, 'missing_or_invalid_numeric': 0}
+    missing = {}
+    complete = []
+    for r in valid:
+        if r.get('working_mode') not in MODES:
+            rejected['unknown_mode'] += 1
+            continue
+        bad = [k for k in NUMERIC_KEYS if _number(r.get(k)) is None or r[k] < 0]
+        if bad:
+            rejected['missing_or_invalid_numeric'] += 1
+            for key in bad:
+                missing[key] = missing.get(key, 0) + 1
+            continue
+        complete.append(r)
+    # Exact signatures are excluded from quantitative analysis across the window so
+    # replayed/cached values cannot manufacture independent voltage evidence.
     unique, seen = [], set()
-    for r in usable:
+    for r in complete:
         signature = _observation_signature(r)
         if signature not in seen:
             unique.append(r)
             seen.add(signature)
-    usable = unique[-24:]
-    if len(usable) < 6:
-        return None
+    analysed = unique[-MAX_ANALYSIS_OBSERVATIONS:]
+    funnel = {'in_window_collections': len(valid),
+              'rejected_unknown_mode': rejected['unknown_mode'],
+              'rejected_missing_or_invalid_numeric': rejected['missing_or_invalid_numeric'],
+              'missing_fields': dict(sorted(missing.items())),
+              'valid_mode_and_numeric': len(complete),
+              'rejected_duplicate_cached_payload': len(complete) - len(unique),
+              'unique_observations': len(unique),
+              'rejected_analysis_cap': len(unique) - len(analysed),
+              'analysis_cap': MAX_ANALYSIS_OBSERVATIONS,
+              'analysed_observations': len(analysed)}
+    return analysed, funnel
 
-    line = [r for r in usable if r['working_mode'] == 'Line Mode' and r['battery_current_chg'] == 0]
-    invert = [r for r in usable if r['working_mode'] == 'Invert Mode'
-              and r['battery_current_dis'] > 0 and r['battery_current_chg'] == 0]
-    typical_load = median(r['output_power_w'] for r in usable)
-    typical_pv = median(r['pv_power_w'] for r in usable)
-    load_tolerance = max(75.0, min(200.0, typical_load * 0.15))
-    pv_tolerance = max(75.0, min(300.0, typical_pv * 0.20))
 
+def _range(values, digits):
+    return [round(min(values), digits), round(max(values), digits)] if values else None
+
+
+def _class_summary(analysed):
+    """Voltage, load and PV context per operating state; descriptive only."""
+    summary = {}
+    for name in EVIDENCE_CLASSES:
+        members = [r for r in analysed if _evidence_class(r) == name]
+        if not members:
+            continue
+        volts = [r['battery_voltage'] for r in members]
+        summary[name] = {'count': len(members), 'voltage_range_v': _range(volts, 2),
+                         'median_voltage_v': round(median(volts), 3),
+                         'load_range_w': _range([r['output_power_w'] for r in members], 0),
+                         'pv_range_w': _range([r['pv_power_w'] for r in members], 0),
+                         'median_charge_a': round(median(r['battery_current_chg'] for r in members), 1),
+                         'median_discharge_a': round(median(r['battery_current_dis'] for r in members), 1)}
+    return summary
+
+
+def _reported_cycling(valid, now):
+    """Detect reported Line/Invert alternation independently of voltage-pair eligibility.
+
+    Uses every in-window collection with a known mode (numeric fields may be missing),
+    after dropping repeated cached payloads. Each transition is bracketed by the last
+    collection before and the first after the reported change; collection time is not
+    device observation time and cached payloads may lag, so physical switch times are unknown.
+    """
+    sequence, groups, duplicates = [], [], 0
+    group = []
+    last_signature = None
+    for r in valid:
+        if r.get('working_mode') not in MODES:
+            if group:
+                groups.append(group)
+                group = []
+            last_signature = None
+            continue
+        signature = _observation_signature(r)
+        # Do not erase a legitimate return to a previous Line/Invert payload after
+        # an intervening observation; cached repeats are consecutive in collection order.
+        if signature == last_signature:
+            duplicates += 1
+            continue
+        sequence.append(r)
+        group.append(r)
+        last_signature = signature
+    if group:
+        groups.append(group)
+    transitions = []
+    complete_runs = []
+    for group in groups:
+        runs = []
+        for r in group:
+            if runs and runs[-1][0] == r['working_mode']:
+                runs[-1][1].append(r)
+            else:
+                runs.append((r['working_mode'], [r]))
+        for (mode_before, before), (mode_after, after) in zip(runs, runs[1:]):
+            last, first = before[-1], after[0]
+            transitions.append({
+                'direction': 'INVERT_TO_LINE' if mode_after == 'Line Mode' else 'LINE_TO_INVERT',
+                'bracket_start': last['time'].isoformat(), 'bracket_end': first['time'].isoformat(),
+                'bracket_seconds': int((first['time'] - last['time']).total_seconds()),
+                'state_before': _evidence_class(last), 'state_after': _evidence_class(first),
+                'battery_v_before': _number(last.get('battery_voltage')),
+                'battery_v_after': _number(first.get('battery_voltage')),
+                'load_w': _number(first.get('output_power_w')), 'pv_w': _number(first.get('pv_power_w'))})
+        for index in range(1, len(runs) - 1):
+            members = runs[index][1]
+            lower = (members[-1]['time'] - members[0]['time']).total_seconds()
+            upper = (runs[index + 1][1][0]['time'] - runs[index - 1][1][-1]['time']).total_seconds()
+            complete_runs.append((runs[index][0], lower, upper))
+    short = [run for run in complete_runs if run[2] <= SHORT_RUN_MAX.total_seconds()]
+    gaps = [(b['time'] - a['time']).total_seconds() for a, b in zip(sequence, sequence[1:])]
+    span = (sequence[-1]['time'] - sequence[0]['time']).total_seconds() if len(sequence) > 1 else 0
+    covered = sum((b['time'] - a['time']).total_seconds() for group in groups
+                  for a, b in zip(group, group[1:])
+                  if (b['time'] - a['time']).total_seconds() <= COLLECTION_GAP_LIMIT.total_seconds())
+    coverage = covered / span if span else 0.0
+    detected = len(transitions) >= CYCLING_MIN_TRANSITIONS and len(short) >= CYCLING_MIN_SHORT_RUNS
+    confidence = 0.0
+    if transitions:
+        duplicate_share = duplicates / max(1, duplicates + len(sequence))
+        confidence = (min(1.0, len(transitions) / 8) * min(1.0, len(short) / 4)
+                      * max(0.0, coverage) * (1 - duplicate_share / 2))
+    states_at = {}
+    for item in transitions:
+        key = item['direction'] + ':' + item['state_after']
+        states_at[key] = states_at.get(key, 0) + 1
+
+    def bounds(items, mode):
+        selected = [run for run in items if run[0] == mode]
+        if not selected:
+            return None
+        return {'complete_runs': len(selected),
+                'median_dwell_lower_bound_s': int(median(run[1] for run in selected)),
+                'median_dwell_upper_bound_s': int(median(run[2] for run in selected))}
+    return {
+        'detected': detected,
+        'detection_confidence': round(max(0.0, min(1.0, confidence)), 3),
+        'confidence_interpretation': 'HEURISTIC_NOT_CALIBRATED_PROBABILITY',
+        'criteria': {'min_transitions': CYCLING_MIN_TRANSITIONS, 'min_short_runs': CYCLING_MIN_SHORT_RUNS,
+                     'short_run_max_seconds': int(SHORT_RUN_MAX.total_seconds())},
+        'reported_mode_changes': len(transitions),
+        'complete_runs': len(complete_runs), 'short_runs': len(short),
+        'line_runs': bounds(complete_runs, 'Line Mode'), 'invert_runs': bounds(complete_runs, 'Invert Mode'),
+        'shortest_run_upper_bound_s': int(min(run[2] for run in complete_runs)) if complete_runs else None,
+        'transition_bracket_median_s': int(median(t['bracket_seconds'] for t in transitions)) if transitions else None,
+        'transition_states': dict(sorted(states_at.items())),
+        'recent_transitions': transitions[-3:],
+        'collections_considered': len(sequence), 'duplicate_payloads_ignored': duplicates,
+        'max_collection_gap_s': int(max(gaps)) if gaps else None,
+        'collection_coverage': round(max(0.0, coverage), 3),
+        'time_provenance': 'COLLECTION_ORDER_ONLY',
+        'uncertainty': 'SWITCH_TIME_BETWEEN_BRACKETING_COLLECTIONS_CACHE_LAG_UNKNOWN',
+    }
+
+
+def _pair_contrast(line, invert, tolerances, now):
+    """Match Line/Invert observations under comparable load, PV and time; count every rejection."""
+    load_tolerance, pv_tolerance = tolerances
+    rejected = {'TIME_GAP_EXCEEDED': 0, 'LOAD_NOT_COMPARABLE': 0, 'PV_NOT_COMPARABLE': 0,
+                'NOT_SELECTED_ONE_TO_ONE': 0, 'OUTLIER_REJECTED': 0, 'INSUFFICIENT_PAIRS': 0}
     candidates = []
+    line_with_comparable_candidate = set()
     for line_row in line:
         for invert_row in invert:
             load_delta = abs(line_row['output_power_w'] - invert_row['output_power_w'])
             pv_delta = abs(line_row['pv_power_w'] - invert_row['pv_power_w'])
             elapsed = abs((line_row['time'] - invert_row['time']).total_seconds())
-            if load_delta <= load_tolerance and pv_delta <= pv_tolerance and elapsed <= PAIR_MAX_GAP.total_seconds():
+            if elapsed > PAIR_MAX_GAP.total_seconds():
+                rejected['TIME_GAP_EXCEEDED'] += 1
+            elif load_delta > load_tolerance:
+                rejected['LOAD_NOT_COMPARABLE'] += 1
+            elif pv_delta > pv_tolerance:
+                rejected['PV_NOT_COMPARABLE'] += 1
+            else:
                 distance = load_delta / load_tolerance + pv_delta / pv_tolerance + elapsed / PAIR_MAX_GAP.total_seconds()
                 candidates.append((distance, line_row, invert_row, load_delta, pv_delta))
+                line_with_comparable_candidate.add(id(line_row))
     candidates.sort(key=lambda item: (item[0], -max(item[1]['time'], item[2]['time']).timestamp()))
     used_line, used_invert, pairs = set(), set(), []
     for distance, line_row, invert_row, load_delta, pv_delta in candidates:
         if id(line_row) in used_line or id(invert_row) in used_invert:
+            rejected['NOT_SELECTED_ONE_TO_ONE'] += 1
             continue
         used_line.add(id(line_row)); used_invert.add(id(invert_row))
-        at = max(line_row['time'], invert_row['time'])
         pairs.append({'response_v': line_row['battery_voltage'] - invert_row['battery_voltage'],
-                      'time': at,
-                      'load_w': (line_row['output_power_w'] + invert_row['output_power_w']) / 2,
-                      'pv_w': (line_row['pv_power_w'] + invert_row['pv_power_w']) / 2,
+                      'time': max(line_row['time'], invert_row['time']),
                       'distance': distance, 'load_delta_w': load_delta, 'pv_delta_w': pv_delta,
                       'signatures': (_observation_signature(line_row), _observation_signature(invert_row))})
+    line_without_partner = sum(1 for r in line if id(r) not in line_with_comparable_candidate)
+    line_not_selected = sum(1 for r in line if id(r) in line_with_comparable_candidate and id(r) not in used_line)
+    raw = uncertainty = None
+    retained = []
+    if len(pairs) >= MIN_CANDIDATE_PAIRS:
+        center = median(p['response_v'] for p in pairs)
+        mad = median(abs(p['response_v'] - center) for p in pairs)
+        outlier_limit = max(0.15, 3 * mad)
+        retained = [p for p in pairs if abs(p['response_v'] - center) <= outlier_limit]
+        rejected['OUTLIER_REJECTED'] = len(pairs) - len(retained)
+        if len(retained) >= 2:
+            weights = [0.5 ** ((now - p['time']).total_seconds() / 2700.0) for p in retained]
+            raw = sum(p['response_v'] * w for p, w in zip(retained, weights)) / sum(weights)
+            uncertainty = median(abs(p['response_v'] - median(q['response_v'] for q in retained)) for p in retained)
+        else:
+            rejected['INSUFFICIENT_PAIRS'] = len(retained)
+            retained = []
+    else:
+        rejected['INSUFFICIENT_PAIRS'] = len(pairs)
+    confidence = None
+    if retained:
+        pair_fit = max(0.2, 1 - 0.3 * median(p['distance'] for p in retained) / 3)
+        newest_pair_age = max(0.0, (now - max(p['time'] for p in retained)).total_seconds())
+        confidence = min(1.0, len(retained) / 3) * pair_fit * 0.5 ** (newest_pair_age / 5400)
+        if abs(raw) > RESPONSE_BOUND_V:
+            confidence *= 0.25
+    return {'pairs': pairs, 'retained': retained, 'raw': raw, 'uncertainty': uncertainty,
+            'confidence': confidence, 'combinations': len(line) * len(invert),
+            'line_observations': len(line), 'invert_observations': len(invert),
+            'line_without_comparable_partner': line_without_partner,
+            'line_not_selected_one_to_one': line_not_selected, 'rejected': rejected}
+
+
+def _explore_collections(usable, changes, now):
+    """Recency-weighted research contrast after de-duplication and matched operating conditions.
+
+    Only Line-not-charging vs Invert-discharging pairs form the primary contrast that may
+    support a hypothesis. Line-charging pairs are reported separately as a
+    charging-confounded description and never support sag, rebound or a proposal.
+    """
+    if len(usable) < 6:
+        return None
+    classes = {id(r): _evidence_class(r) for r in usable}
+    line = [r for r in usable if classes[id(r)] == 'LINE_NOT_CHARGING']
+    line_charging = [r for r in usable if classes[id(r)] == 'LINE_CHARGING']
+    invert = [r for r in usable if classes[id(r)] == 'INVERT_DISCHARGING']
+    typical_load = median(r['output_power_w'] for r in usable)
+    typical_pv = median(r['pv_power_w'] for r in usable)
+    load_tolerance = max(75.0, min(200.0, typical_load * 0.15))
+    pv_tolerance = max(75.0, min(300.0, typical_pv * 0.20))
+    primary = _pair_contrast(line, invert, (load_tolerance, pv_tolerance), now)
+    confounded = _pair_contrast(line_charging, invert, (load_tolerance, pv_tolerance), now)
+    retained, raw_response = primary['retained'], primary['raw']
+    weighted_response = max(-RESPONSE_BOUND_V, min(RESPONSE_BOUND_V, raw_response)) if raw_response is not None else None
 
     weighted = [(r, 0.5 ** ((now - r['time']).total_seconds() / 3600)) for r in usable]
     def average(key):
         return sum(r[key] * w for r, w in weighted) / sum(w for _, w in weighted)
     recent = usable[-4:]
     charging = sum(r['battery_current_chg'] > 0 and r['battery_current_dis'] == 0 for r in recent)
-    raw_response = weighted_response = uncertainty = None
-    if len(pairs) >= 3:
-        center = median(p['response_v'] for p in pairs)
-        mad = median(abs(p['response_v'] - center) for p in pairs)
-        outlier_limit = max(0.15, 3 * mad)
-        retained = [p for p in pairs if abs(p['response_v'] - center) <= outlier_limit]
-        if len(retained) >= 2:
-            pair_weights = [0.5 ** ((now - p['time']).total_seconds() / 2700.0) for p in retained]
-            raw_response = sum(p['response_v'] * w for p, w in zip(retained, pair_weights)) / sum(pair_weights)
-            weighted_response = max(-RESPONSE_BOUND_V, min(RESPONSE_BOUND_V, raw_response))
-            uncertainty = median(abs(p['response_v'] - median(q['response_v'] for q in retained)) for p in retained)
-        else:
-            retained = []
-    else:
-        retained = []
-    confidence = min(0.45, len(usable) / 12) if usable else 0.0
-    if retained:
-        pair_fit = max(0.2, 1 - 0.3 * median(p['distance'] for p in retained) / 3)
-        oldest_pair_age = max(0.0, (now - max(p['time'] for p in retained)).total_seconds())
-        freshness = 0.5 ** (oldest_pair_age / 5400)
-        confidence = min(1.0, len(retained) / 3) * pair_fit * freshness
-        if raw_response is not None and abs(raw_response) > RESPONSE_BOUND_V:
-            confidence *= 0.25
+    # Observation sufficiency says how much data exists; it is not voltage-estimate confidence.
+    sufficiency = min(0.45, len(usable) / 12)
+    contrast_confidence = primary['confidence']
     latest_signature = _observation_signature(usable[-1])
     paired_signatures = {signature for pair in retained for signature in pair['signatures']}
-    latest_charging = (usable[-1]['working_mode'] == 'Line Mode'
-                       and usable[-1]['battery_current_chg'] > 0
-                       and usable[-1]['battery_current_dis'] == 0)
-    latest_discharging = (usable[-1]['working_mode'] == 'Invert Mode'
-                          and usable[-1]['battery_current_dis'] > 0
-                          and usable[-1]['battery_current_chg'] == 0)
+    latest_class = classes[id(usable[-1])]
+    latest_charging = latest_class == 'LINE_CHARGING'
+    latest_discharging = latest_class == 'INVERT_DISCHARGING'
     latest_raise_compatible = latest_signature in paired_signatures
+    # Gate used by the unchanged hypothesis rules (identical to online-exploratory-4).
+    gate = contrast_confidence if contrast_confidence is not None else sufficiency
     if latest_discharging and not latest_raise_compatible:
-        confidence *= 0.5
+        gate *= 0.5
+        if contrast_confidence is not None:
+            contrast_confidence *= 0.5
+    exclusions = {}
+    for r in usable:
+        reason = PRIMARY_EXCLUSION.get(classes[id(r)])
+        if reason:
+            exclusions[reason] = exclusions.get(reason, 0) + 1
+    if primary['line_without_comparable_partner']:
+        exclusions['LINE_NOT_CHARGING_WITHOUT_COMPARABLE_PARTNER'] = primary['line_without_comparable_partner']
+    if primary['line_not_selected_one_to_one']:
+        exclusions['LINE_NOT_CHARGING_NOT_SELECTED_ONE_TO_ONE'] = primary['line_not_selected_one_to_one']
+    confounded_values = [p['response_v'] for p in confounded['pairs']]
     return {'contrast_v': round(weighted_response, 3) if weighted_response is not None else None,
+            'contrast_basis': 'LINE_NOT_CHARGING_MINUS_INVERT_DISCHARGING',
             'unbounded_response_v': round(raw_response, 3) if raw_response is not None else None,
             'response_bounds_v': [-RESPONSE_BOUND_V, RESPONSE_BOUND_V],
-            'response_uncertainty_v': round(uncertainty, 3) if uncertainty is not None else None,
+            'response_uncertainty_v': round(primary['uncertainty'], 3) if primary['uncertainty'] is not None else None,
             'comparable_load_tolerance_w': round(load_tolerance, 1),
             'comparable_pv_tolerance_w': round(pv_tolerance, 1),
-            'comparable_pairs': len(retained), 'candidate_pairs': len(pairs),
-            'confidence': round(max(0.0, min(1.0, confidence)), 3),
+            'comparable_pairs': len(retained), 'candidate_pairs': len(primary['pairs']),
+            'min_candidate_pairs': MIN_CANDIDATE_PAIRS,
+            'confidence': round(max(0.0, min(1.0, contrast_confidence)), 3) if contrast_confidence is not None else None,
+            'confidence_basis': 'VOLTAGE_CONTRAST' if contrast_confidence is not None else 'NO_VOLTAGE_ESTIMATE',
+            'observation_sufficiency': round(sufficiency, 3),
+            'hypothesis_gate_confidence': round(max(0.0, min(1.0, gate)), 3),
+            'pair_rejections': primary['rejected'],
+            'primary_eligible': {'line_not_charging': primary['line_observations'],
+                                 'invert_discharging': primary['invert_observations'],
+                                 'combinations': primary['combinations']},
+            'primary_exclusions': dict(sorted(exclusions.items())),
+            'charging_confounded_contrast': {
+                'label': 'CHARGING_CONFOUNDED_DESCRIPTIVE',
+                'basis': 'LINE_CHARGING_MINUS_INVERT_DISCHARGING',
+                'interpretation': 'CHARGE_CURRENT_RAISES_LINE_VOLTAGE_NOT_SAG_OR_REBOUND',
+                'eligible_for_hypothesis': False,
+                'line_charging_observations': confounded['line_observations'],
+                'matched_pairs': len(confounded['pairs']),
+                'median_difference_v': round(median(confounded_values), 3) if confounded_values else None,
+                'difference_range_v': _range(confounded_values, 3),
+                'median_line_charge_a': round(median(r['battery_current_chg'] for r in line_charging), 1) if line_charging else None,
+                'pair_rejections': {k: v for k, v in confounded['rejected'].items()
+                                    if k not in ('OUTLIER_REJECTED', 'INSUFFICIENT_PAIRS')}},
+            'latest_state': latest_class,
             'latest_raise_compatible': latest_raise_compatible,
             'latest_lower_compatible': latest_charging,
             'latest_observation_not_comparable': latest_discharging and not latest_raise_compatible,
@@ -308,6 +559,116 @@ def _verified_sag_result(observations, learner, now):
                          'usable': estimate.usable, 'reason': estimate.reason}}
 
 
+def _decision_diagnostics(cycling, exploratory, evidence_classes, funnel, candidate, blocked_candidate,
+                          changed, changes, decision):
+    """Operator-readable account of why a hypothesis is or is not supported."""
+    counts = {name: item['count'] for name, item in evidence_classes.items()}
+    line_charging = counts.get('LINE_CHARGING', 0)
+    line_quiet = counts.get('LINE_NOT_CHARGING', 0)
+    discharging = counts.get('INVERT_DISCHARGING', 0)
+    blocked_by = []
+    if exploratory is None:
+        if funnel['analysed_observations'] < 6:
+            blocked_by.append('FEWER_THAN_6_UNIQUE_COMPLETE_OBSERVATIONS')
+        else:
+            blocked_by.append('LATEST_COLLECTION_INCOMPLETE_STALE_OR_CONFLICTING')
+    elif exploratory['contrast_v'] is None:
+        if line_charging and line_quiet < MIN_CANDIDATE_PAIRS:
+            blocked_by.append('LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE')
+        if line_quiet < MIN_CANDIDATE_PAIRS:
+            blocked_by.append('TOO_FEW_LINE_NOT_CHARGING_OBSERVATIONS')
+        if discharging < MIN_CANDIDATE_PAIRS:
+            blocked_by.append('TOO_FEW_INVERT_DISCHARGING_OBSERVATIONS')
+        if exploratory['candidate_pairs'] >= MIN_CANDIDATE_PAIRS:
+            blocked_by.append('PAIRS_DISAGREE_OUTLIERS_REJECTED')
+        blocked_by.append('INSUFFICIENT_COMPARABLE_PAIRS')
+    confounded = exploratory.get('charging_confounded_contrast') if exploratory else None
+    raise_checks = None
+    unsupported = []
+    if exploratory:
+        contrast = exploratory['contrast_v']
+        raise_checks = {
+            'contrast_at_least_0_2_v': contrast is not None and contrast >= 0.2,
+            'reported_mode_changes_at_least_3': changes >= 3,
+            'voltage_contrast_confidence_at_least_0_5': (exploratory.get('confidence') or 0) >= 0.5,
+            'response_stable': not changed}
+        if not candidate:
+            if contrast is None:
+                unsupported.append('NO_VOLTAGE_CONTRAST_ESTIMATE')
+            unsupported.extend('RAISE_REQUIRES_' + name.upper() for name, ok in raise_checks.items()
+                               if not ok and not (name.startswith('contrast') and contrast is None))
+    else:
+        unsupported.append('EXPLORATORY_ANALYSIS_UNAVAILABLE')
+    if blocked_candidate:
+        unsupported.append('CANDIDATE_' + blocked_candidate['decision'] + '_' + blocked_candidate['reason'])
+    holding = decision in ('HOLD', 'INSUFFICIENT_DATA')
+    hold_reasons = []
+    if holding:
+        if cycling['detected']:
+            hold_reasons.append('CYCLING_DETECTED')
+        if 'LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE' in blocked_by:
+            hold_reasons.append('LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE')
+        if exploratory is not None and exploratory['contrast_v'] is None:
+            hold_reasons.append('INSUFFICIENT_COMPARABLE_PAIRS')
+        if not candidate:
+            hold_reasons.append('INSUFFICIENT_HYPOTHESIS_EVIDENCE')
+
+    parts = []
+    if cycling['detected']:
+        parts.append('Frequent reported Line/Invert cycling detected: %d mode changes, %d of %d bounded runs '
+                     'shorter than %d min (collection-time brackets; physical switch times unknown; '
+                     'detection confidence %.2f).' % (cycling['reported_mode_changes'], cycling['short_runs'],
+                                                       cycling['complete_runs'], SHORT_RUN_MAX.total_seconds() // 60,
+                                                       cycling['detection_confidence']))
+    else:
+        parts.append('Frequent cycling not established: %d reported mode changes, %d short runs.'
+                     % (cycling['reported_mode_changes'], cycling['short_runs']))
+    parts.append('Evidence: %d Invert discharging, %d Line charging, %d Line not charging, %d other/unknown '
+                 'of %d analysed unique observations (%d duplicates, %d incomplete rejected).'
+                 % (discharging, line_charging, line_quiet,
+                    funnel['analysed_observations'] - discharging - line_charging - line_quiet,
+                    funnel['analysed_observations'], funnel['rejected_duplicate_cached_payload'],
+                    funnel['rejected_missing_or_invalid_numeric'] + funnel['rejected_unknown_mode']))
+    if exploratory and exploratory['contrast_v'] is not None:
+        parts.append('Exploratory Line-not-charging minus Invert-discharging contrast %+.3f V from %d pairs '
+                     '(confidence %.2f); collection-time evidence, not verified sag.'
+                     % (exploratory['contrast_v'], exploratory['comparable_pairs'], exploratory['confidence'] or 0))
+    else:
+        parts.append('Voltage comparison blocked: ' + ', '.join(blocked_by) + '.')
+    if confounded and confounded['median_difference_v'] is not None:
+        parts.append('Charging-confounded descriptive difference (Line charging minus Invert discharging) '
+                     'median %+.3f V over %d pairs; charge current lifts Line voltage, so this is neither '
+                     'sag nor rebound.' % (confounded['median_difference_v'], confounded['matched_pairs']))
+    if candidate:
+        parts.append('Hypothetical %s under confirmation rules; non-actionable.' % candidate[0])
+    else:
+        parts.append('No threshold hypothesis is supported (' + ', '.join(unsupported) + '). '
+                     'Frequent switching alone does not establish which threshold, if any, should change.')
+    return {
+        'summary': ' '.join(parts),
+        'cycling': cycling,
+        'voltage_comparison': {
+            'status': 'ESTIMATED' if exploratory and exploratory['contrast_v'] is not None else 'BLOCKED',
+            'blocked_by': blocked_by,
+            'basis': 'LINE_NOT_CHARGING_MINUS_INVERT_DISCHARGING',
+            'comparable_pairs': exploratory['comparable_pairs'] if exploratory else 0,
+            'candidate_pairs': exploratory['candidate_pairs'] if exploratory else 0,
+            'required_pairs': MIN_CANDIDATE_PAIRS,
+            # Per-pair rejection counts, observation exclusions and the charging-confounded
+            # description live in exploratory_voltage_contrast to avoid duplicating them.
+            'details': 'exploratory_voltage_contrast'},
+        'evidence_classes': evidence_classes,
+        'sample_counts': funnel,
+        'hypothesis_support': {'supported': bool(candidate),
+                               'candidate': candidate[0] if candidate else None,
+                               'blocked_candidate': blocked_candidate,
+                               'raise_requirements': raise_checks,
+                               'unsupported_because': unsupported if not candidate else [],
+                               'cycling_used_as_threshold_evidence': False},
+        'hold_reasons': hold_reasons,
+    }, hold_reasons
+
+
 def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v=26.0,
                                verified_observations=None, learner=None):
     """Describe stored observations without treating collection time as device time."""
@@ -318,7 +679,9 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
              and row['time'].tzinfo is not None and row['time'].utcoffset() is not None
              and now - WINDOW <= row['time'] <= now]
     valid.sort(key=lambda row: row['time'])
-    previous = previous if isinstance(previous, dict) and previous.get('algorithm_version') == VERSION else {}
+    raw_count = len(rows)
+    previous = (previous if isinstance(previous, dict)
+                and previous.get('algorithm_version') in STATE_COMPATIBLE_VERSIONS else {})
     latest = valid[-1] if valid else {}
     reasons = ['DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED', 'RECEIPT_TIME_UNAVAILABLE',
                'BMS_LIMITS_UNKNOWN', 'CURRENT_THRESHOLD_SETTINGS_UNKNOWN']
@@ -345,7 +708,11 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
         all(_number(latest.get(k)) is not None and latest[k] >= 0 for k in
             ('battery_voltage', 'battery_current_chg', 'battery_current_dis', 'pv_power_w', 'output_power_w')) and
         not (latest.get('battery_current_chg', 0) > 0 and latest.get('battery_current_dis', 0) > 0))
-    exploratory = _explore_collections(valid, changes, now) if valid and complete_latest and (now - latest['time']).total_seconds() <= 300 else None
+    analysed, funnel = _prepare_observations(valid)
+    funnel = {'raw_collections': raw_count, 'rejected_outside_window_or_invalid_time': raw_count - len(valid), **funnel}
+    cycling = _reported_cycling(valid, now)
+    evidence_classes = _class_summary(analysed)
+    exploratory = _explore_collections(analysed, changes, now) if valid and complete_latest and (now - latest['time']).total_seconds() <= 300 else None
     if exploratory:
         reasons.extend(['COLLECTION_TIME_ONLY', 'HISTORICAL_BASELINE_ONLY', 'HYPOTHESIS_NOT_SAFETY_QUALIFIED'])
         if exploratory.get('latest_observation_not_comparable'):
@@ -360,6 +727,7 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
         exploratory['response_changed'] = changed
         if changed:
             exploratory['confidence'] = round(exploratory['confidence'] * 0.35, 3)
+            exploratory['hypothesis_gate_confidence'] = round(exploratory['hypothesis_gate_confidence'] * 0.35, 3)
             reasons.append('EMPIRICAL_RESPONSE_CHANGED_CAUSE_UNKNOWN')
     else:
         changed = False
@@ -372,6 +740,7 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
     state = dict(state)
     baseline = _number(historical_battery_v)
     candidate = None
+    blocked_candidate = None
     if baseline is None:
         reasons.append('HISTORICAL_BASELINE_UNKNOWN')
     elif not (24 <= baseline <= 29 and baseline * 2 == round(baseline * 2)):
@@ -379,12 +748,15 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
     if exploratory and baseline is not None and 24 <= baseline <= 29 and baseline * 2 == round(baseline * 2):
         contrast = exploratory['contrast_v']
         if (contrast is not None and contrast >= 0.2 and changes >= 3 and not changed
-                and exploratory.get('confidence', 0) >= 0.5):
+                and (exploratory.get('confidence') or 0) >= 0.5):
             candidate = ('HYPOTHETICAL_RAISE', baseline + 0.5)
-        elif exploratory['recent_charging_samples'] >= 3 and not changed and exploratory.get('confidence', 0) >= 0.35:
+        elif (exploratory['recent_charging_samples'] >= 3 and not changed
+              and exploratory.get('hypothesis_gate_confidence', 0) >= 0.35):
             candidate = ('HYPOTHETICAL_LOWER', baseline - 0.5)
         # Historical utility is 25.5 V: preserve at least one catalogue step.
         if candidate and not (24 <= candidate[1] <= 29 and candidate[1] - 25.5 >= 0.5):
+            blocked_candidate = {'decision': candidate[0], 'voltage': candidate[1],
+                                 'reason': 'CATALOGUE_OR_HYSTERESIS_BLOCK'}
             candidate = None
             reasons.append('CATALOGUE_OR_HYSTERESIS_BLOCK')
     last_time = state.get('last_collection_time')
@@ -452,10 +824,32 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
                 reasons.append(reason)
     collection_window = int((valid[-1]['time'] - valid[0]['time']).total_seconds()) if len(valid) > 1 else 0
     effective_window = exploratory.get('effective_window_seconds', 0) if exploratory else 0
-    overall_confidence = exploratory.get('confidence', 0.0) if exploratory else 0.0
+    contrast_confidence = exploratory.get('confidence') if exploratory else None
+    gate_confidence = exploratory.get('hypothesis_gate_confidence') if exploratory else None
+    # The headline confidence belongs to the stated basis: the voltage estimate, or for a
+    # candidate the gate that admitted it. No estimate means no voltage confidence.
+    if candidate:
+        overall_confidence, confidence_basis = gate_confidence, (
+            'VOLTAGE_CONTRAST' if contrast_confidence is not None else 'OBSERVATION_SUFFICIENCY_ONLY')
+    elif contrast_confidence is not None:
+        overall_confidence, confidence_basis = contrast_confidence, 'VOLTAGE_CONTRAST'
+    else:
+        overall_confidence, confidence_basis = None, 'NO_VOLTAGE_ESTIMATE'
+    confidence_breakdown = {
+        'basis': confidence_basis,
+        'cycling_detection': cycling['detection_confidence'],
+        'voltage_contrast': contrast_confidence,
+        'observation_sufficiency': exploratory.get('observation_sufficiency') if exploratory else None,
+        'hypothesis_gate': gate_confidence}
+    diagnostics, hold_reasons = _decision_diagnostics(cycling, exploratory, evidence_classes, funnel, candidate,
+                                                      blocked_candidate, changed, changes, decision)
+    for reason in hold_reasons:
+        if reason not in reasons:
+            reasons.append(reason)
     explanation = ('Collection-time research only: mode/charging patterns are uncertain, timestamps may reflect cached readings, baseline is historical, and BMS limits and current settings are unverified. Candidate status: ' + stability if exploratory else 'Learning and threshold recommendations are blocked: device measurement time, receipt provenance, approved battery limits and current settings are not established.')
     if changed:
         explanation += ' Empirical response changed; cause is unknown and this is not proof that batteries were added or changed.'
+    explanation += ' ' + diagnostics.pop('summary')
     outcome = json.dumps({'baseline': baseline, 'decision': decision, 'proposed_voltage': proposed,
                           'stability': stability, 'reason_codes': reasons}, sort_keys=True,
                          separators=(',', ':'), allow_nan=False)
@@ -477,7 +871,8 @@ def evaluate_collected_history(rows, now, previous=None, *, historical_battery_v
         'window_seconds': int(WINDOW.total_seconds()), 'effective_window_seconds': max(0, effective_window),
         'collection_window_seconds': max(0, collection_window),
         'collection_count': len(valid), 'unique_observation_count': exploratory.get('samples', 0) if exploratory else 0,
-        'confidence': overall_confidence,
+        'confidence': overall_confidence, 'confidence_breakdown': confidence_breakdown,
+        'decision_diagnostics': diagnostics,
         'time_provenance': 'COLLECTION_TIME_ONLY', 'evidence_level': 'EXPLORATORY', 'exploratory_voltage_contrast': exploratory,
         'verified_sag': verified,
         'proposal_state': state, 'stability': stability, 'candidate_voltage': candidate[1] if candidate else None,
