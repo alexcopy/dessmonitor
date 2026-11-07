@@ -7,7 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -167,8 +167,7 @@ class ReadOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await self.routes['/api/inverter/metrics'](object())).status_code, 500)
             with patch.object(web_queries, 'decision_journal', new=AsyncMock(side_effect=ConnectionError())):
                 response = await self.routes['/api/controls/decisions'](object())
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(json.loads(response.body)['decisions'], [])
+                self.assertEqual(response.status_code, 503)
 
 
 @unittest.skipUnless(os.environ.get('WEB_QUERY_LOCAL_POSTGRES') == '1', 'requires disposable localhost PostgreSQL')
@@ -179,8 +178,8 @@ class LocalPostgresTests(unittest.IsolatedAsyncioTestCase):
         conn = await asyncpg.connect(dsn)
         try:
             await conn.execute("""
-                CREATE TABLE adaptive_decision_journal (evaluated_at timestamptz, entry text);
-                INSERT INTO adaptive_decision_journal VALUES (now(), '{"decision":"INSUFFICIENT_DATA"}');
+                CREATE TABLE adaptive_decision_journal (evaluation_id text, evaluated_at timestamptz, entry text);
+                INSERT INTO adaptive_decision_journal VALUES ('test', now(), '{"decision":"INSUFFICIENT_DATA"}');
                 CREATE TABLE daily_energy_balance (day date, pv_kwh numeric, grid_kwh numeric, battery_load_kwh numeric, total_load_kwh numeric, self_pct numeric);
                 INSERT INTO daily_energy_balance VALUES (current_date, 1, 2, 3, 4, 5);
                 CREATE TABLE device_metrics (time timestamptz, device_name text, is_on boolean, power_watts numeric);
@@ -198,7 +197,7 @@ class LocalPostgresTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await conn.close()
         try:
-            calls = [(web_queries.decision_journal, (dsn, 1)), (web_queries.energy_daily_balance, (dsn, 1)),
+            calls = [(web_queries.decision_journal, (dsn, datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc) + timedelta(days=1), 50)), (web_queries.energy_daily_balance, (dsn, 1)),
                      (web_queries.inverter_metrics, (dsn,)), (web_queries.energy_devices_today, (dsn,)),
                      (web_queries.energy_meter_daily, (dsn, '1')), (web_queries.charts_inverter, (dsn, '24')),
                      (web_queries.charts_hourly_load, (dsn, '24')), (web_queries.charts_weather, (dsn, '24'))]

@@ -14,6 +14,9 @@ No imports of hardware, Tuya, relay, device, monitoring, ML, or weather modules.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -21,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from starlette.templating import Jinja2Templates
 
 from app import web_queries
@@ -64,12 +67,60 @@ def _decision_export(entry):
     """Export only fields produced by the diagnostics, excluding configuration."""
     if not isinstance(entry, dict):
         raise ValueError('invalid journal entry')
-    result = {key: value for key, value in entry.items() if key in _DECISION_EXPORT_FIELDS}
+    def clean(value):
+        if isinstance(value, dict):
+            blocked = ('password', 'secret', 'token', 'credential', 'api_key', 'database_url', 'config', 'configuration')
+            return {key: clean(item) for key, item in value.items()
+                    if isinstance(key, str) and not any(part in key.lower() for part in blocked)}
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return value
+    result = {key: clean(value) for key, value in entry.items() if key in _DECISION_EXPORT_FIELDS}
     for name in ('current_settings', 'historical_settings'):
         settings = entry.get(name)
         if isinstance(settings, dict):
-            result[name] = {key: settings[key] for key in ('utility', 'battery', 'provenance') if key in settings}
+            result[name] = {key: clean(settings[key]) for key in ('utility', 'battery', 'provenance') if key in settings}
     return result
+
+
+_CURSOR_TTL_SECONDS = 600
+_CURSOR_MAX_LENGTH = 2048
+
+
+def _encode_decision_cursor(payload, secret):
+    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':'), sort_keys=True).encode()).decode().rstrip('=')
+    signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    return body + '.' + signature
+
+
+def _decode_decision_cursor(token, secret, days):
+    if not isinstance(token, str) or not token or len(token) > _CURSOR_MAX_LENGTH or token.count('.') != 1:
+        raise ValueError('Invalid cursor')
+    body, signature = token.split('.', 1)
+    if not body.isascii() or not signature.isascii():
+        raise ValueError('Invalid cursor')
+    expected = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError('Invalid cursor signature')
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+        required = {'v', 'exp', 'days', 'lower', 'upper', 'after_time', 'after_id'}
+        if not isinstance(payload, dict) or set(payload) != required or payload['v'] != 1:
+            raise ValueError
+        if type(payload['days']) is not int or payload['days'] != days:
+            raise ValueError
+        if type(payload['exp']) is not int or payload['exp'] < int(time.time()) or payload['exp'] > int(time.time()) + _CURSOR_TTL_SECONDS:
+            raise ValueError
+        for key in ('lower', 'upper', 'after_time'):
+            if not isinstance(payload[key], str): raise ValueError
+            payload[key] = datetime.fromisoformat(payload[key].replace('Z', '+00:00'))
+        if payload['lower'].tzinfo is None or payload['upper'].tzinfo is None or payload['after_time'].tzinfo is None:
+            raise ValueError
+        if not isinstance(payload['after_id'], str) or not payload['after_id'] or len(payload['after_id']) > 256:
+            raise ValueError
+        return payload
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError('Invalid or expired cursor') from exc
 
 
 def _adaptive_worker_enabled():
@@ -363,30 +414,94 @@ def create_auth_router(
         return response
 
     @router.get("/api/controls/decisions")
-    async def adaptive_decisions_api(request: Request, days: int = 1) -> Any:
+    async def adaptive_decisions_api(request: Request, days: int = 1, limit: int = 50,
+                                     cursor: str | None = None) -> Any:
         valid, _ = _check_auth(request)
         if not valid:
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         if days not in (1, 2, 7):
             return JSONResponse({"detail": "Invalid range"}, status_code=422)
+        if not 1 <= limit <= 200:
+            return JSONResponse({"detail": "Invalid limit"}, status_code=422)
+        cursor_payload = None
+        if cursor is not None:
+            try:
+                secret = getattr(config, 'session_secret', None) or os.environ.get('WEB_AUTH_SESSION_SECRET', '')
+                cursor_payload = _decode_decision_cursor(cursor, secret, days)
+            except ValueError:
+                return JSONResponse({"detail": "Invalid cursor"}, status_code=422)
         enabled = _adaptive_worker_enabled()
         database_url = os.environ.get("DATABASE_URL")
         if not database_url:
             return JSONResponse({"decisions": [], "worker_health": _worker_health_from_journal(
-                None, enabled=enabled, unavailable_reason='DATABASE_URL_UNAVAILABLE')},
+                None, enabled=enabled, unavailable_reason='DATABASE_URL_UNAVAILABLE'),
+                "has_more": False, "next_cursor": None, "latest_decision": None},
                 headers={"Cache-Control": "no-store"})
         try:
-            rows = await web_queries.decision_journal(database_url, days)
+            latest_row = await web_queries.latest_decision(database_url)
+            secret = getattr(config, 'session_secret', None) or os.environ.get('WEB_AUTH_SESSION_SECRET', '')
+            if not secret:
+                raise RuntimeError('Cursor signing is not configured')
+            if cursor_payload is None:
+                upper_bound = datetime.now(timezone.utc)
+                lower_bound = upper_bound - timedelta(days=days)
+                after_time = after_id = None
+            else:
+                lower_bound, upper_bound = cursor_payload['lower'], cursor_payload['upper']
+                after_time, after_id = cursor_payload['after_time'], cursor_payload['after_id']
+            rows = await web_queries.decision_journal(database_url, lower_bound, upper_bound, limit + 1,
+                after_time, after_id)
+            has_more = len(rows) > limit
+            rows = rows[:limit]
             parsed = [json.loads(row['entry']) for row in rows]
             entries = [_decision_export(entry) for entry in parsed]
-            latest = parsed[0] if parsed else None
+            latest = json.loads(latest_row['entry']) if latest_row else None
             health = _worker_health_from_journal(latest, enabled=enabled,
                 unavailable_reason=None if latest else 'NO_PERSISTED_WORKER_EVALUATION')
-            return JSONResponse({"decisions": entries, "worker_health": health}, headers={"Cache-Control": "no-store"})
+            next_cursor = None
+            if has_more and rows:
+                last = rows[-1]
+                value = {'v': 1, 'exp': cursor_payload['exp'] if cursor_payload else int(time.time()) + _CURSOR_TTL_SECONDS, 'days': days,
+                    'lower': lower_bound.isoformat(), 'upper': upper_bound.isoformat(),
+                    'after_time': last['evaluated_at'].isoformat(),
+                    'after_id': last['evaluation_id']}
+                next_cursor = _encode_decision_cursor(value, secret)
+            return JSONResponse({"decisions": entries, "worker_health": health,
+                "has_more": has_more, "next_cursor": next_cursor, "latest_decision": _decision_export(latest) if latest else None}, headers={"Cache-Control": "no-store"})
         except Exception:
-            return JSONResponse({"decisions": [], "worker_health": _worker_health_from_journal(
-                None, enabled=enabled, unavailable_reason='DECISION_JOURNAL_UNAVAILABLE')},
+            return JSONResponse({"detail": "Decision journal unavailable"}, status_code=503,
                 headers={"Cache-Control": "no-store"})
+
+    @router.get("/api/controls/decisions/export")
+    async def adaptive_decisions_export(request: Request, days: int = 1) -> Any:
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if days not in (1, 2, 7):
+            return JSONResponse({"detail": "Invalid range"}, status_code=422)
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            return JSONResponse({"detail": "Decision journal unavailable"}, status_code=503)
+
+        async def body():
+            yield b'{"decisions":['
+            first = True
+            iterator = web_queries.stream_decisions(database_url, days).__aiter__()
+            try:
+                async for row in iterator:
+                    entry = _decision_export(json.loads(row['entry']))
+                    if not first:
+                        yield b','
+                    first = False
+                    yield json.dumps(entry, separators=(',', ':')).encode()
+            finally:
+                close = getattr(iterator, 'aclose', None)
+                if close is not None:
+                    await close()
+            yield b']}'
+
+        return StreamingResponse(body(), media_type="application/json",
+            headers={"Cache-Control": "no-store", "Content-Disposition": "attachment; filename=adaptive-decisions.json"})
 
     # -- /settings GET --------------------------------------------------
 
