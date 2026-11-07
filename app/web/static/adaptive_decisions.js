@@ -1,6 +1,11 @@
 (function () {
     'use strict';
     var days = 1;
+    var nextCursor = null;
+    var loading = false;
+    var generation = 0;
+    var seen = new Set();
+    var pendingReset = false;
     function setText(id, value) {
         var node = document.getElementById(id);
         if (node) node.textContent = value == null || value === '' ? '—' : String(value);
@@ -21,7 +26,7 @@
     }
     function renderHealth(data) {
         var health = data.worker_health || {};
-        var latest = data.decisions.length ? data.decisions[0] : null;
+        var latest = data.latest_decision || null;
         setText('worker-status', (health.status || 'degraded').toUpperCase() +
             (health.enabled ? ' (enabled)' : ' (disabled)'));
         setText('worker-last-evaluation', health.last_evaluation_at);
@@ -116,61 +121,75 @@
                 '. Frequent switching alone is not threshold evidence.');
         setText('worker-hold-reasons', (diagnostics.hold_reasons || []).join(', ') || 'None');
     }
-    async function load() {
+    function renderDecision(item) {
+        var tr = document.createElement('tr');
+        var current = currentThreshold(item);
+        var baseline = historicalReference(item);
+        var progress = item.confirmation_progress;
+        var confirmation = progress ? progress.confirmed + ' / ' + progress.required + ' (' + (item.stability || 'unknown') + ')' : item.stability;
+        var evidence = item.evidence_level || '—';
+        if (item.verified_sag && item.verified_sag.evidence_level) evidence += ' / SagLearner ' + item.verified_sag.evidence_level;
+        var proposed = item.proposed_voltage != null ? item.proposed_voltage : item.candidate_voltage;
+        var proposalLabel = item.proposed_voltage != null ? 'proposed' : 'candidate';
+        [item.evaluated_at, item.decision, evidence, item.time_provenance, item.threshold,
+            current, baseline, proposed == null ? null : proposed + ' V (' + proposalLabel + '; hypothetical)',
+            confirmation, duration(item.cooldown_remaining_seconds), item.pv_w, item.load_w,
+            item.battery_v, item.confidence]
+            .forEach(function (value) {
+                var td = document.createElement('td'); td.textContent = value == null ? '—' : String(value); tr.appendChild(td);
+            });
+        var reason = document.createElement('td'), detail = document.createElement('details');
+        var summary = document.createElement('summary');
+        summary.textContent = item.explanation || (Array.isArray(item.reason_codes) ? item.reason_codes.join(', ') : 'Evidence unavailable');
+        var pre = document.createElement('pre');
+        detail.addEventListener('toggle', function () {
+            if (detail.open && !pre.dataset.generated) { pre.textContent = JSON.stringify(item, null, 2); pre.dataset.generated = 'true'; }
+        });
+        detail.appendChild(summary); detail.appendChild(pre); reason.appendChild(detail); tr.appendChild(reason);
+        return tr;
+    }
+    async function load(reset) {
         var status = document.getElementById('decision-status');
         var body = document.getElementById('decision-body');
-        var requested = days;
-        document.getElementById('decision-export').href = '/api/controls/decisions?days=' + days;
+        if (loading) { if (reset) pendingReset = true; return; }
+        if (reset) { generation++; nextCursor = null; seen = new Set(); body.replaceChildren(); }
+        var requested = days, requestGeneration = generation, cursor = reset ? null : nextCursor;
+        loading = true;
+        status.textContent = cursor ? 'Loading older decisions…' : 'Loading decisions…';
+        document.getElementById('decision-export').href = '/api/controls/decisions/export?days=' + days;
         try {
-            var response = await fetch('/api/controls/decisions?days=' + days, {cache: 'no-store'});
+            var url = '/api/controls/decisions?days=' + days + '&limit=50' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+            var response = await fetch(url, {cache: 'no-store'});
             if (!response.ok) throw new Error('unavailable');
             var data = await response.json();
-            if (requested !== days) return;
+            if (requestGeneration !== generation || requested !== days) return;
             if (!data || !Array.isArray(data.decisions)) throw new Error('invalid');
             renderHealth(data);
-            body.replaceChildren();
             data.decisions.forEach(function (item) {
-                var tr = document.createElement('tr');
-                var current = currentThreshold(item);
-                var baseline = historicalReference(item);
-                var progress = item.confirmation_progress;
-                var confirmation = progress ? progress.confirmed + ' / ' + progress.required + ' (' + (item.stability || 'unknown') + ')' : item.stability;
-                var evidence = item.evidence_level || '—';
-                if (item.verified_sag && item.verified_sag.evidence_level) {
-                    evidence += ' / SagLearner ' + item.verified_sag.evidence_level;
-                }
-                var proposed = item.proposed_voltage != null ? item.proposed_voltage : item.candidate_voltage;
-                var proposalLabel = item.proposed_voltage != null ? 'proposed' : 'candidate';
-                [item.evaluated_at, item.decision, evidence, item.time_provenance, item.threshold,
-                    current, baseline, proposed == null ? null : proposed + ' V (' + proposalLabel + '; hypothetical)',
-                    confirmation, duration(item.cooldown_remaining_seconds), item.pv_w, item.load_w,
-                    item.battery_v, item.confidence]
-                    .forEach(function (value) {
-                        var td = document.createElement('td');
-                        td.textContent = value == null ? '—' : String(value);
-                        tr.appendChild(td);
-                    });
-                var reason = document.createElement('td'), detail = document.createElement('details');
-                var summary = document.createElement('summary');
-                summary.textContent = item.explanation || (Array.isArray(item.reason_codes) ? item.reason_codes.join(', ') : 'Evidence unavailable');
-                var pre = document.createElement('pre');
-                pre.textContent = JSON.stringify(item, null, 2);
-                detail.appendChild(summary); detail.appendChild(pre); reason.appendChild(detail); tr.appendChild(reason);
-                body.appendChild(tr);
+                var key = String(item.evaluation_id || item.evaluated_at) + ':' + String(item.evaluated_at);
+                if (!seen.has(key)) { seen.add(key); body.appendChild(renderDecision(item)); }
             });
-            status.textContent = data.decisions.length ? data.decisions.length + ' decisions' : 'No decisions in this period.';
+            nextCursor = data.next_cursor || null;
+            var more = document.getElementById('decision-load-more'); more.hidden = !data.has_more; more.disabled = false;
+            status.textContent = body.children.length ? body.children.length + ' decisions loaded' : 'No decisions in this period.';
         } catch (_) {
-            if (requested === days) {
-                status.textContent = 'Decision journal unavailable; previous results retained.';
-                setText('worker-status', 'DEGRADED');
-                setText('worker-reason', 'Decision journal unavailable');
+            if (requestGeneration === generation && requested === days) {
+                status.textContent = reset ? 'Could not load this range; previous results were cleared.' : 'Decision journal unavailable; previous results retained. Retry Load more.';
+                var moreButton = document.getElementById('decision-load-more');
+                if (!reset && nextCursor) moreButton.disabled = false;
             }
+        } finally {
+            loading = false;
+            if (pendingReset) { pendingReset = false; load(true); }
         }
     }
     document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('[data-decision-days]').forEach(function (button) {
-            button.addEventListener('click', function () { days = Number(button.dataset.decisionDays); load(); });
+            button.addEventListener('click', function () { days = Number(button.dataset.decisionDays); load(true); });
         });
-        load();
+        document.getElementById('decision-load-more').addEventListener('click', function () {
+            this.disabled = true; load(false);
+        });
+        load(true);
     });
 }());

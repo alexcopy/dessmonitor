@@ -14,6 +14,7 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         router = web_routes.create_auth_router(None, None)
         self.api = next(route.endpoint for route in router.routes if route.path == '/api/controls/decisions')
+        self.export = next(route.endpoint for route in router.routes if route.path == '/api/controls/decisions/export')
 
     async def test_authentication_is_required_before_database_access(self):
         with patch.object(web_routes, '_check_auth', return_value=(False, None)):
@@ -42,9 +43,12 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
                      'observation_count': 3, 'effective_window_seconds': 600}}
         conn = SimpleNamespace(fetch=AsyncMock(return_value=[{'entry': json.dumps(entry)}]), close=AsyncMock())
         asyncpg = SimpleNamespace(connect=AsyncMock(return_value=conn))
+        latest = {'evaluation_id': 'id-1', 'evaluated_at': __import__('datetime').datetime.fromisoformat('2026-11-04T10:00:00+00:00'), 'entry': json.dumps(entry)}
         with patch.object(web_routes, '_check_auth', return_value=(True, 'user')), \
-             patch.dict('os.environ', {'DATABASE_URL': 'synthetic', 'ADAPTIVE_OUTPUT_LEARNING_ENABLED': 'true'}), \
-             patch.dict('sys.modules', {'asyncpg': asyncpg}):
+             patch.dict('os.environ', {'DATABASE_URL': 'synthetic', 'ADAPTIVE_OUTPUT_LEARNING_ENABLED': 'true', 'WEB_AUTH_SESSION_SECRET':'a'*64}), \
+             patch.dict('sys.modules', {'asyncpg': asyncpg}), \
+             patch('app.web_queries.latest_decision', new=AsyncMock(return_value=latest)), \
+             patch('app.web_queries.decision_journal', new=AsyncMock(return_value=[latest])):
             invalid = await self.api(object(), days=3)
             self.assertEqual(invalid.status_code, 422)
             self.assertEqual(asyncpg.connect.await_count, 0)
@@ -52,6 +56,8 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         payload = json.loads(response.body)
         self.assertEqual(payload['decisions'][0]['decision'], 'INSUFFICIENT_DATA')
+        self.assertFalse(payload['has_more'])
+        self.assertIsNone(payload['next_cursor'])
         self.assertEqual(payload['decisions'][0]['evidence_level'], 'EXPLORATORY')
         self.assertEqual(payload['decisions'][0]['reason_codes'], ['DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED'])
         self.assertEqual(payload['worker_health']['last_successful_evaluation_at'], '2026-11-04T10:00:00+00:00')
@@ -59,4 +65,3 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload['worker_health']['status_source'], 'PERSISTED_JOURNAL')
         self.assertNotIn('secret', response.body.decode())
         self.assertEqual(response.headers['cache-control'], 'no-store')
-        conn.close.assert_awaited_once()

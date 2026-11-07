@@ -62,8 +62,9 @@
 <button type="button" data-decision-days="1">24h</button>
 <button type="button" data-decision-days="2">48h</button>
 <button type="button" data-decision-days="7">7d</button>
-<a id="decision-export" href="/api/controls/decisions?days=1" download="adaptive-decisions.json">Export JSON</a>
+<a id="decision-export" href="/api/controls/decisions/export?days=1" download="adaptive-decisions.json">Export JSON</a>
 </div>
+<p>Pagination uses fixed date boundaries and best-effort ordering. Concurrent updates, deletes, and backdated inserts can change later pages.</p>
 <p id="decision-status" role="status">Loading…</p>
 <div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Adaptive decisions, scroll horizontally">
 <table class="dm-table dm-table-compact"><thead><tr>
@@ -71,4 +72,5 @@
 <th>Current threshold</th><th>Historical reference, not current</th><th>Hypothetical proposal</th><th>Confirmation</th><th>Cooldown remaining</th>
 <th>PV power</th><th>Load</th><th>Battery voltage</th><th>Confidence</th><th>Reasons and evidence</th>
 </tr></thead><tbody id="decision-body"></tbody></table></div>
+<button id="decision-load-more" type="button" hidden>Load more</button>
 </main></body></html>

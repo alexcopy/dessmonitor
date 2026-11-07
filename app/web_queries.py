@@ -10,10 +10,44 @@ async def _fetch(database_url, sql, *args, **connect_options):
         await conn.close()
 
 
-async def decision_journal(database_url, days):
-    return await _fetch(database_url, '''SELECT entry FROM adaptive_decision_journal
-                    WHERE evaluated_at >= now() - ($1::int * INTERVAL '1 day')
-                    ORDER BY evaluated_at DESC LIMIT 10000''', days, command_timeout=10)
+async def decision_journal(database_url, lower_bound, upper_bound, limit, after_time=None, after_id=None):
+    """Best-effort keyset traversal: later inserts, updates and deletes may affect pages."""
+    return await _fetch(database_url, """
+        SELECT evaluation_id, evaluated_at, entry FROM adaptive_decision_journal
+        WHERE evaluated_at >= $1 AND evaluated_at <= $2
+          AND ($3::timestamptz IS NULL OR (evaluated_at, evaluation_id) < ($3, $4::text))
+        ORDER BY evaluated_at DESC, evaluation_id DESC LIMIT $5
+    """, lower_bound, upper_bound, after_time, after_id, limit, command_timeout=10)
+
+
+async def latest_decision(database_url):
+    rows = await _fetch(database_url, '''
+        SELECT evaluation_id, evaluated_at, entry
+        FROM adaptive_decision_journal
+        ORDER BY evaluated_at DESC, evaluation_id DESC LIMIT 1
+    ''', command_timeout=10)
+    return rows[0] if rows else None
+
+
+async def stream_decisions(database_url, days, chunk_size=500):
+    import asyncpg
+    conn = await asyncpg.connect(database_url, command_timeout=30)
+    try:
+        async with conn.transaction():
+            cursor = await conn.cursor('''
+                SELECT evaluation_id, evaluated_at, entry
+                FROM adaptive_decision_journal
+                WHERE evaluated_at >= now() - ($1::int * INTERVAL '1 day')
+                ORDER BY evaluated_at DESC, evaluation_id DESC
+            ''', days)
+            while True:
+                rows = await cursor.fetch(chunk_size)
+                if not rows:
+                    break
+                for row in rows:
+                    yield row
+    finally:
+        await conn.close()
 
 
 async def charge_history(database_url, window_start, as_of):

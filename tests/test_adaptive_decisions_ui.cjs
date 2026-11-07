@@ -8,11 +8,11 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'app/web/static/adaptive_decisions.js'), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function element() {
-    return {children: [], textContent: '', href: '', appendChild(child) {this.children.push(child);},
-        replaceChildren() {this.children = [];}};
+    return {children: [], dataset: {}, textContent: '', href: '', appendChild(child) {this.children.push(child);},
+        replaceChildren() {this.children = [];}, addEventListener(name, fn) {this[name] = fn;}};
 }
 test('decision page shows blocked evidence and exports selected range', async () => {
-    const elements = {'decision-status':element(), 'decision-body':element(), 'decision-export':element(),
+    const elements = {'decision-status':element(), 'decision-body':element(), 'decision-export':element(), 'decision-load-more':element(),
         'worker-status':element(), 'worker-last-evaluation':element(), 'worker-last-success':element(),
         'worker-reason':element(), 'worker-window':element(), 'worker-evidence':element(),
         'worker-current':element(), 'worker-baseline':element(), 'worker-proposed':element(),
@@ -21,7 +21,7 @@ test('decision page shows blocked evidence and exports selected range', async ()
     let start, urls=[];
     const document = {getElementById: id => elements[id], createElement: element,
         querySelectorAll: () => buttons, addEventListener: (_, fn) => {start=fn;}};
-    const fetch = async url => {urls.push(url); return {ok:true, json:async () => ({worker_health:{
+    const fetch = async url => {urls.push(url); return {ok:true, json:async () => ({latest_decision:{evaluated_at:'2026-01-01T00:00:00Z',decision:'INSUFFICIENT_DATA',threshold:'battery',historical_settings:{battery:26.0},reason_codes:['DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED']},worker_health:{
         enabled:true, status:'degraded', last_evaluation_at:'2026-01-01T00:00:00Z',
         last_successful_evaluation_at:'2026-01-01T00:00:00Z', blocking_reason:'DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED',
         observation_count:4, collection_count:8, effective_window_seconds:3600}, decisions:[{
@@ -38,7 +38,8 @@ test('decision page shows blocked evidence and exports selected range', async ()
     const cells = elements['decision-body'].children[0].children;
     assert.equal(cells[1].textContent, 'INSUFFICIENT_DATA');
     assert.equal(cells[6].textContent, '26 V (historical; not current)');
-    assert.match(cells[14].children[0].children[1].textContent, /DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED/);
+    const detail = cells[14].children[0]; detail.open = true; detail.toggle();
+    assert.match(detail.children[1].textContent, /DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED/);
     assert.equal(elements['decision-body'].children[1].children[1].textContent, 'HOLD');
     assert.equal(elements['decision-body'].children[2].children[1].textContent, 'BLOCKED');
     assert.equal(elements['worker-status'].textContent, 'DEGRADED (enabled)');
@@ -46,15 +47,15 @@ test('decision page shows blocked evidence and exports selected range', async ()
     assert.match(elements['worker-window'].textContent, /4 unique observations/);
     assert.equal(elements['worker-baseline'].textContent, '26 V (historical; not current)');
     buttons[2].click(); await tick();
-    assert.equal(elements['decision-export'].href, '/api/controls/decisions?days=7');
-    assert.equal(urls[1], '/api/controls/decisions?days=7');
+    assert.equal(elements['decision-export'].href, '/api/controls/decisions/export?days=7');
+    assert.equal(urls[1], '/api/controls/decisions?days=7&limit=50');
 });
 test('controls links to the read-only decision page', () => {
     const html = fs.readFileSync(path.join(root, 'app/web/templates/controls.html'), 'utf8');
     assert.match(html, /href="\/controls\/decisions"/);
 });
 test('decision page explains cycling, blocked voltage comparison and hypothesis support', async () => {
-    const ids = ['decision-status','decision-body','decision-export','worker-status','worker-last-evaluation',
+    const ids = ['decision-status','decision-body','decision-export','decision-load-more','worker-status','worker-last-evaluation',
         'worker-last-success','worker-reason','worker-window','worker-evidence','worker-current','worker-baseline',
         'worker-proposed','worker-stability','worker-confidence','worker-cycling','worker-voltage',
         'worker-confounded','worker-states','worker-samples','worker-hypothesis','worker-hold-reasons'];
@@ -63,7 +64,7 @@ test('decision page explains cycling, blocked voltage comparison and hypothesis 
         let start;
         const document = {getElementById: id => elements[id], createElement: element,
             querySelectorAll: () => [], addEventListener: (_, fn) => {start=fn;}};
-        const fetch = async () => ({ok:true, json:async () => ({worker_health:{enabled:true, status:'degraded'}, decisions:[latest]})});
+        const fetch = async () => ({ok:true, json:async () => ({worker_health:{enabled:true, status:'degraded'}, latest_decision:latest, decisions:[latest]})});
         vm.runInNewContext(source, {document, fetch, JSON, String, Number, Object, Array, Math});
         start(); await tick();
         return elements;
@@ -101,4 +102,55 @@ test('decision page explains cycling, blocked voltage comparison and hypothesis 
     const legacy = await run({evaluated_at:'2026-11-06T14:00:00Z', decision:'HOLD', confidence:0.45, reason_codes:['COLLECTION_TIME_ONLY']});
     assert.equal(legacy['worker-cycling'].textContent, 'Not recorded by this algorithm version');
     assert.match(legacy['worker-confidence'].textContent, /^0.45 — COLLECTION_TIME_ONLY/);
+});
+test('Load more appends a cursor page and changing range resets the cursor', async () => {
+    const ids = ['decision-status','decision-body','decision-export','decision-load-more','worker-status',
+        'worker-last-evaluation','worker-last-success','worker-reason','worker-window','worker-evidence',
+        'worker-current','worker-baseline','worker-proposed','worker-stability','worker-confidence',
+        'worker-cycling','worker-voltage','worker-confounded','worker-states','worker-samples',
+        'worker-hypothesis','worker-hold-reasons'];
+    const elements = Object.fromEntries(ids.map(id => [id, element()]));
+    const buttons = [1,2,7].map(days => ({dataset:{decisionDays:String(days)}, addEventListener(_, fn){this.click=fn;}}));
+    let start; const urls=[];
+    const document={getElementById:id=>elements[id],createElement:element,querySelectorAll:()=>buttons,addEventListener:(_,fn)=>{start=fn;}};
+    const item=(id,time)=>({evaluation_id:id,evaluated_at:time,decision:'HOLD',reason_codes:[],hardware_write_attempted:false});
+    const fetch=async url=>{
+        urls.push(url); const page=urls.filter(x=>x.includes('limit=50')).length;
+        const decisions=url.includes('days=2')?[item('newer-range-a','2026-01-03'),item('newer-range-b','2026-01-02')]:page===1?[item('new','2026-01-03'),item('older','2026-01-02')]:[item('oldest','2026-01-01')];
+        return {ok:true,json:async()=>({decisions,worker_health:{enabled:false,status:'disabled'},has_more:page===1,next_cursor:page===1?'cursor-2':null})};
+    };
+    vm.runInNewContext(source,{document,fetch,JSON,String,Number,Object,Array,Math});
+    start(); await tick();
+    assert.equal(elements['decision-body'].children.length,2);
+    elements['decision-load-more'].click(); await tick();
+    assert.equal(elements['decision-body'].children.length,3);
+    assert.match(urls[1],/cursor=cursor-2/);
+    buttons[1].click(); await tick();
+    assert.equal(elements['decision-body'].children.length,2);
+    assert.match(urls[2],/days=2&limit=50$/);
+    assert.doesNotMatch(urls[2],/cursor=/);
+});
+test('failed Load more keeps its cursor usable and refreshes worker health on success', async () => {
+    const ids=['decision-status','decision-body','decision-export','decision-load-more','worker-status',
+        'worker-last-evaluation','worker-last-success','worker-reason','worker-window','worker-evidence',
+        'worker-current','worker-baseline','worker-proposed','worker-stability','worker-confidence',
+        'worker-cycling','worker-voltage','worker-confounded','worker-states','worker-samples','worker-hypothesis','worker-hold-reasons'];
+    const elements=Object.fromEntries(ids.map(id=>[id,element()]));let start;const urls=[];let calls=0;
+    const document={getElementById:id=>elements[id],createElement:element,querySelectorAll:()=>[],addEventListener:(_,fn)=>{start=fn;}};
+    const fetch=async url=>{urls.push(url);calls++;if(calls===2)return {ok:false,status:503};return {ok:true,json:async()=>({
+        decisions:[{evaluation_id:'r'+calls,evaluated_at:'2026-01-01T00:00:00Z',decision:'HOLD',evidence_level:'OLD'}],
+        latest_decision:{evaluated_at:'2026-01-02T00:00:00Z',evidence_level:'CURRENT-'+calls},
+        worker_health:{enabled:true,status:calls===1?'healthy':'degraded',last_evaluation_at:'latest-'+calls},
+        has_more:calls===1,next_cursor:calls===1?'stable-cursor':null})};};
+    vm.runInNewContext(source,{document,fetch,JSON,String,Number,Object,Array,Math});start();await tick();
+    elements['decision-load-more'].click();await tick();
+    assert.equal(elements['decision-body'].children.length,1);
+    assert.equal(elements['decision-load-more'].disabled,false);
+    assert.match(elements['decision-status'].textContent,/Retry/);
+    assert.equal(elements['worker-status'].textContent,'HEALTHY (enabled)');
+    elements['decision-load-more'].click();await tick();
+    assert.match(urls[2],/cursor=stable-cursor/);
+    assert.equal(elements['worker-status'].textContent,'DEGRADED (enabled)');
+    assert.equal(elements['worker-last-evaluation'].textContent,'latest-3');
+    assert.equal(elements['worker-evidence'].textContent,'CURRENT-3');
 });
