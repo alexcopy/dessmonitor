@@ -45,8 +45,76 @@
         var cooldown = latest ? latest.cooldown_remaining_seconds : health.cooldown_remaining_seconds;
         setText('worker-stability', confirmation + '; ' + duration(cooldown) + ' cooldown remaining');
         var reasons = latest && Array.isArray(latest.reason_codes) ? latest.reason_codes.join(', ') : '';
-        var confidence = latest && latest.confidence != null ? latest.confidence : health.confidence;
-        setText('worker-confidence', (confidence == null ? '—' : confidence) + (reasons ? ' — ' + reasons : ''));
+        var breakdown = latest && latest.confidence_breakdown;
+        var confidence;
+        if (breakdown) {
+            confidence = 'voltage contrast ' + (breakdown.voltage_contrast == null ? 'none (no estimate)' : breakdown.voltage_contrast) +
+                '; cycling detection ' + (breakdown.cycling_detection == null ? '—' : breakdown.cycling_detection) +
+                '; basis ' + (breakdown.basis || '—');
+        } else {
+            var value = latest && latest.confidence != null ? latest.confidence : health.confidence;
+            confidence = value == null ? '—' : String(value);
+        }
+        setText('worker-confidence', confidence + (reasons ? ' — ' + reasons : ''));
+        renderDiagnostics(latest);
+    }
+    function joinCounts(counts) {
+        if (!counts || typeof counts !== 'object') return '';
+        return Object.keys(counts).filter(function (key) { return counts[key]; })
+            .map(function (key) { return key + ' ' + counts[key]; }).join(', ');
+    }
+    function renderDiagnostics(latest) {
+        var diagnostics = latest && latest.decision_diagnostics;
+        var ids = ['worker-cycling', 'worker-voltage', 'worker-confounded', 'worker-states',
+            'worker-samples', 'worker-hypothesis', 'worker-hold-reasons'];
+        if (!diagnostics || typeof diagnostics !== 'object') {
+            ids.forEach(function (id) { setText(id, 'Not recorded by this algorithm version'); });
+            return;
+        }
+        var cycling = diagnostics.cycling || {};
+        setText('worker-cycling', (cycling.detected ? 'DETECTED' : 'Not established') + ': ' +
+            cycling.reported_mode_changes + ' reported mode changes, ' + cycling.short_runs + ' of ' +
+            cycling.complete_runs + ' bounded runs shorter than ' +
+            Math.round(((cycling.criteria || {}).short_run_max_seconds || 0) / 60) + ' min; detection confidence ' +
+            cycling.detection_confidence + '; ' + joinCounts(cycling.transition_states) +
+            ' (collection order only; physical switch times unknown)');
+        var voltage = diagnostics.voltage_comparison || {};
+        var contrast = latest.exploratory_voltage_contrast || {};
+        var voltageText = voltage.status === 'ESTIMATED'
+            ? 'Estimated (exploratory): ' + contrast.contrast_v + ' V Line-not-charging minus Invert-discharging from ' +
+                voltage.comparable_pairs + ' pairs; not verified sag'
+            : 'Blocked: ' + (voltage.blocked_by || []).join(', ') + ' (' + (voltage.comparable_pairs || 0) +
+                ' of ' + voltage.required_pairs + ' required pairs)';
+        var rejections = joinCounts(contrast.pair_rejections);
+        var exclusions = joinCounts(contrast.primary_exclusions);
+        setText('worker-voltage', voltageText + (exclusions ? '; excluded observations: ' + exclusions : '') +
+            (rejections ? '; rejected comparisons: ' + rejections : ''));
+        var confounded = contrast.charging_confounded_contrast;
+        setText('worker-confounded', confounded && confounded.median_difference_v != null
+            ? 'Median ' + confounded.median_difference_v + ' V over ' + confounded.matched_pairs +
+                ' pairs (Line charging at median ' + confounded.median_line_charge_a +
+                ' A minus Invert discharging) — charging-confounded description, not sag or rebound; never used for proposals'
+            : 'No matched Line-charging comparison');
+        var classes = diagnostics.evidence_classes || {};
+        setText('worker-states', Object.keys(classes).map(function (key) {
+            var item = classes[key] || {};
+            var range = Array.isArray(item.voltage_range_v) ? item.voltage_range_v.join('–') + ' V' : '—';
+            return key + ': ' + item.count + ' (' + range + ')';
+        }).join('; ') || 'No complete observations');
+        var samples = diagnostics.sample_counts || {};
+        setText('worker-samples', samples.analysed_observations + ' analysed of ' + samples.raw_collections +
+            ' collections; rejected: ' + (joinCounts({
+                'outside window': samples.rejected_outside_window_or_invalid_time,
+                'unknown mode': samples.rejected_unknown_mode,
+                'missing/invalid fields': samples.rejected_missing_or_invalid_numeric,
+                'duplicate cached payload': samples.rejected_duplicate_cached_payload,
+                'analysis cap': samples.rejected_analysis_cap}) || 'none'));
+        var hypothesis = diagnostics.hypothesis_support || {};
+        setText('worker-hypothesis', hypothesis.supported
+            ? 'Supported: ' + hypothesis.candidate + ' (hypothetical; non-actionable)'
+            : 'Not supported: ' + ((hypothesis.unsupported_because || []).join(', ') || 'no candidate') +
+                '. Frequent switching alone is not threshold evidence.');
+        setText('worker-hold-reasons', (diagnostics.hold_reasons || []).join(', ') || 'None');
     }
     async function load() {
         var status = document.getElementById('decision-status');

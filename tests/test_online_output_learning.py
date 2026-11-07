@@ -7,7 +7,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from app.control.online_output_learning import LOCK_ID, evaluate_collected_history, parse_historical_record, run_evaluation, validate_journal_schema
+from app.control.online_output_learning import (CYCLING_MIN_SHORT_RUNS, LOCK_ID, MAX_ANALYSIS_OBSERVATIONS,
+                                                MIN_CANDIDATE_PAIRS, evaluate_collected_history,
+                                                parse_historical_record, run_evaluation, validate_journal_schema,
+                                                _pair_contrast)
 from app.control.sag_learning import SagLearner, SagSample
 from test_sag_learning import configuration as sag_configuration
 
@@ -125,6 +128,20 @@ class DiagnosticEvaluationTests(unittest.TestCase):
         self.assertIsNone(contrast['contrast_v'])
         self.assertEqual(contrast['comparable_pairs'], 0)
         self.assertIsNone(result['proposed_voltage'])
+
+    def test_line_sample_with_comparable_partner_lost_to_one_to_one_match_is_not_mislabeled(self):
+        line_earlier = row(time=NOW-timedelta(minutes=2), working_mode='Line Mode', battery_voltage=26.0,
+                           battery_current_chg=0, output_power_w=800, pv_power_w=200)
+        line_later = row(time=NOW-timedelta(minutes=1), working_mode='Line Mode', battery_voltage=26.1,
+                         battery_current_chg=0, output_power_w=800, pv_power_w=200)
+        invert = row(time=NOW-timedelta(seconds=30), working_mode='Invert Mode', battery_voltage=25.5,
+                     battery_current_dis=15, output_power_w=800, pv_power_w=200)
+
+        result = _pair_contrast([line_earlier, line_later], [invert], (75, 75), NOW)
+        self.assertEqual(len(result['pairs']), 1)
+        self.assertEqual(result['rejected']['NOT_SELECTED_ONE_TO_ONE'], 1)
+        self.assertEqual(result['line_without_comparable_partner'], 0)
+        self.assertEqual(result['line_not_selected_one_to_one'], 1)
 
     def test_noisy_pairs_keep_a_bounded_robust_estimate(self):
         result = evaluate_collected_history(matched_rows((0.48, 1.6, 0.50, 0.52, 0.51),
@@ -457,3 +474,336 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([r['decision'] for r in entries], ['HOLD', 'HYPOTHETICAL_RAISE'])
         finally:
             await other.close()
+
+
+from easun_replay_fixture import production_like_history  # noqa: E402
+
+REPLAY_NOW = datetime(2026, 11, 6, 15, tzinfo=timezone.utc)
+
+
+def _class_counts(result):
+    return {name: item['count'] for name, item in result['decision_diagnostics']['evidence_classes'].items()}
+
+
+class ProductionLikeReplayTests(unittest.TestCase):
+    """Synthetic three-hour replay: 60 Line (56 charging), 67 Invert discharging, cycling."""
+
+    def setUp(self):
+        self.rows = production_like_history(REPLAY_NOW)
+        self.result = evaluate_collected_history(self.rows, REPLAY_NOW)
+
+    def test_unknown_modes_break_transition_and_run_continuity(self):
+        cases = [
+            (['Line Mode', None, 'Invert Mode'], 0),
+            (['Line Mode', 'Unknown', 'Line Mode'], 0),
+            (['Line Mode', 'Invert Mode'], 1),
+            (['Line Mode', 'Invert Mode', None, 'Line Mode'], 1),
+            (['Line Mode', None, 'Invert Mode', None, 'Line Mode', None,
+              'Invert Mode', None, 'Line Mode'], 0),
+            (['Line Mode', 'Invert Mode', 'Line Mode', 'Invert Mode', 'Line Mode'], 4),
+        ]
+        for modes, expected in cases:
+            with self.subTest(modes=modes):
+                rows = [row(time=REPLAY_NOW-timedelta(seconds=30*(len(modes)-i)), working_mode=mode)
+                        for i, mode in enumerate(modes)]
+                result = evaluate_collected_history(rows, REPLAY_NOW)
+                cycling = result['decision_diagnostics']['cycling']
+                self.assertEqual(cycling['reported_mode_changes'], expected)
+                self.assertEqual(cycling['reported_mode_changes'], result['recent_reported_mode_changes'])
+                self.assertEqual(cycling['detected'], expected == 4)
+                self.assertEqual(cycling['confidence_interpretation'], 'HEURISTIC_NOT_CALIBRATED_PROBABILITY')
+
+    def test_identical_payloads_across_unknown_are_not_consecutive_duplicates(self):
+        modes = ['Line Mode', 'Line Mode', None, 'Line Mode', 'Line Mode']
+        rows = [row(time=REPLAY_NOW-timedelta(seconds=30*(len(modes)-i)), working_mode=mode)
+                for i, mode in enumerate(modes)]
+        result = evaluate_collected_history(rows, REPLAY_NOW)
+        cycling = result['decision_diagnostics']['cycling']
+        self.assertEqual(cycling['reported_mode_changes'], 0)
+        self.assertEqual(cycling['collections_considered'], 2)
+        self.assertEqual(cycling['duplicate_payloads_ignored'], 2)
+        self.assertEqual(cycling['complete_runs'], 0)
+
+    def test_cycling_evidence_crosses_quantitative_analysis_cap(self):
+        start = REPLAY_NOW - timedelta(seconds=800*10)
+        modes = ['Invert Mode', 'Line Mode', 'Invert Mode', 'Line Mode', 'Invert Mode']
+        rows = [row(time=start+timedelta(seconds=10*i), working_mode='Line Mode',
+                    output_power_w=500+i) for i in range(800)]
+        for i, mode in enumerate(modes):
+            rows[77+i]['working_mode'] = mode
+        result = evaluate_collected_history(rows, REPLAY_NOW)
+        cycling = result['decision_diagnostics']['cycling']
+        self.assertGreater(result['decision_diagnostics']['sample_counts']['rejected_analysis_cap'], 0)
+        self.assertEqual(cycling['reported_mode_changes'], 6)
+        self.assertEqual(cycling['reported_mode_changes'], result['recent_reported_mode_changes'])
+        self.assertTrue(cycling['detected'])
+
+    def test_fixture_matches_the_operator_observed_mix(self):
+        line = [r for r in self.rows if r['working_mode'] == 'Line Mode']
+        invert = [r for r in self.rows if r['working_mode'] == 'Invert Mode']
+        self.assertEqual((len(self.rows), len(line), len(invert)), (127, 60, 67))
+        self.assertEqual(sum(r['battery_current_chg'] > 0 for r in line), 56)
+        self.assertTrue(all(r['battery_current_dis'] > 0 and r['battery_current_chg'] == 0 for r in invert))
+
+    def test_cycling_is_detected_despite_line_mode_charging(self):
+        cycling = self.result['decision_diagnostics']['cycling']
+        self.assertTrue(cycling['detected'])
+        self.assertGreaterEqual(cycling['reported_mode_changes'], 20)
+        self.assertGreaterEqual(cycling['short_runs'], CYCLING_MIN_SHORT_RUNS)
+        self.assertGreater(cycling['transition_states'].get('INVERT_TO_LINE:LINE_CHARGING', 0), 0)
+        self.assertIn('CYCLING_DETECTED', self.result['reason_codes'])
+        # Collection brackets only; never an exact physical switch time.
+        self.assertEqual(cycling['time_provenance'], 'COLLECTION_ORDER_ONLY')
+        for item in cycling['recent_transitions']:
+            self.assertLess(item['bracket_start'], item['bracket_end'])
+            self.assertGreater(item['bracket_seconds'], 0)
+        self.assertIsNone(self.result['observation_time'])
+        self.assertIsNone(self.result['short_cycles'])
+        self.assertGreater(self.result['confidence_breakdown']['cycling_detection'], 0.5)
+
+    def test_cycling_is_detected_even_when_voltage_analysis_is_unavailable(self):
+        rows = self.rows[:-1] + [{**self.rows[-1], 'battery_current_dis': None}]
+        result = evaluate_collected_history(rows, REPLAY_NOW)
+        self.assertIsNone(result['exploratory_voltage_contrast'])
+        self.assertEqual(result['decision'], 'INSUFFICIENT_DATA')
+        self.assertTrue(result['decision_diagnostics']['cycling']['detected'])
+        self.assertIn('LATEST_COLLECTION_INCOMPLETE_STALE_OR_CONFLICTING',
+                      result['decision_diagnostics']['voltage_comparison']['blocked_by'])
+
+    def test_steady_operation_is_not_reported_as_cycling(self):
+        rows = [r for r in self.rows if r['working_mode'] == 'Invert Mode']
+        result = evaluate_collected_history(rows, REPLAY_NOW)
+        self.assertFalse(result['decision_diagnostics']['cycling']['detected'])
+        self.assertNotIn('CYCLING_DETECTED', result['reason_codes'])
+
+    def test_return_to_identical_payload_after_other_mode_still_counts_as_a_transition(self):
+        line = row(working_mode='Line Mode', battery_voltage=25.9, battery_current_chg=8,
+                   battery_current_dis=0, pv_power_w=300, output_power_w=800)
+        invert = row(working_mode='Invert Mode', battery_voltage=25.5, battery_current_chg=0,
+                     battery_current_dis=12, pv_power_w=300, output_power_w=800)
+        modes = (line, invert, line, invert, line)
+        rows = [{**sample, 'time': REPLAY_NOW - timedelta(minutes=4-index)}
+                for index, sample in enumerate(modes)]
+
+        result = evaluate_collected_history(rows, REPLAY_NOW)
+        cycling = result['decision_diagnostics']['cycling']
+        self.assertTrue(cycling['detected'])
+        self.assertEqual(cycling['reported_mode_changes'], 4)
+        self.assertEqual(cycling['collections_considered'], 5)
+        self.assertEqual(cycling['duplicate_payloads_ignored'], 0)
+        # Quantitative evidence still excludes repeated signatures globally, while
+        # cycling detection preserves the return transition in collection order.
+        self.assertEqual(result['decision_diagnostics']['sample_counts']['analysed_observations'], 2)
+
+    def test_charging_observations_remain_in_diagnostic_context(self):
+        counts = _class_counts(self.result)
+        funnel = self.result['decision_diagnostics']['sample_counts']
+        # Only cached duplicates and incomplete rows leave; charging rows stay as their own class.
+        self.assertEqual(funnel['rejected_analysis_cap'], 0)
+        self.assertGreaterEqual(counts['LINE_CHARGING'], 48)
+        self.assertEqual(counts['LINE_NOT_CHARGING'], 4)
+        classes = self.result['decision_diagnostics']['evidence_classes']
+        self.assertGreaterEqual(classes['LINE_CHARGING']['voltage_range_v'][0], 25.78)
+        self.assertLessEqual(classes['INVERT_DISCHARGING']['voltage_range_v'][1], 25.75)
+        contrast = self.result['exploratory_voltage_contrast']
+        self.assertEqual(contrast['primary_exclusions']['LINE_MODE_CHARGING_CONFOUNDED'], counts['LINE_CHARGING'])
+        confounded = contrast['charging_confounded_contrast']
+        self.assertEqual(confounded['line_charging_observations'], counts['LINE_CHARGING'])
+        self.assertGreater(confounded['matched_pairs'], 10)
+        self.assertGreater(confounded['median_difference_v'], 0.2)
+
+    def test_old_fixed_cap_no_longer_discards_earlier_transition_evidence(self):
+        contrast = self.result['exploratory_voltage_contrast']
+        self.assertGreater(contrast['samples'], 24)
+        self.assertEqual(contrast['primary_eligible']['line_not_charging'], 4)
+        self.assertGreater(contrast['effective_window_seconds'], 2.5 * 3600)
+
+    def test_analysis_memory_remains_bounded(self):
+        start = REPLAY_NOW - timedelta(hours=2, minutes=59)
+        rows = [row(time=start + timedelta(seconds=13 * i), working_mode='Invert Mode',
+                    battery_voltage=25.4 + (i % 30) / 100, battery_current_dis=10 + i / 100,
+                    output_power_w=600 + i % 50) for i in range(800)]
+        result = evaluate_collected_history(rows, start + timedelta(seconds=13 * 799))
+        funnel = result['decision_diagnostics']['sample_counts']
+        self.assertEqual(funnel['analysed_observations'], MAX_ANALYSIS_OBSERVATIONS)
+        self.assertEqual(funnel['rejected_analysis_cap'], 800 - MAX_ANALYSIS_OBSERVATIONS)
+        self.assertEqual(result['exploratory_voltage_contrast']['samples'], MAX_ANALYSIS_OBSERVATIONS)
+
+    def test_pure_sag_is_never_inferred_from_charging_confounded_observations(self):
+        rows = production_like_history(REPLAY_NOW, all_line_charging=True)
+        state = None
+        for minute in range(4):
+            now = REPLAY_NOW + timedelta(minutes=minute)
+            extra = [{**rows[-1], 'time': now - timedelta(seconds=20), 'battery_voltage': 25.95 + minute / 100,
+                      'battery_current_chg': 20.0 + minute}] if minute else []
+            state = evaluate_collected_history(rows + extra, now, state)
+            rows = rows + extra
+            contrast = state['exploratory_voltage_contrast']
+            self.assertIsNone(contrast['contrast_v'])
+            self.assertEqual(contrast['comparable_pairs'], 0)
+            self.assertGreater(contrast['charging_confounded_contrast']['median_difference_v'], 0.2)
+            self.assertFalse(contrast['charging_confounded_contrast']['eligible_for_hypothesis'])
+            self.assertNotEqual(state['decision'], 'HYPOTHETICAL_RAISE')
+            self.assertIsNone(state['sag_estimate_v'])
+            self.assertIsNone(state['rebound_estimate_v'])
+            self.assertEqual(state['verified_sag']['status'], 'BLOCKED')
+            for code in ('LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE', 'INSUFFICIENT_COMPARABLE_PAIRS',
+                         'INSUFFICIENT_HYPOTHESIS_EVIDENCE', 'CYCLING_DETECTED'):
+                self.assertIn(code, state['reason_codes'])
+            # No comparable pairs: no voltage confidence, not a generic 0.45.
+            self.assertIsNone(state['confidence'])
+            self.assertIsNone(state['confidence_breakdown']['voltage_contrast'])
+            self.assertEqual(state['confidence_breakdown']['basis'], 'NO_VOLTAGE_ESTIMATE')
+            self.assertFalse(state['decision_diagnostics']['hypothesis_support']['cycling_used_as_threshold_evidence'])
+
+    def test_every_rejected_sample_and_comparison_has_a_counted_reason(self):
+        diagnostics = self.result['decision_diagnostics']
+        funnel = diagnostics['sample_counts']
+        self.assertEqual(funnel['raw_collections'], 127)
+        self.assertEqual(funnel['raw_collections'],
+                         funnel['rejected_outside_window_or_invalid_time'] + funnel['in_window_collections'])
+        self.assertEqual(funnel['in_window_collections'], funnel['rejected_unknown_mode']
+                         + funnel['rejected_missing_or_invalid_numeric'] + funnel['valid_mode_and_numeric'])
+        self.assertEqual(funnel['valid_mode_and_numeric'],
+                         funnel['rejected_duplicate_cached_payload'] + funnel['unique_observations'])
+        self.assertEqual(funnel['unique_observations'], funnel['rejected_analysis_cap'] + funnel['analysed_observations'])
+        self.assertEqual(funnel['rejected_duplicate_cached_payload'], 8)
+        self.assertEqual(funnel['missing_fields'], {'pv_power_w': 2})
+        self.assertEqual(sum(_class_counts(self.result).values()), funnel['analysed_observations'])
+
+        contrast = self.result['exploratory_voltage_contrast']
+        rejected = contrast['pair_rejections']
+        eligible = contrast['primary_eligible']
+        self.assertEqual(eligible['combinations'], eligible['line_not_charging'] * eligible['invert_discharging'])
+        self.assertEqual(eligible['combinations'], rejected['TIME_GAP_EXCEEDED'] + rejected['LOAD_NOT_COMPARABLE']
+                         + rejected['PV_NOT_COMPARABLE'] + rejected['NOT_SELECTED_ONE_TO_ONE']
+                         + contrast['candidate_pairs'])
+        self.assertEqual(contrast['candidate_pairs'], contrast['comparable_pairs']
+                         + rejected['OUTLIER_REJECTED'] + rejected['INSUFFICIENT_PAIRS'])
+        excluded = sum(contrast['primary_exclusions'].get(k, 0) for k in contrast['primary_exclusions']
+                       if k not in ('LINE_NOT_CHARGING_WITHOUT_COMPARABLE_PARTNER',
+                                    'LINE_NOT_CHARGING_NOT_SELECTED_ONE_TO_ONE'))
+        self.assertEqual(excluded + eligible['line_not_charging'] + eligible['invert_discharging'],
+                         funnel['analysed_observations'])
+
+    def test_conflicting_and_unknown_current_states_are_separated(self):
+        conflicting = {**self.rows[60], 'time': self.rows[60]['time'] + timedelta(seconds=5),
+                       'battery_current_chg': 3.0, 'battery_current_dis': 4.0, 'battery_voltage': 25.71}
+        invert_idle = {**self.rows[61], 'time': self.rows[61]['time'] + timedelta(seconds=5),
+                       'working_mode': 'Invert Mode', 'battery_current_chg': 0.0, 'battery_current_dis': 0.0}
+        result = evaluate_collected_history(self.rows + [conflicting, invert_idle], REPLAY_NOW)
+        exclusions = result['exploratory_voltage_contrast']['primary_exclusions']
+        self.assertEqual(exclusions['CONFLICTING_CURRENT_STATE'], 1)
+        self.assertEqual(exclusions['INVERT_MODE_NOT_DISCHARGING'], 1)
+        self.assertIn('CONFLICTING_CURRENT', _class_counts(result))
+
+    def test_no_candidate_decision_explains_itself(self):
+        diagnostics = self.result['decision_diagnostics']
+        self.assertEqual(self.result['decision'], 'HOLD')
+        self.assertEqual(self.result['stability'], 'NO_CANDIDATE')
+        self.assertIn('INSUFFICIENT_HYPOTHESIS_EVIDENCE', diagnostics['hold_reasons'])
+        support = diagnostics['hypothesis_support']
+        self.assertFalse(support['supported'])
+        self.assertTrue(support['unsupported_because'])
+        # The charging rule produced a LOWER candidate that the catalogue rule rejected; it is now visible.
+        self.assertEqual(support['blocked_candidate'],
+                         {'decision': 'HYPOTHETICAL_LOWER', 'voltage': 25.5, 'reason': 'CATALOGUE_OR_HYSTERESIS_BLOCK'})
+        self.assertFalse(support['raise_requirements']['contrast_at_least_0_2_v'])
+        # Contrast exists here, so its confidence is a voltage-contrast confidence with that basis.
+        self.assertEqual(self.result['confidence_breakdown']['basis'], 'VOLTAGE_CONTRAST')
+        self.assertEqual(self.result['confidence'], self.result['confidence_breakdown']['voltage_contrast'])
+        self.assertIn('Frequent switching alone does not establish', self.result['explanation'])
+        self.assertIn('not verified sag', self.result['explanation'])
+
+    def test_legitimate_comparable_evidence_still_yields_a_bounded_hypothesis(self):
+        rows = production_like_history(REPLAY_NOW, non_charging_runs=range(11), rest_voltage=25.95)
+        first = evaluate_collected_history(rows, REPLAY_NOW)
+        contrast = first['exploratory_voltage_contrast']
+        self.assertGreaterEqual(contrast['comparable_pairs'], MIN_CANDIDATE_PAIRS)
+        self.assertGreater(contrast['contrast_v'], 0.2)
+        self.assertLessEqual(abs(contrast['contrast_v']), 2.0)
+        self.assertEqual(first['candidate_voltage'], 26.5)
+        self.assertIsNone(first['proposed_voltage'])
+        self.assertEqual(first['stability'], 'AWAITING_COMPATIBLE_OBSERVATION')
+        self.assertEqual(first['confidence_breakdown']['basis'], 'VOLTAGE_CONTRAST')
+        self.assertTrue(first['decision_diagnostics']['hypothesis_support']['supported'])
+        self.assertEqual(first['actionability'], 'NON_ACTIONABLE')
+
+    def test_previous_version_state_keeps_cooldown_durable_across_upgrade(self):
+        rows = [row(30-i*5, battery_voltage=26.8+i*.03, battery_current_chg=5+i,
+                    output_power_w=500+i*10, pv_power_w=500+i*20) for i in range(7)]
+        first = evaluate_collected_history(rows, NOW, historical_battery_v=27.0)
+        rows.append(row(time=NOW+timedelta(minutes=1), battery_voltage=27.04, battery_current_chg=13,
+                        output_power_w=600, pv_power_w=700))
+        second = evaluate_collected_history(rows, NOW+timedelta(minutes=1), first, historical_battery_v=27.0)
+        self.assertEqual(second['decision'], 'HYPOTHETICAL_LOWER')
+        legacy = dict(second, algorithm_version='online-exploratory-4',
+                      proposal_state={**second['proposal_state'], 'active': 'different'})
+        rows.append(row(time=NOW+timedelta(minutes=2), battery_voltage=27.05, battery_current_chg=14,
+                        output_power_w=610, pv_power_w=710))
+        blocked = evaluate_collected_history(rows, NOW+timedelta(minutes=2), legacy, historical_battery_v=27.0)
+        self.assertEqual(blocked['stability'], 'COOLDOWN')
+        self.assertGreater(blocked['cooldown_remaining_seconds'], 3000)
+        unknown = dict(legacy, algorithm_version='online-exploratory-3')
+        reset = evaluate_collected_history(rows, NOW+timedelta(minutes=2), unknown, historical_battery_v=27.0)
+        self.assertNotEqual(reset['stability'], 'COOLDOWN')
+
+    def test_collection_replay_never_reaches_verified_sag_learner(self):
+        learner = SagLearner(sag_configuration())
+        with patch.object(learner, 'observe') as observe:
+            result = evaluate_collected_history(self.rows, REPLAY_NOW, learner=learner)
+        observe.assert_not_called()
+        self.assertEqual(result['verified_sag']['status'], 'BLOCKED')
+        self.assertEqual(result['evidence_level'], 'EXPLORATORY')
+
+    def test_every_replay_outcome_is_non_actionable_without_hardware_writes(self):
+        variants = (self.rows, production_like_history(REPLAY_NOW, all_line_charging=True),
+                    production_like_history(REPLAY_NOW, non_charging_runs=range(11), rest_voltage=25.95))
+        for rows in variants:
+            result = evaluate_collected_history(rows, REPLAY_NOW)
+            self.assertEqual(result['actionability'], 'NON_ACTIONABLE')
+            self.assertFalse(result['hardware_write_attempted'])
+            self.assertEqual(result['current_settings']['provenance'], 'unknown')
+            json.dumps(result, allow_nan=False)
+
+
+@unittest.skipUnless(asyncpg is not None and os.environ.get('EASUN_TEST_POSTGRES') == '1', 'requires disposable local test database')
+class ReplayJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        async with self.pool.acquire() as conn:
+            self.assertEqual(await conn.fetchval('SELECT current_database()'), 'easun_test')
+            await conn.execute(Path('migrations/001_adaptive_decision_journal.sql').read_text())
+            await conn.execute('''CREATE TABLE IF NOT EXISTS inverter_metrics (
+                time TIMESTAMPTZ PRIMARY KEY, working_mode TEXT, battery_voltage DOUBLE PRECISION,
+                battery_soc DOUBLE PRECISION, battery_current_chg DOUBLE PRECISION,
+                battery_current_dis DOUBLE PRECISION, pv_power_w DOUBLE PRECISION, output_power_w DOUBLE PRECISION)''')
+            await conn.execute('TRUNCATE inverter_metrics, adaptive_decision_journal')
+
+    async def asyncTearDown(self):
+        await self.pool.close()
+
+    async def test_replay_diagnostics_persist_and_upgrade_keeps_legacy_state(self):
+        async with self.pool.acquire() as conn:
+            await conn.executemany('''INSERT INTO inverter_metrics
+                (time,working_mode,battery_voltage,battery_soc,battery_current_chg,battery_current_dis,pv_power_w,output_power_w)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)''', [
+                (r['time'], r['working_mode'], r['battery_voltage'], r['battery_soc'], r['battery_current_chg'],
+                 r['battery_current_dis'], r['pv_power_w'], r['output_power_w']) for r in production_like_history(REPLAY_NOW)])
+            legacy = {'algorithm_version': 'online-exploratory-4', 'proposal_state': {
+                'active': 'HYPOTHETICAL_RAISE:26.5', 'last_change_at': (REPLAY_NOW - timedelta(minutes=10)).isoformat()}}
+            await conn.execute('INSERT INTO adaptive_decision_journal (evaluation_id,evaluated_at,entry) VALUES ($1,$2,$3::jsonb)',
+                               'legacy', REPLAY_NOW - timedelta(minutes=1), json.dumps(legacy))
+        self.assertTrue(await run_evaluation(self.pool, REPLAY_NOW))
+        async with self.pool.acquire() as conn:
+            entry = json.loads(await conn.fetchval('SELECT entry FROM adaptive_decision_journal ORDER BY evaluated_at DESC LIMIT 1'))
+            self.assertEqual(await conn.fetchval('SELECT count(*) FROM adaptive_decision_journal WHERE hardware_write_attempted'), 0)
+        self.assertEqual(entry['algorithm_version'], 'online-exploratory-5')
+        self.assertEqual(entry['decision'], 'HOLD')
+        self.assertTrue(entry['decision_diagnostics']['cycling']['detected'])
+        self.assertEqual(entry['decision_diagnostics']['sample_counts']['raw_collections'], 127)
+        self.assertIn('CYCLING_DETECTED', entry['reason_codes'])
+        self.assertEqual(entry['proposal_state']['active'], 'HYPOTHETICAL_RAISE:26.5')
+        self.assertGreater(entry['cooldown_remaining_seconds'], 2900)
+        self.assertEqual(entry['actionability'], 'NON_ACTIONABLE')
+        self.assertFalse(entry['hardware_write_attempted'])
