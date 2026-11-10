@@ -28,6 +28,8 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from starlette.templating import Jinja2Templates
 
 from app import web_queries
+from app.battery_intervals import battery_voltage_presentation
+from app.web_battery_analysis import GRID_CONTEXT_ROWS, build_battery_grid
 from app.web_history_analysis import (OBSERVED_TELEMETRY_GAP_SECONDS, build_observed_output_transitions, _transition_summary, analyze_history)
 from app.web_auth import (
     LoginThrottle,
@@ -52,7 +54,7 @@ templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 _DECISION_EXPORT_FIELDS = frozenset((
     'evaluation_id', 'evaluated_at', 'algorithm_version', 'decision', 'threshold', 'proposed_voltage',
     'observation_time', 'observation_age_seconds', 'receipt_time', 'collection_time', 'mode', 'pv_w',
-    'load_w', 'battery_v', 'charge_a', 'discharge_a', 'soc', 'soc_provenance',
+    'load_w', 'battery_v', 'battery_v_reported_raw', 'battery_v_status', 'battery_v_validity_source', 'charge_a', 'discharge_a', 'soc', 'soc_provenance',
     'recent_reported_mode_changes', 'transitions_provenance', 'short_cycles', 'sag_estimate_v',
     'rebound_estimate_v', 'window_seconds', 'collection_count', 'confidence', 'reason_codes',
     'safety_blockers', 'explanation', 'hardware_write_attempted',
@@ -60,7 +62,36 @@ _DECISION_EXPORT_FIELDS = frozenset((
     'actionability', 'confirmation_progress', 'cooldown_remaining_seconds', 'effective_window_seconds',
     'collection_window_seconds', 'unique_observation_count', 'worker_health',
     'confidence_breakdown', 'decision_diagnostics',
+    'battery_response', 'monitored_threshold', 'candidate_status',
+    'telemetry_audit', 'daily_behavior_review', 'virtual_threshold_experiment', 'adaptive_hysteresis',
+    'charging_context', 'quantitative_history_truncated', 'quantitative_history_coverage',
 ))
+
+
+def _battery_voltage_fields(entry):
+    """API view of the latest battery voltage, identical for new and legacy entries.
+
+    Entries written before ``battery_v_status`` existed stored the raw value in
+    ``battery_v`` (e.g. 0.0). They are classified on read with the shared rule
+    so an invalid value is never served as a measurement; the stored journal
+    row itself is not modified. Entries without ``battery_v`` (worker failures)
+    get no voltage fields.
+    """
+    if 'battery_v_status' in entry:
+        raw = entry.get('battery_v_reported_raw')
+        status = entry.get('battery_v_status')
+        fields = battery_voltage_presentation(raw)
+        if fields['battery_v_status'] != status:
+            # A status that disagrees with its raw value is not trusted as valid.
+            fields['battery_v_status'] = status if status != 'VALID' else fields['battery_v_status']
+        fields['battery_v'] = fields['battery_v'] if fields['battery_v_status'] == 'VALID' else None
+        fields['battery_v_validity_source'] = 'RECORDED_BY_WORKER'
+        return fields
+    if 'battery_v' not in entry:
+        return {}
+    fields = battery_voltage_presentation(entry.get('battery_v'))
+    fields['battery_v_validity_source'] = 'DERIVED_ON_READ_FROM_LEGACY_ENTRY'
+    return fields
 
 
 def _decision_export(entry):
@@ -69,13 +100,15 @@ def _decision_export(entry):
         raise ValueError('invalid journal entry')
     def clean(value):
         if isinstance(value, dict):
-            blocked = ('password', 'secret', 'token', 'credential', 'api_key', 'database_url', 'config', 'configuration')
+            blocked = ('password', 'secret', 'token', 'credential', 'api_key', 'private_key',
+                       'database_url', 'dsn', 'authorization', 'cookie', 'config', 'configuration')
             return {key: clean(item) for key, item in value.items()
                     if isinstance(key, str) and not any(part in key.lower() for part in blocked)}
         if isinstance(value, list):
             return [clean(item) for item in value]
         return value
     result = {key: clean(value) for key, value in entry.items() if key in _DECISION_EXPORT_FIELDS}
+    result.update(_battery_voltage_fields(entry))
     for name in ('current_settings', 'historical_settings'):
         settings = entry.get(name)
         if isinstance(settings, dict):
@@ -105,7 +138,7 @@ def _decode_decision_cursor(token, secret, days):
     try:
         payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
         required = {'v', 'exp', 'days', 'lower', 'upper', 'after_time', 'after_id'}
-        if not isinstance(payload, dict) or set(payload) != required or payload['v'] != 1:
+        if not isinstance(payload, dict) or set(payload) != required or type(payload['v']) is not int or payload['v'] != 1:
             raise ValueError
         if type(payload['days']) is not int or payload['days'] != days:
             raise ValueError
@@ -119,6 +152,48 @@ def _decode_decision_cursor(token, secret, days):
         if not isinstance(payload['after_id'], str) or not payload['after_id'] or len(payload['after_id']) > 256:
             raise ValueError
         return payload
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError('Invalid or expired cursor') from exc
+
+
+def _encode_battery_observation_cursor(payload, secret):
+    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':'), sort_keys=True).encode()).decode().rstrip('=')
+    signature = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    return body + '.' + signature
+
+
+def _decode_battery_observation_cursor(token, secret, days):
+    if not isinstance(token, str) or not token or len(token) > _CURSOR_MAX_LENGTH or token.count('.') != 1:
+        raise ValueError('Invalid cursor')
+    body, signature = token.split('.', 1)
+    if not body.isascii() or not signature.isascii():
+        raise ValueError('Invalid cursor')
+    expected = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError('Invalid cursor signature')
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+        required = {'v', 'exp', 'days', 'lower', 'upper', 'after_time'}
+        if not isinstance(payload, dict) or set(payload) != required or type(payload['v']) is not int or payload['v'] != 1:
+            raise ValueError
+        if type(payload['days']) is not int or payload['days'] != days:
+            raise ValueError
+        now = int(time.time())
+        if type(payload['exp']) is not int or payload['exp'] < now or payload['exp'] > now + _CURSOR_TTL_SECONDS:
+            raise ValueError
+        stamps = {}
+        for key in ('lower', 'upper', 'after_time'):
+            if not isinstance(payload[key], str):
+                raise ValueError
+            stamps[key] = datetime.fromisoformat(payload[key].replace('Z', '+00:00'))
+            if stamps[key].tzinfo is None or stamps[key].utcoffset() is None:
+                raise ValueError
+        lower = stamps['lower'].astimezone(timezone.utc)
+        upper = stamps['upper'].astimezone(timezone.utc)
+        after = stamps['after_time'].astimezone(timezone.utc)
+        if upper - lower != timedelta(days=days) or not lower <= after <= upper:
+            raise ValueError
+        return {'lower': lower, 'upper': upper, 'after_time': after, 'exp': payload['exp']}
     except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
         raise ValueError('Invalid or expired cursor') from exc
 
@@ -412,6 +487,74 @@ def create_auth_router(
             context={"username": user, "csrf_token": generate_csrf_token(request.session)})
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @router.get("/api/controls/battery-observations")
+    async def adaptive_battery_observations_api(request: Request, days: int = 1, limit: int = 50,
+                                               cursor: str | None = None) -> Any:
+        valid, _ = _check_auth(request)
+        if not valid:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if days not in (1, 2, 7):
+            return JSONResponse({"detail": "Invalid range"}, status_code=422)
+        if not 1 <= limit <= 200:
+            return JSONResponse({"detail": "Invalid limit"}, status_code=422)
+        secret = getattr(config, 'session_secret', None) or os.environ.get('WEB_AUTH_SESSION_SECRET', '')
+        if not secret:
+            return JSONResponse({"detail": "Observation pagination is unavailable"}, status_code=503,
+                                headers={"Cache-Control": "no-store"})
+        cursor_payload = None
+        if cursor is not None:
+            try:
+                cursor_payload = _decode_battery_observation_cursor(cursor, secret, days)
+            except ValueError:
+                return JSONResponse({"detail": "Invalid cursor"}, status_code=422)
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            return JSONResponse({"detail": "Battery observations unavailable"}, status_code=503,
+                                headers={"Cache-Control": "no-store"})
+        try:
+            if cursor_payload is None:
+                upper = datetime.now(timezone.utc)
+                lower = upper - timedelta(days=days)
+                after_time = None
+            else:
+                lower, upper = cursor_payload['lower'], cursor_payload['upper']
+                after_time = cursor_payload['after_time']
+            rows = await web_queries.battery_observations(database_url, lower, upper, limit + 1, after_time,
+                                                          context_rows=GRID_CONTEXT_ROWS)
+            # In-range rows decide paging; context rows (older, possibly below the
+            # range) only feed derivation and are never rendered or counted.
+            in_range = [row for row in rows if not row.get('is_context')]
+            extra_context = [row for row in rows if row.get('is_context')]
+            has_more = len(in_range) > limit
+            page = in_range[:limit]
+            context = (in_range[limit:] + extra_context)[:GRID_CONTEXT_ROWS]
+            grid = build_battery_grid(page, context=context, limit=limit, has_more=has_more,
+                                      now=datetime.now(timezone.utc),
+                                      older_context_complete=len(context) < GRID_CONTEXT_ROWS)
+            next_cursor = None
+            if has_more and page:
+                next_cursor = _encode_battery_observation_cursor({
+                    'v': 1,
+                    'exp': cursor_payload['exp'] if cursor_payload else int(time.time()) + _CURSOR_TTL_SECONDS,
+                    'days': days,
+                    'lower': lower.isoformat(),
+                    'upper': upper.isoformat(),
+                    'after_time': page[-1]['time'].isoformat(),
+                }, secret)
+            return JSONResponse({
+                'observations': grid['observations'],
+                'battery_behavior': grid['battery_behavior'],
+                'external_charging_labels': grid['external_charging_labels'],
+                'external_charging_status': grid['external_charging_status'],
+                'sample_time_provenance': grid['sample_time_provenance'],
+                'pv_source_coverage': grid['pv_source_coverage'],
+                'has_more': has_more,
+                'next_cursor': next_cursor,
+            }, headers={"Cache-Control": "no-store"})
+        except Exception:
+            return JSONResponse({"detail": "Battery observations unavailable"}, status_code=503,
+                                headers={"Cache-Control": "no-store"})
 
     @router.get("/api/controls/decisions")
     async def adaptive_decisions_api(request: Request, days: int = 1, limit: int = 50,

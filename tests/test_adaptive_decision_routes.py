@@ -36,6 +36,18 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
                  'evidence_level': 'EXPLORATORY', 'reason_codes': ['DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED'],
                  'evaluated_at': '2026-11-04T10:00:00+00:00',
                  'current_settings': {'battery': None, 'token': 'secret'},
+                 'telemetry_audit': {'battery_current_chg': {'unit_label': 'A', 'password': 'nested-secret'},
+                     'api_key': 'nested-key', 'private_key': 'nested-private-key',
+                     'authorization': 'Bearer nested-token', 'battery_temperature_available': False},
+                 'daily_behavior_review': {'status': 'REVIEWED', 'learning_state_reset': False,
+                     'database_url': 'postgresql://private'},
+                 'virtual_threshold_experiment': {'status': 'VIRTUAL_REPLAY_ONLY_BLOCKED_FROM_RECOMMENDATION',
+                     'candidates': [{'back_to_utility_v': 25.0, 'back_to_battery_v': 26.0,
+                         'configuration': {'secret': 'nested-config-secret'}}]},
+                 'charging_context': {'evidence_labels': ['EXTERNAL_CHARGING_POSSIBLE',
+                     'TOTAL_BATTERY_CURRENT_UNOBSERVED'], 'solar_topology': 'UNKNOWN',
+                     'external_charging_assumed_zero': False},
+                 'adaptive_hysteresis': {'status': 'VIRTUAL_WIDTHS_ONLY; RECOMMENDATION_BLOCKED'},
                  'worker_health': {'enabled': True, 'status': 'degraded',
                      'last_evaluation_at': '2026-11-04T10:00:00+00:00',
                      'last_successful_evaluation_at': '2026-11-04T10:00:00+00:00',
@@ -60,8 +72,17 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(payload['next_cursor'])
         self.assertEqual(payload['decisions'][0]['evidence_level'], 'EXPLORATORY')
         self.assertEqual(payload['decisions'][0]['reason_codes'], ['DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED'])
+        self.assertEqual(payload['decisions'][0]['telemetry_audit']['battery_temperature_available'], False)
+        self.assertEqual(payload['decisions'][0]['daily_behavior_review']['status'], 'REVIEWED')
+        self.assertEqual(payload['decisions'][0]['virtual_threshold_experiment']['candidates'][0]['back_to_battery_v'], 26.0)
+        self.assertIn('TOTAL_BATTERY_CURRENT_UNOBSERVED',payload['decisions'][0]['charging_context']['evidence_labels'])
+        self.assertEqual(payload['decisions'][0]['adaptive_hysteresis']['status'],
+                         'VIRTUAL_WIDTHS_ONLY; RECOMMENDATION_BLOCKED')
         self.assertEqual(payload['worker_health']['last_successful_evaluation_at'], '2026-11-04T10:00:00+00:00')
         self.assertEqual(payload['worker_health']['observation_count'], 3)
         self.assertEqual(payload['worker_health']['status_source'], 'PERSISTED_JOURNAL')
         self.assertNotIn('secret', response.body.decode())
+        self.assertNotIn('nested-key', response.body.decode())
+        self.assertNotIn('nested-private-key', response.body.decode())
+        self.assertNotIn('private', response.body.decode())
         self.assertEqual(response.headers['cache-control'], 'no-store')
