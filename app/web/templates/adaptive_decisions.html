@@ -40,6 +40,7 @@
 <dt>Evidence level</dt><dd id="worker-evidence">—</dd>
 <dt>Current threshold settings</dt><dd id="worker-current">Unknown</dd>
 <dt>Historical reference, not current</dt><dd id="worker-baseline">—</dd>
+<dt>Monitored threshold</dt><dd id="worker-monitored-threshold">Back to Battery</dd>
 <dt>Hypothetical proposal</dt><dd id="worker-proposed">—</dd>
 <dt>Confirmation / remaining cooldown</dt><dd id="worker-stability">—</dd>
 <dt>Confidence / reasons</dt><dd id="worker-confidence">—</dd>
@@ -47,7 +48,7 @@
 </section>
 <section class="box" aria-labelledby="decision-diagnostics-heading">
 <h2 id="decision-diagnostics-heading" class="title is-5">Why the latest evaluation holds</h2>
-<p>Times below are collection brackets, not device measurement times. Cycling evidence describes reported mode changes only and is not threshold evidence. Cycling confidence is a heuristic, not a calibrated probability.</p>
+<p>Times below are collection brackets, not device measurement times. EASUN-reported current is not total battery current; charging from other controllers is possible while EASUN reports zero. Battery throughput is a reported-channel proxy. Cycling confidence is a heuristic, not a calibrated probability.</p>
 <dl>
 <dt>Reported Line/Invert cycling</dt><dd id="worker-cycling">—</dd>
 <dt>Voltage comparison</dt><dd id="worker-voltage">—</dd>
@@ -56,6 +57,13 @@
 <dt>Samples available / rejected</dt><dd id="worker-samples">—</dd>
 <dt>Threshold hypothesis</dt><dd id="worker-hypothesis">—</dd>
 <dt>Hold reasons</dt><dd id="worker-hold-reasons">—</dd>
+<dt>Fast context, last 20 minutes</dt><dd id="worker-fast-context">—</dd>
+<dt>Battery response / capacity</dt><dd id="worker-battery-response">—</dd>
+<dt>Multi-source charging context</dt><dd id="worker-charging-context">—</dd>
+<dt>Daily behavior review</dt><dd id="worker-daily-review">—</dd>
+<dt>Virtual threshold pairs</dt><dd id="worker-virtual-thresholds">—</dd>
+<dt>Adaptive hysteresis</dt><dd id="worker-adaptive-hysteresis">—</dd>
+<dt>Telemetry provenance</dt><dd id="worker-telemetry-provenance">—</dd>
 </dl>
 </section>
 <div role="group" aria-label="Time range">
@@ -64,13 +72,35 @@
 <button type="button" data-decision-days="7">7d</button>
 <a id="decision-export" href="/api/controls/decisions/export?days=1" download="adaptive-decisions.json">Export JSON</a>
 </div>
-<p>Pagination uses fixed date boundaries and best-effort ordering. Concurrent updates, deletes, and backdated inserts can change later pages.</p>
+<section class="box" aria-labelledby="battery-observations-heading">
+<h2 id="battery-observations-heading" class="title is-5">Historical battery observations</h2>
+<p>Rows are stored collection records. Collection time is not verified device time. Identical payloads and repeated battery fields are marked; EASUN current does not include any unobserved charging source.</p>
+<p id="battery-grid-status" role="status">Loading observations…</p>
+<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Historical battery observations, scroll horizontally">
+<table class="dm-table dm-table-compact"><thead><tr>
+<th>Evidence type</th><th>Collection time</th><th>Mode</th><th>Battery voltage</th><th>Reported SOC (unverified)</th><th>EASUN charge current</th><th>EASUN discharge current</th>
+<th>EASUN-visible PV</th><th>Output load</th><th>ΔV since previous valid</th><th>Interval</th>
+<th>External charging status</th><th>Provenance</th><th>Data quality</th>
+</tr></thead><tbody id="battery-observation-body"></tbody></table></div>
+<h3 class="title is-6">Battery behavior estimates</h3>
+<p>Derived estimates use changed reported battery fields and elapsed collection time. Ah/Wh values are EASUN-reported channel proxies, never total battery throughput.</p>
+<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Battery behavior estimates, scroll horizontally">
+<table class="dm-table dm-table-compact"><thead><tr>
+<th>Evidence type</th><th>Interval end (collection time)</th><th>Operating context</th><th>Voltage slope</th><th>Observed EASUN current</th><th>Reported SOC (unverified)</th><th>Load / PV change</th>
+<th>Voltage response</th><th>Charge/discharge interpretation</th><th>Capacity / response proxy</th><th>Confidence</th><th>Freshness</th><th>Limitation</th>
+</tr></thead><tbody id="battery-behavior-body"></tbody></table></div>
+<button id="battery-load-more" type="button" hidden>Load more observations</button>
+</section>
 <p id="decision-status" role="status">Loading…</p>
+<section class="box" aria-labelledby="virtual-decisions-heading">
+<h2 id="virtual-decisions-heading" class="title is-5">Virtual decisions and recorded evaluations</h2>
+<p>Recorded evaluations and virtual replays are separate evidence layers. Historical references are not current settings. All valid threshold pairs are exploratory comparisons with no selected winner; replay cannot establish what the inverter would have done.</p>
 <div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Adaptive decisions, scroll horizontally">
 <table class="dm-table dm-table-compact"><thead><tr>
-<th>Time</th><th>Decision</th><th>Evidence</th><th>Time provenance</th><th>Threshold</th>
-<th>Current threshold</th><th>Historical reference, not current</th><th>Hypothetical proposal</th><th>Confirmation</th><th>Cooldown remaining</th>
-<th>PV power</th><th>Load</th><th>Battery voltage</th><th>Confidence</th><th>Reasons and evidence</th>
+<th>Evidence layer</th><th>Evaluation time</th><th>Recorded decision</th><th>Historical pair</th><th>Hypothetical pair</th>
+<th>Recent battery evidence</th><th>Observed cycling</th><th>Sag / recovery evidence</th><th>External charging uncertainty</th>
+<th>Predicted benefit / risk</th><th>Confidence</th><th>Candidate status</th><th>Explanation / diagnostics</th>
 </tr></thead><tbody id="decision-body"></tbody></table></div>
 <button id="decision-load-more" type="button" hidden>Load more</button>
+</section>
 </main></body></html>

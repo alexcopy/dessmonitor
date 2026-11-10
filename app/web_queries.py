@@ -29,6 +29,40 @@ async def latest_decision(database_url):
     return rows[0] if rows else None
 
 
+async def battery_observations(database_url, lower_bound, upper_bound, limit, after_time=None,
+                               context_rows=0):
+    """Read a bounded collection-time page plus bounded older context.
+
+    inverter_metrics.time is its unique key. Up to ``limit`` in-range rows are
+    returned with ``is_context = FALSE``; then at most ``context_rows`` rows
+    strictly older than the oldest page row (regardless of the range lower
+    bound) with ``is_context = TRUE``. Context rows only support interval
+    derivation and must never be rendered. Both parts use the PK keyset order.
+    """
+    return await _fetch(database_url, """
+        WITH page AS (
+            SELECT time, working_mode, battery_voltage, battery_soc, battery_current_chg,
+                   battery_current_dis, pv_power_w, output_power_w
+            FROM inverter_metrics
+            WHERE time >= $1 AND time <= $2
+              AND ($3::timestamptz IS NULL OR time < $3)
+            ORDER BY time DESC
+            LIMIT $4
+        ), context AS (
+            SELECT time, working_mode, battery_voltage, battery_soc, battery_current_chg,
+                   battery_current_dis, pv_power_w, output_power_w
+            FROM inverter_metrics
+            WHERE time < (SELECT min(time) FROM page)
+            ORDER BY time DESC
+            LIMIT $5
+        )
+        SELECT page.*, FALSE AS is_context FROM page
+        UNION ALL
+        SELECT context.*, TRUE AS is_context FROM context
+        ORDER BY time DESC
+    """, lower_bound, upper_bound, after_time, limit, context_rows, command_timeout=10)
+
+
 async def stream_decisions(database_url, days, chunk_size=500):
     import asyncpg
     conn = await asyncpg.connect(database_url, command_timeout=30)

@@ -1,0 +1,187 @@
+{
+ "_comment": "Shared Python/Node contract for Decision Log battery voltage validity. telemetry \"NaN\"/\"Infinity\"/\"-Infinity\" mean the float values.",
+ "cases": [
+  {
+   "name": "reviewer_zero_after_26_0",
+   "kind": "worker",
+   "telemetry_battery_voltage": 0.0,
+   "stored": {
+    "battery_v": null,
+    "battery_v_reported_raw": 0.0,
+    "battery_v_status": "INVALID_ZERO_VOLTAGE"
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": 0.0,
+    "battery_v_status": "INVALID_ZERO_VOLTAGE",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "Invalid (reported 0.0 V; INVALID_ZERO_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "valid_25_5",
+   "kind": "worker",
+   "telemetry_battery_voltage": 25.5,
+   "stored": {
+    "battery_v": 25.5,
+    "battery_v_reported_raw": 25.5,
+    "battery_v_status": "VALID"
+   },
+   "api": {
+    "battery_v": 25.5,
+    "battery_v_reported_raw": 25.5,
+    "battery_v_status": "VALID",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "25.5 V"
+  },
+  {
+   "name": "missing",
+   "kind": "worker",
+   "telemetry_battery_voltage": null,
+   "stored": {
+    "battery_v": null,
+    "battery_v_reported_raw": null,
+    "battery_v_status": "MISSING"
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": null,
+    "battery_v_status": "MISSING",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "Unavailable (not reported)"
+  },
+  {
+   "name": "negative",
+   "kind": "worker",
+   "telemetry_battery_voltage": -1.5,
+   "stored": {
+    "battery_v": null,
+    "battery_v_reported_raw": -1.5,
+    "battery_v_status": "INVALID_NEGATIVE_VOLTAGE"
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": -1.5,
+    "battery_v_status": "INVALID_NEGATIVE_VOLTAGE",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "Invalid (reported -1.5 V; INVALID_NEGATIVE_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "nan",
+   "kind": "worker",
+   "telemetry_battery_voltage": "NaN",
+   "stored": {
+    "battery_v": null,
+    "battery_v_reported_raw": "NaN",
+    "battery_v_status": "INVALID_NON_FINITE_VOLTAGE"
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": "NaN",
+    "battery_v_status": "INVALID_NON_FINITE_VOLTAGE",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "Invalid (reported \"NaN\"; INVALID_NON_FINITE_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "infinity",
+   "kind": "worker",
+   "telemetry_battery_voltage": "Infinity",
+   "stored": {
+    "battery_v": null,
+    "battery_v_reported_raw": "Infinity",
+    "battery_v_status": "INVALID_NON_FINITE_VOLTAGE"
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": "Infinity",
+    "battery_v_status": "INVALID_NON_FINITE_VOLTAGE",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "Invalid (reported \"Infinity\"; INVALID_NON_FINITE_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "negative_infinity",
+   "kind": "worker",
+   "telemetry_battery_voltage": "-Infinity",
+   "stored": {
+    "battery_v": null,
+    "battery_v_reported_raw": "-Infinity",
+    "battery_v_status": "INVALID_NON_FINITE_VOLTAGE"
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": "-Infinity",
+    "battery_v_status": "INVALID_NON_FINITE_VOLTAGE",
+    "battery_v_validity_source": "RECORDED_BY_WORKER"
+   },
+   "ui": "Invalid (reported \"-Infinity\"; INVALID_NON_FINITE_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "legacy_zero",
+   "kind": "legacy",
+   "stored": {
+    "battery_v": 0.0
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": 0.0,
+    "battery_v_status": "INVALID_ZERO_VOLTAGE",
+    "battery_v_validity_source": "DERIVED_ON_READ_FROM_LEGACY_ENTRY"
+   },
+   "ui": "Invalid (reported 0.0 V; INVALID_ZERO_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "legacy_negative",
+   "kind": "legacy",
+   "stored": {
+    "battery_v": -2
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": -2,
+    "battery_v_status": "INVALID_NEGATIVE_VOLTAGE",
+    "battery_v_validity_source": "DERIVED_ON_READ_FROM_LEGACY_ENTRY"
+   },
+   "ui": "Invalid (reported -2.0 V; INVALID_NEGATIVE_VOLTAGE; excluded from calculations)"
+  },
+  {
+   "name": "legacy_valid",
+   "kind": "legacy",
+   "stored": {
+    "battery_v": 26.1
+   },
+   "api": {
+    "battery_v": 26.1,
+    "battery_v_reported_raw": 26.1,
+    "battery_v_status": "VALID",
+    "battery_v_validity_source": "DERIVED_ON_READ_FROM_LEGACY_ENTRY"
+   },
+   "ui": "26.1 V"
+  },
+  {
+   "name": "legacy_null",
+   "kind": "legacy",
+   "stored": {
+    "battery_v": null
+   },
+   "api": {
+    "battery_v": null,
+    "battery_v_reported_raw": null,
+    "battery_v_status": "MISSING",
+    "battery_v_validity_source": "DERIVED_ON_READ_FROM_LEGACY_ENTRY"
+   },
+   "ui": "Unavailable (not reported)"
+  },
+  {
+   "name": "legacy_failure_entry_without_voltage",
+   "kind": "legacy",
+   "stored": {},
+   "api": {},
+   "ui": "Unavailable"
+  }
+ ]
+}
