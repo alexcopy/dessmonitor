@@ -20,6 +20,7 @@ from app import web_routes
 from app.battery_intervals import calculate_battery_intervals, valid_battery_voltage
 from app.control import online_output_learning as ol
 from app.web_battery_analysis import GRID_CONTEXT_ROWS, build_battery_grid
+import pg_isolation
 
 T0 = datetime(2026, 11, 10, 10, 0, tzinfo=timezone.utc)
 NOW = T0 + timedelta(hours=1)
@@ -329,8 +330,7 @@ class GridPageSizeIndependenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(grid['battery_behavior']), 1)
 
 
-_PG_DSN = os.environ.get('BATTERY_GRID_TEST_DSN',
-                         'postgresql://postgres:synthetic@127.0.0.1:55440/dessmonitor_test')
+_PG_DSN = pg_isolation.configured_dsn()  # no fallback; proven by tests/pg_isolation.py before use
 
 
 @unittest.skipUnless(os.environ.get('BATTERY_GRID_LOCAL_POSTGRES') == '1',
@@ -339,11 +339,7 @@ class GridPageSizeIndependencePostgresTests(GridPageSizeIndependenceTests):
     """Same traversal through the real SQL (page + bounded context CTE)."""
 
     async def asyncSetUp(self):
-        import asyncpg
-        self.conn = await asyncpg.connect(_PG_DSN)
-        database = await self.conn.fetchval('SELECT current_database()')
-        if not database.endswith('_test'):
-            raise RuntimeError('refusing to use a non-test database')
+        self.conn = await pg_isolation.connect(_PG_DSN)
         await self.conn.execute('DROP TABLE IF EXISTS inverter_metrics')
         await self.conn.execute('''CREATE TABLE inverter_metrics (time TIMESTAMPTZ PRIMARY KEY,
             working_mode TEXT, battery_voltage DOUBLE PRECISION, battery_soc DOUBLE PRECISION,
@@ -369,7 +365,8 @@ class GridPageSizeIndependencePostgresTests(GridPageSizeIndependenceTests):
             calls.append(args[1:] + (kwargs.get('context_rows', 0),))
             return [dict(r) for r in rows]
         store.calls = calls
-        return await super().traverse(recording, limit)
+        with pg_isolation.app_connections():  # web_queries opens raw asyncpg connections
+            return await super().traverse(recording, limit)
 
     async def test_context_query_is_bounded_and_index_ordered(self):
         plan = '\n'.join(r[0] for r in await self.conn.fetch(

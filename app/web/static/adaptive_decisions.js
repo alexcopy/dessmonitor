@@ -288,6 +288,52 @@
         return tr;
     }
 
+    function renderJournal(journal, latest) {
+        var body = document.getElementById('journal-events-body');
+        if (body) body.replaceChildren();
+        if (!journal || journal.mode !== 'v2') {
+            setText('journal-mode', 'Journal v1: every evaluation is stored as a full entry' +
+                (journal && journal.v2_installed ? '; Journal v2 installed but not active' : ''));
+            setText('journal-repetition', 'Not tracked in Journal v1');
+            setText('journal-workers', 'Reported in worker health above');
+            return;
+        }
+        var state = journal.state || {};
+        setText('journal-mode', 'Journal v2 active since ' + (journal.changed_at || '—') + '; state revision ' +
+            (state.revision == null ? '—' : state.revision) + '; last evaluation ' + (state.last_evaluated_at || '—') +
+            '; initialised from ' + (state.initialized_from || '—') + '. ' +
+            (latest && latest.snapshot_evaluated_at ? 'Latest diagnostics snapshot ' + latest.snapshot_evaluated_at +
+                (latest.evaluations_since_snapshot ? '; ' + latest.evaluations_since_snapshot +
+                    ' identical evaluations since (last ' + latest.last_evaluated_at + ')' : '') + '. ' : '') +
+            (journal.history_note || ''));
+        var repetition = journal.current_repetition;
+        var outcome = repetition && repetition.outcome || {};
+        setText('journal-repetition', repetition
+            ? (outcome.decision || '—') + ' / ' + (outcome.stability || '—') + ' unchanged for ' +
+                repetition.evaluation_count + ' evaluations (first ' + repetition.first_seen_at + ', last ' +
+                repetition.last_seen_at + '); new evidence ' + repetition.new_evidence_count +
+                ', repeated or cached evidence ' + repetition.repeated_evidence_count
+            : 'No Journal v2 evaluation yet');
+        var workers = Array.isArray(journal.workers) ? journal.workers : [];
+        setText('journal-workers', workers.length ? workers.map(function (worker) {
+            return worker.worker_id + ': ' + String(worker.status).toUpperCase() + ', heartbeat ' + worker.last_heartbeat_at +
+                (worker.status === 'failing' ? ', ' + worker.consecutive_failures + ' consecutive failures (' +
+                    (worker.last_error || 'unknown error') + ')' : '');
+        }).join('; ') : 'No worker heartbeat recorded');
+        if (!body) return;
+        (Array.isArray(journal.events) ? journal.events : []).forEach(function (event) {
+            var row = document.createElement('tr');
+            var details = JSON.stringify(event.payload || {});
+            appendCells(row, [event.event_time, event.event_type,
+                details.length > 300 ? details.slice(0, 297) + '…' : details]);
+            body.appendChild(row);
+        });
+        if (!body.children.length) {
+            var empty = document.createElement('tr');
+            appendCells(empty, [null, 'No significant events yet', null]);
+            body.appendChild(empty);
+        }
+    }
     function appendCells(row, values) {
         values.forEach(function (value) {
             var cell = document.createElement('td');
@@ -409,6 +455,7 @@
             if (requestGeneration !== generation || requested !== days) return;
             if (!data || !Array.isArray(data.decisions)) throw new Error('invalid');
             renderHealth(data);
+            if (!cursor) renderJournal(data.journal, data.latest_decision);
             data.decisions.forEach(function (item) {
                 var key = String(item.evaluation_id || item.evaluated_at) + ':' + String(item.evaluated_at);
                 if (!seen.has(key)) { seen.add(key); body.appendChild(renderDecision(item)); }

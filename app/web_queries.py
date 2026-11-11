@@ -63,6 +63,44 @@ async def battery_observations(database_url, lower_bound, upper_bound, limit, af
     """, lower_bound, upper_bound, after_time, limit, context_rows, command_timeout=10)
 
 
+async def journal_v2_status(database_url, events_limit=50):
+    """Journal mode plus v2 state, latest evaluation, heartbeats and recent events.
+
+    One read-only snapshot. Without migration 002 the mode is 'v1'. Bounded: one
+    state/latest/repetition row, at most 20 workers and ``events_limit`` events.
+    """
+    import asyncpg
+    conn = await asyncpg.connect(database_url, command_timeout=10)
+    try:
+        async with conn.transaction(isolation='repeatable_read', readonly=True):
+            if await conn.fetchval("SELECT to_regclass('adaptive_journal_control')") is None:
+                return {'mode': 'v1', 'v2_installed': False}
+            control = await conn.fetchrow('SELECT mode, changed_at FROM adaptive_journal_control WHERE id = 1')
+            state = await conn.fetchrow('''SELECT revision, algorithm_version, initialized_from, initialized_at,
+                updated_at, last_evaluated_at, last_outcome_fingerprint FROM adaptive_learning_state
+                WHERE stream = 'battery' ''')
+            latest = await conn.fetchrow('''SELECT evaluated_at, last_evaluated_at, evaluations_since_snapshot,
+                state_revision, entry FROM adaptive_latest_evaluation
+                WHERE stream = 'battery' ''')
+            repetition = None
+            if state is not None and state['last_outcome_fingerprint'] is not None:
+                repetition = await conn.fetchrow('''SELECT outcome, first_seen_at, last_seen_at, evaluation_count,
+                    new_evidence_count, repeated_evidence_count FROM adaptive_state_repetitions
+                    WHERE stream = 'battery' AND outcome_fingerprint = $1''', state['last_outcome_fingerprint'])
+            workers = await conn.fetch('''SELECT worker_id, status, last_heartbeat_at, last_evaluation_at,
+                last_success_at, last_error, blocking_reason, consecutive_failures, failure_started_at
+                FROM adaptive_worker_heartbeat ORDER BY last_heartbeat_at DESC, worker_id LIMIT 20''')
+            events = await conn.fetch('''SELECT event_id, event_time, event_type, state_revision, worker_id, payload
+                FROM adaptive_decision_events ORDER BY event_time DESC, event_id DESC LIMIT $1''', events_limit)
+            return {'mode': control['mode'] if control else 'v1', 'v2_installed': True,
+                    'changed_at': control['changed_at'] if control else None,
+                    'state': dict(state) if state else None, 'latest': dict(latest) if latest else None,
+                    'repetition': dict(repetition) if repetition else None,
+                    'workers': [dict(row) for row in workers], 'events': [dict(row) for row in events]}
+    finally:
+        await conn.close()
+
+
 async def stream_decisions(database_url, days, chunk_size=500):
     import asyncpg
     conn = await asyncpg.connect(database_url, command_timeout=30)

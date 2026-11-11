@@ -15,6 +15,9 @@ class DecisionRouteTests(unittest.IsolatedAsyncioTestCase):
         router = web_routes.create_auth_router(None, None)
         self.api = next(route.endpoint for route in router.routes if route.path == '/api/controls/decisions')
         self.export = next(route.endpoint for route in router.routes if route.path == '/api/controls/decisions/export')
+        # Journal v2 not installed: these tests cover the Journal v1 read path.
+        _v1 = patch.object(web_routes.web_queries, 'journal_v2_status', new=AsyncMock(return_value={'mode': 'v1', 'v2_installed': False}))
+        _v1.start(); self.addCleanup(_v1.stop)
 
     async def test_authentication_is_required_before_database_access(self):
         with patch.object(web_routes, '_check_auth', return_value=(False, None)):

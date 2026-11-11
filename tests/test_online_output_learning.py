@@ -16,6 +16,7 @@ from app.control.online_output_learning import (CYCLING_MIN_SHORT_RUNS, LOCK_ID,
 from app.web_battery_analysis import build_battery_grid
 from app.control.sag_learning import SagLearner, SagSample
 from test_sag_learning import configuration as sag_configuration
+import pg_isolation
 
 try:
     import asyncpg
@@ -23,7 +24,9 @@ except ImportError:
     asyncpg = None
 
 NOW = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
-DSN = 'postgresql://postgres:synthetic-easun-test@127.0.0.1:55439/easun_test'
+# PostgreSQL suites (EASUN_TEST_POSTGRES=1) only run against the disposable database proven by
+# tests/pg_isolation.py; there is no default DSN.
+DSN = pg_isolation.configured_dsn()
 
 
 def row(minutes=0, **values):
@@ -757,9 +760,8 @@ class DiagnosticEvaluationTests(unittest.TestCase):
 @unittest.skipUnless(asyncpg is not None and os.environ.get('EASUN_TEST_POSTGRES') == '1', 'requires disposable local test database')
 class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=3)
         async with self.pool.acquire() as conn:
-            self.assertEqual(await conn.fetchval('SELECT current_database()'), 'easun_test')
             await conn.execute(Path('migrations/001_adaptive_decision_journal.sql').read_text())
             await conn.execute('''CREATE TABLE IF NOT EXISTS inverter_metrics (
                 time TIMESTAMPTZ PRIMARY KEY, working_mode TEXT, battery_voltage DOUBLE PRECISION,
@@ -784,7 +786,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(entry['worker_health']['last_evaluation_at'], NOW.isoformat())
             self.assertEqual(entry['worker_health']['blocking_reason'], 'VERIFIED_OBSERVATION_SOURCE_UNAVAILABLE')
         # A fresh pool sees the same journal and replay remains idempotent.
-        other = await asyncpg.create_pool(DSN, min_size=1, max_size=2)
+        other = await pg_isolation.create_pool(DSN, min_size=1, max_size=2)
         try:
             await run_evaluation(other, NOW)
             async with other.acquire() as conn:
@@ -821,7 +823,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([entry['proposal_state'] for entry in failures], [state, state])
 
         await self.pool.close()
-        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=3)
         newest = extended[-1]
         async with self.pool.acquire() as conn:
             await conn.execute('''INSERT INTO inverter_metrics
@@ -845,7 +847,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
         async with self.pool.acquire() as conn:
             await conn.execute("INSERT INTO inverter_metrics (time,working_mode,battery_voltage) VALUES ($1,'Line Mode',25.9)", NOW)
         self.assertTrue(await run_evaluation(self.pool, NOW))
-        other_replica_pool = await asyncpg.create_pool(DSN, min_size=1, max_size=2)
+        other_replica_pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=2)
         try:
             self.assertTrue(await run_evaluation(other_replica_pool, NOW + timedelta(milliseconds=10)))
             async with self.pool.acquire() as conn:
@@ -967,7 +969,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
             initial = json.loads(await conn.fetchval('SELECT entry FROM adaptive_decision_journal ORDER BY evaluated_at DESC LIMIT 1'))
         self.assertEqual(initial['proposal_state']['stable_count'], 0)
 
-        other = await asyncpg.create_pool(DSN, min_size=1, max_size=2)
+        other = await pg_isolation.create_pool(DSN, min_size=1, max_size=2)
         try:
             async with self.pool.acquire() as conn:
                 await conn.execute('''INSERT INTO inverter_metrics
@@ -1006,7 +1008,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirmed['proposal_state']['active'], 'HYPOTHETICAL_LOWER:26.5')
 
         await self.pool.close()
-        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=3)
         later = NOW + timedelta(minutes=40)
         raise_rows = matched_rows()
         async with self.pool.acquire() as conn:
@@ -1021,7 +1023,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
             await conn.execute('''INSERT INTO inverter_metrics
                 (time,working_mode,battery_voltage,battery_soc,battery_current_chg,battery_current_dis,pv_power_w,output_power_w)
                 VALUES ($1,'Line Mode',26,50,0,0,825,1130)''', later)
-        other = await asyncpg.create_pool(DSN, min_size=1, max_size=2)
+        other = await pg_isolation.create_pool(DSN, min_size=1, max_size=2)
         try:
             await asyncio.gather(run_evaluation(self.pool, later, historical_battery_v=27.0),
                                  run_evaluation(other, later, historical_battery_v=27.0))
@@ -1041,7 +1043,7 @@ class DiagnosticJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
                     'Line Mode' if i % 2 == 0 else 'Invert Mode',
                     (25.9+i*.01 if i % 2 == 0 else 25.4+i*.01), 0 if i % 2 == 0 else 15+i, 500+i*20)
         await run_evaluation(self.pool, NOW)
-        other = await asyncpg.create_pool(DSN, min_size=1, max_size=2)
+        other = await pg_isolation.create_pool(DSN, min_size=1, max_size=2)
         try:
             async with other.acquire() as conn:
                 await conn.execute("INSERT INTO inverter_metrics (time,working_mode,battery_voltage,battery_current_chg,battery_current_dis,pv_power_w,output_power_w) VALUES ($1,'Line Mode',26,0,0,200,600)", NOW+timedelta(minutes=1))
@@ -1359,9 +1361,8 @@ class ProductionLikeReplayTests(unittest.TestCase):
 @unittest.skipUnless(asyncpg is not None and os.environ.get('EASUN_TEST_POSTGRES') == '1', 'requires disposable local test database')
 class ReplayJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=3)
         async with self.pool.acquire() as conn:
-            self.assertEqual(await conn.fetchval('SELECT current_database()'), 'easun_test')
             await conn.execute(Path('migrations/001_adaptive_decision_journal.sql').read_text())
             await conn.execute('''CREATE TABLE IF NOT EXISTS inverter_metrics (
                 time TIMESTAMPTZ PRIMARY KEY, working_mode TEXT, battery_voltage DOUBLE PRECISION,
@@ -1379,10 +1380,11 @@ class ReplayJournalPostgresTests(unittest.IsolatedAsyncioTestCase):
             await conn.executemany('''INSERT INTO inverter_metrics
                 (time,working_mode,battery_voltage,battery_current_chg,battery_current_dis,pv_power_w,output_power_w)
                 VALUES ($1,'Line Mode',25.5,0,0,200,600)''', [(stamp,) for stamp in stamps])
-        first = await web_queries.battery_observations(DSN, REPLAY_NOW-timedelta(hours=1), REPLAY_NOW, 2)
-        self.assertEqual([item['time'] for item in first], stamps[:0:-1])
-        second = await web_queries.battery_observations(DSN, REPLAY_NOW-timedelta(hours=1), REPLAY_NOW, 2,
-                                                         first[-1]['time'])
+        with pg_isolation.app_connections():  # web_queries opens raw asyncpg connections
+            first = await web_queries.battery_observations(DSN, REPLAY_NOW-timedelta(hours=1), REPLAY_NOW, 2)
+            self.assertEqual([item['time'] for item in first], stamps[:0:-1])
+            second = await web_queries.battery_observations(DSN, REPLAY_NOW-timedelta(hours=1), REPLAY_NOW, 2,
+                                                             first[-1]['time'])
         self.assertEqual([item['time'] for item in second], [stamps[0]])
 
     async def test_daily_review_persists_once_per_utc_day(self):
@@ -1571,9 +1573,8 @@ class ModeContinuityEvaluationTests(unittest.TestCase):
 @unittest.skipUnless(asyncpg is not None and os.environ.get('EASUN_TEST_POSTGRES') == '1', 'requires disposable local test database')
 class HistoryTruncationPostgresTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=3)
         async with self.pool.acquire() as conn:
-            self.assertEqual(await conn.fetchval('SELECT current_database()'), 'easun_test')
             await conn.execute(Path('migrations/001_adaptive_decision_journal.sql').read_text())
             await conn.execute('''CREATE TABLE IF NOT EXISTS inverter_metrics (
                 time TIMESTAMPTZ PRIMARY KEY, working_mode TEXT, battery_voltage DOUBLE PRECISION,
@@ -1644,7 +1645,7 @@ class HistoryTruncationPostgresTests(unittest.IsolatedAsyncioTestCase):
     async def test_multiple_replicas_see_identical_bounded_input(self):
         from app.control.online_output_learning import WINDOW, _fetch_mode_run_boundaries
         await self._insert_runs(['Line Mode', None, 'Invert Mode', 'Line Mode'])
-        other = await asyncpg.create_pool(DSN, min_size=1, max_size=2)
+        other = await pg_isolation.create_pool(DSN, min_size=1, max_size=2)
         try:
             async def fetch(pool):
                 async with pool.acquire() as conn:
@@ -1890,9 +1891,8 @@ def _gap_scenarios():
 @unittest.skipUnless(asyncpg is not None and os.environ.get('EASUN_TEST_POSTGRES') == '1', 'requires disposable local test database')
 class ModeGapContinuityPostgresTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(DSN, min_size=1, max_size=3)
         async with self.pool.acquire() as conn:
-            self.assertEqual(await conn.fetchval('SELECT current_database()'), 'easun_test')
             await conn.execute(Path('migrations/001_adaptive_decision_journal.sql').read_text())
             await conn.execute('''CREATE TABLE IF NOT EXISTS inverter_metrics (
                 time TIMESTAMPTZ PRIMARY KEY, working_mode TEXT, battery_voltage DOUBLE PRECISION,
