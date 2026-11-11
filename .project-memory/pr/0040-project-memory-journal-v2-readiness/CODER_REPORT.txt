@@ -1,0 +1,227 @@
+CODER REPORT
+
+TASK COMPLETE
+Implementation complete in the working tree; not staged, committed or pushed.
+Implemented in the same pass as the plan at operator direction, before
+independent plan-review. The reviewer must treat this as unapproved work.
+
+BLOCKERS (current, as of revision 4)
+- reviews/PLAN_REVIEW.txt verdict is CHANGES REQUIRED. Its original two runbook
+  blockers were addressed in revision 2. Revision 3's answer to the in-flight
+  cutover race was found unsound by the reviewer (clock skew, unreadable /proc)
+  and is replaced, not repaired, by revision 4 below. An independent re-review is
+  required. This report does not claim approval.
+- 0070 relocation: the plan reviewer acknowledged the byte-preserving move; the
+  original 0070 reviewer has not acknowledged it (none is attributed to them).
+- Independent precommit-review not yet performed.
+- The PR id 0040-project-memory-journal-v2-readiness was assigned by the operator
+  after revision 1; earlier "unassigned / staged in pending" statements are
+  superseded.
+
+WARNINGS
+- Python suites that import asyncpg, fastapi or yaml could not run in this
+  environment (dependencies not installed for the available interpreters). This
+  diff touches no Python runtime code.
+- scripts/check-dess-request-diagnostics-redaction.sh is a Python file with a .sh
+  name, so bash -n fails on it; pre-existing, not touched (py_compile passes).
+
+FILES CHANGED
+.project-memory/AGENT_STANDARD.txt (sections 3a, 3b)
+scripts/check-project-memory.sh (grandfathered override check)
+tests/test_project_memory_gate.py (7 new tests)
+.project-memory/pr/0070-journal-v2-review/reviews/plan-review.yml ->
+  .project-memory/archive/0070-journal-v2-review/reviews/plan-review.yml (rename, unchanged)
+.project-memory/archive/0070-journal-v2-review/PROVENANCE.txt (new)
+.project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md (new)
+migrations/README.md (pointer line)
+.project-memory/pr/0040-project-memory-journal-v2-readiness/CODER_REPORT.txt
+  (PLAN.txt there is plan-owned and locked; first staged in .project-memory/pending/)
+
+VALIDATION RUN
+bash scripts/check-project-memory.sh -> PASSED, 48 directories, 0 rejected, 0 errors;
+  0038 and 0039 reported "PRECOMMIT COMPLETE (grandfathered operator override)".
+python3 -m unittest discover -s tests -p test_project_memory_gate.py -> 15 tests OK.
+python3 -m unittest discover -s tests -p test_adaptive_journal_v2.py -> 16 tests OK
+  (12 Postgres scenarios skipped; JOURNAL_V2_LOCAL_POSTGRES/EASUN_TEST_POSTGRES unset).
+node tests/test_adaptive_journal_v2_ui.cjs, tests/test_adaptive_decisions_ui.cjs -> pass.
+python3 -m py_compile scripts/adaptive_journal_v2.py -> OK; CLI without DATABASE_URL
+  exits with "DATABASE_URL is not set" (no connection attempted).
+bash -n scripts/*.sh -> OK except the pre-existing Python-in-.sh file above.
+git diff --check -> clean. sha256 of archived plan-review.yml -> bc73d22c...5d70 (unchanged).
+Scope: no app/, service/, run.py, migrations/*.sql, Dockerfile, .github or config paths.
+Secrets: no credential patterns in the diff.
+
+DEVIATIONS FROM PLAN
+- Process: implementation was done before independent plan approval, contrary to
+  the required ordering (AGENT_STANDARD section 1, ORCHESTRATOR_STANDARD section 5).
+- Content: none. The implemented files match the plan's change list.
+
+BOUNDARY CONFIRMATIONS
+Journal v2 remains inactive by default (migration 002 seeds mode v1; journal_mode()
+returns v1 when tables are absent). Adaptive learning enablement unchanged. No
+inverter thresholds or hardware writes changed. No migrations, cutover or rollback
+executed; no production access.
+
+REVISION 1 (documentation fixes after self-review findings R1-R4)
+- Runbook: privilege preflight checks each (role, table, privilege) on its own row
+  and exits non-zero unless all are held; the v1 journal requires SELECT, INSERT,
+  DELETE (not UPDATE). Added a migration-role ownership/CREATE preflight with stop
+  instructions. Corrected worker states: only 'failing' counts failures; 'degraded'
+  is a successful evaluation with blocked evidence and zero consecutive failures.
+- PLAN.txt: the gate is run manually and by agents, not by GitHub CI.
+- PROVENANCE.txt: git log --follow shows the rename only after it is committed.
+- Both runbook SQL blocks were extracted from the file and executed on a
+  throwaway local postgres:16-alpine container (never production; removed
+  afterwards) with migrations 001 and 002 applied there: ownership preflight
+  PASS as owner (exit 0), FAIL as non-owner (exit 3); privilege preflight FAIL
+  with no grants and with SELECT-only v2 grants (exit 3, missing rows listed;
+  the old combined check returned true for that state), PASS with the full
+  matrix without UPDATE on the v1 journal (exit 0), PASS with one shared role,
+  hard error for an unknown role (exit 3).
+
+REVISION 2 (PLAN_REVIEW.txt blockers 1 and 2; runbook only)
+Files changed: .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md, this report.
+PLAN.txt and reviews/PLAN_REVIEW.txt not modified.
+- Blocker 1, cutover outcome: removed the claim that any exception means v1.
+  An exception, timeout, lost connection or missing result is now outcome
+  UNKNOWN (the transaction can commit before the acknowledgement is lost, and
+  the CLI can fail closing its pool after a committed cutover). While unknown:
+  no cutover retry, no --allow-empty-state, no rollback. Status is checked from a
+  new process (fresh connection), with read-only SQL as a fallback. Verified
+  outcomes: v2 (changed_at later than the step 4 value, expected initialized_from,
+  JOURNAL_V2_CUTOVER event) -> continue at step 7; v1 with unchanged changed_at
+  -> did not commit, any new attempt is a new operator decision; anything else
+  -> stop and escalate. Step 4 now records changed_at. Confirmed in code that
+  cutover sets changed_at (app/control/adaptive_journal_v2.py:492).
+- Blocker 2, privilege preflight: added schema USAGE for every schema containing a
+  required table, for both worker and web roles, and web SELECT on
+  inverter_metrics. On FAIL, psql lists each missing requirement (kind, role,
+  schema or table, privilege) and exits non-zero.
+- Validation: a new uniquely named throwaway postgres:16-alpine container
+  (runbook-sqlcheck2-64730, local only, removed afterwards; no existing or shared
+  database used). Tables were placed in a non-public schema 'dess' so that USAGE is
+  not granted to PUBLIC; migrations 001 and 002 were applied there. The privilege
+  block was extracted verbatim from the runbook and run:
+    complete privileges -> PASS, exit 0
+    web role without USAGE on dess -> FAIL, lists "schema | web | dess | USAGE", exit 3
+    worker role without USAGE on dess -> FAIL, lists "schema | worker | dess | USAGE", exit 3
+    separate web role without SELECT on inverter_metrics -> FAIL, lists
+      "table | web | inverter_metrics | SELECT", exit 3
+    privileges restored -> PASS, exit 0
+  The outcome-check SQL ran without error (exit 0) against the v1-mode database.
+  No CLI cutover was executed anywhere.
+- bash scripts/check-project-memory.sh -> PASSED, 49 directories, 0 rejected,
+  0 errors (0040 reported CODER COMPLETE; the gate checks structure, not the
+  CHANGES REQUIRED verdict).
+- python3 -m unittest discover -s tests -p test_project_memory_gate.py -> 15 tests OK.
+- git diff --check -> clean.
+
+REVISION 3 (PLAN_REVIEW.txt remaining blocker: in-flight cutover race)
+SUPERSEDED by revision 4. Kept unchanged below as a historical record. The
+reviewer found two valid counterexamples: (1) t_exit came from the operator's
+clock but was compared with the database server's xact_start, so clock skew could
+leave out an in-flight transaction; (2) the /proc scan treated an unreadable
+cmdline as an absent process. Either could produce a false "did not commit".
+Files changed: .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md (step 6), this report.
+PLAN.txt, reviews/PLAN_REVIEW.txt, application code and migration SQL not modified.
+- Step 6 cutover command now runs in one named pod ($POD) and records the pod and time.
+- Any exception, timeout, lost acknowledgement or connection failure is UNKNOWN.
+  The runbook states why a fresh v1 read is not proof: the cutover may still be
+  waiting on the advisory lock (no server-side timeout), a dropped kubectl exec
+  does not reliably stop the process, a lost connection does not immediately stop
+  the backend, and changed_at is the CLI's start time (taken before the lock wait),
+  so a late commit can write an early changed_at.
+- 6a: a fresh read showing v2 that passes the state/event consistency checks means
+  committed (go to step 7). v2 without those means UNKNOWN. v1 means go to 6b.
+- 6b (all required, in order): 6b-1 the client process in the recorded pod has
+  ended (/proc check, because the image has no ps; or the pod was deleted or its
+  container restarted); 6b-2 drain check: every client backend transaction that
+  started before t_exit has finished. This is checked on the server as a superuser
+  or pg_read_all_stats member and fails closed otherwise. It does not need to pick
+  out the CLI's backend, which shares the worker role and pod and has no
+  application_name. 6b-3 a new read shows v1 with an unchanged changed_at. Only
+  then is non-commit confirmed, and a new cutover needs a separate operator decision.
+- Unidentifiable pod or process, unreachable pod, insufficient visibility, or a
+  drain not passing within ~15 minutes: stay UNKNOWN and escalate. While UNKNOWN:
+  no retry, no --allow-empty-state, no rollback, no manual mode change, no
+  terminating sessions.
+- Basis: cutover_to_v2 runs lock, writes and COMMIT in one explicit transaction
+  (app/control/adaptive_journal_v2.py:449-494). PostgreSQL commits only on a
+  client COMMIT; a backend whose client is gone aborts its open transaction.
+- Validation, all on new uniquely named local throwaway containers, removed
+  afterwards (no production or shared database; no real CLI cutover executed).
+  postgres:16-alpine with migrations 001 and 002 applied; the drain block and the
+  /proc block were extracted verbatim from the runbook. The simulated cutover sends
+  BEGIN, pg_advisory_xact_lock(5276389241085182), UPDATE mode, COMMIT one
+  statement at a time, like asyncpg:
+    S1 cutover waiting on the lock, client alive: fresh read v1; drain FAIL (exit 3)
+       listing the waiting backend (wait_event advisory); after the lock was released
+       the cutover committed and the read became v2. So the v1 read was not proof.
+    S2 committed, output discarded (lost acknowledgement): 6a read v2.
+    S3 client killed (SIGKILL) while its backend waited on the lock: client gone,
+       backend still listed waiting, drain FAIL (exit 3); after the holder released
+       the lock, drain PASS (exit 0) and the read stayed v1 with an unchanged changed_at:
+       the orphaned backend did not commit.
+    S4 identification/visibility: checker without pg_read_all_stats sees NULL
+       state/xact_start and "<insufficient privilege>"; the drain refused (exit 3,
+       "cannot see all sessions"). With full visibility, an unrelated transaction
+       started before t_exit also keeps the drain at FAIL (conservative, no
+       identification needed).
+    python:3.12-slim (the Dockerfile base): ps is not present. The /proc check printed
+       NO_CUTOVER_PROCESS with only "status" and a decoy "other.py cutover" running,
+       listed the running "adaptive_journal_v2.py cutover" process (not itself),
+       and printed NO_CUTOVER_PROCESS after that process exited.
+- bash scripts/check-project-memory.sh -> PASSED, 49 directories, 0 rejected,
+  0 errors (0040 reported CODER COMPLETE; structure only, not the verdict).
+- python3 -m unittest discover -s tests -p test_project_memory_gate.py -> 15 tests OK.
+- git diff --check -> clean.
+- Observation, out of scope: app/docker/dessmonitor-deploy.yaml probes use
+  `ps aux`, which python:3.12-slim lacks. Not changed here.
+
+REVISION 4 (replaces the revision 3 failure-resolution procedure)
+Files changed: .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md, this report.
+PLAN.txt, reviews/PLAN_REVIEW.txt, application code, migration SQL, deployment
+and hardware control not modified.
+- Removed from step 6: the /proc process scan (6b-1), the t_exit cutoff and the
+  pg_stat_activity transaction-drain check with its privilege gate (6b-2), the
+  non-commit confirmation read (6b-3), the "did not commit" outcome, and the
+  DBA_DSN usage. Nothing replaces them; the runbook no longer tries to prove
+  non-commit.
+- New step 6 failure handling: an exception, timeout, lost database connection,
+  disconnected kubectl exec or missing JSON result means UNKNOWN. UNKNOWN is
+  stated to be neither a failed cutover nor a rollback. While UNKNOWN: stop; no
+  retry, no --allow-empty-state, no rollback, no manual mode change, no
+  terminating sessions or pods; capture evidence (output, pod, start time, one
+  fresh read-only status or the existing three read-only SQL queries); escalate
+  to the operator and DBA. Investigating the incident and authorizing any later
+  database operation is outside the runbook. Never resume on elapsed time or a
+  v1 read.
+- Outcome rules: fresh read v2 + state.initialized_from as expected from step 5
+  + a JOURNAL_V2_CUTOVER event with the same initialized_from -> v2 confirmed,
+  go to step 7. Fresh read v1 (even with changed_at unchanged) -> UNKNOWN. v2
+  without matching state/event, unreadable status, unreachable database -> UNKNOWN.
+- Consistency edits outside step 6's failure block: step 4 now records changed_at
+  only as incident evidence (it previously said step 6 used it to decide the
+  outcome); the step 6 lead-in records pod and time "as evidence"; step 8 gains
+  one sentence saying its rollback conditions apply only after v2 is confirmed,
+  never while UNKNOWN. The step 7 verification and the step 8 rollback procedure
+  are otherwise unchanged.
+- Checklist review (by inspection; no new SQL or test infrastructure):
+    cutover waiting on the advisory lock -> no result, so UNKNOWN; a v1 read stays UNKNOWN.
+    client terminated, transaction still active -> UNKNOWN; nothing concludes non-commit.
+    client/server clock skew -> no timestamp comparison remains, so it cannot cause a false non-commit.
+    unreadable /proc -> not applicable; process scanning removed.
+    v1 with unchanged changed_at -> explicitly UNKNOWN.
+    verified v2 with consistent state and event -> confirmed active, step 7.
+    retry/rollback -> forbidden while UNKNOWN in step 6 and in step 8.
+  The revision 3 container results remain valid as observations (e.g. S1 showed a
+  v1 read followed by a v2 commit), and they support the rule that v1 is never
+  conclusive.
+- bash scripts/check-project-memory.sh -> PASSED, 49 directories, 0 rejected,
+  0 errors (structure only; 0040 shows CODER COMPLETE regardless of verdict).
+- python3 -m unittest discover -s tests -p test_project_memory_gate.py -> 15 tests OK.
+- git diff --check -> clean.
+
+NEXT REQUIRED ACTION
+Independent re-review of PLAN.txt against revision 4 (current verdict CHANGES
+REQUIRED); then independent precommit-review of the final diff.

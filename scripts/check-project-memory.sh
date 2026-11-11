@@ -22,6 +22,9 @@
 # Frozen historical non-numeric allowlist:
 #   fix-auth-validation-python-discovery
 #
+# Grandfathered operator-override directories (exact names, SHA-256 pinned):
+#   0038-architect-dashboard-analytics-ui, 0039-output-power-out-w-fallback
+#
 # Exits 0 if all checks pass, 1 if errors found. Every rejected PR directory
 # (unknown name, legacy artifact in a canonical directory, missing required
 # artifact) is printed with its reasons and counted as an error.
@@ -43,6 +46,21 @@ PR_BASE=".project-memory/pr"
 # Only actual approved historical exceptions belong here.
 ALLOWLIST_NON_NUMERIC=(
     "fix-auth-validation-python-discovery"
+)
+
+# Grandfathered historical operator-override directories (AGENT_STANDARD.txt 3a).
+# Entry format: "<exact basename>|<relative artifact path>|<sha256>". A listed
+# directory is accepted without PLAN.txt and reviews/PLAN_REVIEW.txt only while
+# both are absent and every pinned original artifact (including the
+# OPERATOR_OVERRIDE.txt evidence) is present and byte-identical. All other
+# canonical checks still apply. Amend only through a separate approved planning PR.
+HISTORICAL_OVERRIDE_ARTIFACTS=(
+    "0038-architect-dashboard-analytics-ui|OPERATOR_OVERRIDE.txt|14164e7ae61d585b5277a7d16160e7087d11e54fa4789c1f8e950450d1ca01b1"
+    "0038-architect-dashboard-analytics-ui|CODER_REPORT.txt|2e94830ce732fba4fc93dd014879f39a186698abba252bb34e9068b733773766"
+    "0038-architect-dashboard-analytics-ui|reviews/PRECOMMIT_REVIEW.txt|3779f0423bbfc766f5e04ca6145a4fbe6b2333305c98cdf9b0593d5a832b7b4d"
+    "0039-output-power-out-w-fallback|OPERATOR_OVERRIDE.txt|fe735b517b832eb1efc67ac912f286f0c1f1ce802479095e4d5a0623afd48b64"
+    "0039-output-power-out-w-fallback|CODER_REPORT.txt|6c56659c0db139a61f9283cb238618e6b9fa4711527e2d07ba012d36e9067e46"
+    "0039-output-power-out-w-fallback|reviews/PRECOMMIT_REVIEW.txt|b6e01721244a640f4655f754efb2ed8cce440ecd27559444832b854822c2056b"
 )
 
 # Legacy artifact names (forbidden in canonical directories)
@@ -132,6 +150,43 @@ is_allowlisted() {
         fi
     done
     return 1
+}
+
+# ------------------------------------------------------------------
+# Grandfathered historical operator-override check (fails closed)
+# ------------------------------------------------------------------
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    else
+        return 1
+    fi
+}
+
+# is_historical_override <dir> <basename>
+# 0 only if basename is listed, OPERATOR_OVERRIDE.txt is among its pinned
+# artifacts, and every pinned artifact exists with the recorded SHA-256.
+is_historical_override() {
+    local dir="${1%/}"
+    local name="$2"
+    local entry entry_name rel expected actual
+    local matched=false has_override=false
+    for entry in "${HISTORICAL_OVERRIDE_ARTIFACTS[@]}"; do
+        entry_name="${entry%%|*}"
+        [ "$entry_name" = "$name" ] || continue
+        matched=true
+        rel="${entry#*|}"
+        expected="${rel#*|}"
+        rel="${rel%%|*}"
+        [ "$rel" = "OPERATOR_OVERRIDE.txt" ] && has_override=true
+        [ -f "$dir/$rel" ] && [ ! -L "$dir/$rel" ] || return 1
+        actual="$(sha256_of "$dir/$rel")" || return 1
+        [ "$actual" = "$expected" ] || return 1
+    done
+    $matched && $has_override
 }
 
 # ------------------------------------------------------------------
@@ -341,6 +396,13 @@ detect_canonical_stage() {
 
     # COMPLETE: PRECOMMIT exists
     if $has_precommit_txt; then
+        # Grandfathered historical exception: planning artifacts absent, original
+        # operator-override evidence and reports present and unchanged.
+        if ! $has_plan_txt && ! $has_plan_review_txt && $has_coder_report \
+                && is_historical_override "$dir" "$basename"; then
+            echo "PRECOMMIT COMPLETE (grandfathered operator override)"
+            return 0
+        fi
         # All four must exist
         local missing=false
         if ! $has_plan_txt; then

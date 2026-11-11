@@ -96,6 +96,47 @@ The allowlist can only be amended by a separate planning PR.
 Unknown non-numeric directory names are rejected.
 
 ================================================================================
+ 3a. GRANDFATHERED HISTORICAL OPERATOR-OVERRIDE DIRECTORIES
+================================================================================
+
+Two canonical directories were merged with PLAN / PLAN-REVIEW skipped by
+direct operator decision, recorded in their OPERATOR_OVERRIDE.txt files.
+The operator has formally approved grandfathering exactly these two:
+
+  0038-architect-dashboard-analytics-ui
+  0039-output-power-out-w-fallback
+
+check-project-memory.sh accepts them without PLAN.txt and
+reviews/PLAN_REVIEW.txt only while ALL of the following hold:
+
+  - The basename matches one of the two names exactly.
+  - PLAN.txt and reviews/PLAN_REVIEW.txt are both absent.  Retrospective
+    planning artifacts must not be manufactured for these directories.
+  - OPERATOR_OVERRIDE.txt, CODER_REPORT.txt and reviews/PRECOMMIT_REVIEW.txt
+    are present, regular files, and match the SHA-256 values pinned in the
+    script (the original merged content, preserved unchanged).
+  - Every other canonical check (legacy names, YAML, casing, placement)
+    still passes.
+
+This is not a general mechanism.  OPERATOR_OVERRIDE.txt grants nothing to
+any other directory, current or future: every other canonical directory
+must carry the full four-artifact chain.  The list and its hashes can only
+be amended by a separate, independently reviewed planning PR.
+
+================================================================================
+ 3b. ARCHIVED MISPLACED ARTIFACTS
+================================================================================
+
+.project-memory/archive/ holds artifacts relocated, with reviewer approval,
+out of the active PR namespace (.project-memory/pr/) because they do not
+belong to any canonical PR directory.  Archived files are moved byte-for-byte
+(content and SHA-256 unchanged) and each archive directory carries a
+PROVENANCE.txt naming the original path, hash, introducing commit, author
+role and the reason for relocation.  An archived artifact keeps its
+original meaning and verdict; archival is never an approval.  The gate does
+not scan the archive.
+
+================================================================================
  4. LOCKED ARTIFACTS
 ================================================================================
 
