@@ -3,6 +3,7 @@
 Each test builds a synthetic .project-memory tree in a temporary directory and runs the
 real script there; the repository's own .project-memory is only read, never changed.
 """
+import hashlib
 import os
 import re
 import shutil
@@ -106,6 +107,77 @@ class ProjectMemoryGateTests(unittest.TestCase):
         (staging / 'PLAN.txt').write_text('synthetic\n')
         code, output = run_gate(self.root)
         self.assertEqual(code, 0, output)
+
+    # --- Grandfathered historical operator-override directories (AGENT_STANDARD 3a) ---
+
+    GRANDFATHERED = ('0038-architect-dashboard-analytics-ui', '0039-output-power-out-w-fallback')
+
+    def copy_original(self, name, target=None):
+        target = self.root / '.project-memory' / 'pr' / (target or name)
+        shutil.copytree(ROOT / '.project-memory' / 'pr' / name, target)
+        return target
+
+    def test_grandfathered_directories_pass_with_original_evidence(self):
+        for name in self.GRANDFATHERED:
+            self.copy_original(name)
+        code, output = run_gate(self.root)
+        self.assertEqual(code, 0, output)
+        for name in self.GRANDFATHERED:
+            self.assertIn('OK: %s [PRECOMMIT COMPLETE (grandfathered operator override)]' % name, output)
+
+    def test_grandfathered_name_requires_unchanged_override_evidence(self):
+        for artifact in ('OPERATOR_OVERRIDE.txt', 'CODER_REPORT.txt', 'reviews/PRECOMMIT_REVIEW.txt'):
+            with self.subTest(artifact=artifact, change='modified'):
+                directory = self.copy_original(self.GRANDFATHERED[0])
+                with open(directory / artifact, 'a') as handle:
+                    handle.write('tampered\n')
+                code, output = run_gate(self.root)
+                self.assertEqual(code, 1, output)
+                self.assert_rejected(output, self.GRANDFATHERED[0], 'PRECOMMIT_COMPLETE but missing PLAN.txt')
+                shutil.rmtree(directory)
+        directory = self.copy_original(self.GRANDFATHERED[1])
+        (directory / 'OPERATOR_OVERRIDE.txt').unlink()
+        code, output = run_gate(self.root)
+        self.assertEqual(code, 1, output)
+        self.assert_rejected(output, self.GRANDFATHERED[1], 'PRECOMMIT_COMPLETE but missing PLAN.txt')
+
+    def test_identical_evidence_under_another_name_still_fails(self):
+        for target in ('0040-architect-dashboard-analytics-ui', '0038-architect-dashboard-analytics-ui-v2',
+                       '0038a-architect-dashboard-analytics-ui', '0071-adaptive-decision-journal-v2'):
+            self.copy_original(self.GRANDFATHERED[0], target)
+        code, output = run_gate(self.root)
+        self.assertEqual(code, 1, output)
+        self.assertIn('Rejected directories:     4', output)
+
+    def test_grandfathered_directory_rejects_retrospective_or_legacy_artifacts(self):
+        directory = self.copy_original(self.GRANDFATHERED[0])
+        (directory / 'PLAN.txt').write_text('retrospective\n')
+        code, output = run_gate(self.root)
+        self.assertEqual(code, 1, output)
+        self.assert_rejected(output, self.GRANDFATHERED[0], 'PRECOMMIT_COMPLETE but missing reviews/PLAN_REVIEW.txt')
+        (directory / 'PLAN.txt').unlink()
+        (directory / 'reviews' / 'plan-review.yml').write_text('verdict: approved\n')
+        code, output = run_gate(self.root)
+        self.assertEqual(code, 1, output)
+        self.assert_rejected(output, self.GRANDFATHERED[0], 'legacy reviews/plan-review.yml present')
+
+    def test_archived_artifacts_are_not_scanned(self):
+        archive = self.root / '.project-memory' / 'archive' / '0070-journal-v2-review' / 'reviews'
+        archive.mkdir(parents=True)
+        (archive / 'plan-review.yml').write_text('verdict: CHANGES REQUIRED\n')
+        code, output = run_gate(self.root)
+        self.assertEqual(code, 0, output)
+
+    def test_repository_archive_preserves_original_0070_review(self):
+        archived = ROOT / '.project-memory' / 'archive' / '0070-journal-v2-review' / 'reviews' / 'plan-review.yml'
+        self.assertEqual(hashlib.sha256(archived.read_bytes()).hexdigest(),
+                         'bc73d22c5ca5228e342a7efa9c67e1d610c8728ed9a547626284c92282bf5d70')
+        self.assertFalse((ROOT / '.project-memory' / 'pr' / '0070-journal-v2-review').exists())
+
+    def test_repository_gate_passes(self):
+        code, output = run_gate(ROOT)
+        self.assertEqual(code, 0, output)
+        self.assertIn('Rejected directories:     0', output)
 
     def test_repository_gate_exit_status_matches_its_rejections(self):
         code, output = run_gate(ROOT)

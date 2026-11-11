@@ -46,4 +46,5 @@ never alters or deletes v1 rows. Activate v2 only with
 `002_adaptive_decision_journal_v2_down.sql` removes the v2 objects and refuses while
 v2 is active. The worker role needs `SELECT/INSERT/UPDATE/DELETE` on the v2 tables, and
 the web role needs `SELECT`. See `app/control/ADAPTIVE_DECISION_JOURNAL_V2_DESIGN.md`
-for the full procedure.
+for the design and `.project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md` for the operator
+procedure (preflight, grants, cutover, verification, rollback).

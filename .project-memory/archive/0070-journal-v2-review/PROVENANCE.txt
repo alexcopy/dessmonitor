@@ -1,0 +1,40 @@
+ARCHIVE PROVENANCE — 0070-journal-v2-review
+
+ARCHIVED FILE
+reviews/plan-review.yml (this directory)
+
+ORIGINAL PATH
+.project-memory/pr/0070-journal-v2-review/reviews/plan-review.yml
+
+SHA-256 (unchanged by relocation)
+bc73d22c5ca5228e342a7efa9c67e1d610c8728ed9a547626284c92282bf5d70
+
+INTRODUCED IN
+Commit 306c5b2095e91b093cf63d94822cdd8b28ee0633, "Implement adaptive decision
+Journal v2 (#71)". Git history keeps the original path and commit attribution.
+The relocation is a pure rename with identical content; once the move is
+committed, git log --follow on the archived path will show both paths. Before
+that commit, the rename is visible only in the working tree.
+
+AUTHOR ROLE
+Independent plan-review agent (reviewer-owned). Self-identification in the file:
+review_id pr-0070-journal-v2-review, date_utc 2026-11-10T22:21:06Z,
+base_commit 6520be305323da6a75ad8dcf4da09c5a582c4234.
+
+ORIGINAL VERDICT
+CHANGES REQUIRED (blockers B-01..B-04). Archival does not change, supersede or
+approve that verdict, and it is not a new approval of any PR.
+
+REASON FOR RELOCATION
+The directory number 0070 did not identify the PR it reviewed (Journal v2 merged
+as GitHub PR #71; #70 is a different, earlier PR), and a legacy
+reviews/plan-review.yml is forbidden in canonical directories
+(AGENT_STANDARD.txt sections 2 and 3), so the directory failed the Project
+Memory gate. Moving the file here keeps its content and history while removing
+it from the active PR artifact namespace (AGENT_STANDARD.txt section 3b).
+
+AUTHORIZATION
+Relocation directed by the operator. Reviewer acknowledgement of this move is
+REQUIRED before merge and must be recorded by the independent reviewer in the
+reviews of the PR that performs the move; until then this record is pending,
+not approved.

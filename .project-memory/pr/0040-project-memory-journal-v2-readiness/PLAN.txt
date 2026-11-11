@@ -1,0 +1,76 @@
+PLAN COMPLETE — AWAITING INDEPENDENT PLAN-REVIEW
+
+TITLE
+Project Memory historical exceptions, 0070 artifact archival, Journal v2 operator runbook
+
+IDENTIFIER NOTE
+No PR id is assigned yet. GitHub PRs #70 and #71 are merged and must not be reused;
+no number is invented here. This plan is staged outside .project-memory/pr/ and
+moves to .project-memory/pr/<assigned id>/PLAN.txt once the operator assigns the id.
+Until reviews/PLAN_REVIEW.txt (independent reviewer, verdict approved) exists in
+that directory, the gate rejects it as CODER_COMPLETE without PLAN_REVIEW, by design.
+
+REPOSITORY STATE
+- Branch: master; base 306c5b2095e91b093cf63d94822cdd8b28ee0633 (includes PR #71).
+- Gate on base: FAILED, 3 rejected directories (0038, 0039, 0070-journal-v2-review).
+
+OBJECTIVE
+A. Make the Project Memory gate pass through authorized, narrow actions only.
+B. Provide one concise operator runbook for a separately authorized Journal v2
+   production cutover. No runtime behavior changes.
+
+OPERATOR AUTHORIZATION (recorded in the task prompt)
+- Formal grandfathering of exactly 0038-architect-dashboard-analytics-ui and
+  0039-output-power-out-w-fallback, both carrying OPERATOR_OVERRIDE.txt.
+- Archival relocation of the misplaced reviewer-owned 0070 plan-review.yml,
+  subject to reviewer approval.
+
+CHANGES
+1. .project-memory/AGENT_STANDARD.txt: add section 3a (grandfathered historical
+   operator-override directories: two exact names; accepted only while PLAN.txt
+   and reviews/PLAN_REVIEW.txt are both absent and OPERATOR_OVERRIDE.txt,
+   CODER_REPORT.txt and reviews/PRECOMMIT_REVIEW.txt match pinned SHA-256; all
+   other canonical checks still apply; amendable only by a separate reviewed
+   planning PR) and section 3b (archive for reviewer-approved relocations:
+   byte-identical move, PROVENANCE.txt, archival is never an approval, not scanned).
+2. scripts/check-project-memory.sh: HISTORICAL_OVERRIDE_ARTIFACTS table
+   (name|path|sha256), is_historical_override() failing closed (unknown name,
+   missing/symlinked/changed file, no hash tool), consulted only in the
+   PRECOMMIT-present branch after all rejection checks. No other logic changed.
+3. git mv .project-memory/pr/0070-journal-v2-review/reviews/plan-review.yml to
+   .project-memory/archive/0070-journal-v2-review/reviews/plan-review.yml
+   (content and SHA-256 bc73d22c...5d70 unchanged) plus PROVENANCE.txt.
+   No retrospective PLAN/REVIEW documents are created anywhere.
+4. tests/test_project_memory_gate.py: regression tests (originals accepted;
+   each tampered pinned file rejected; missing override rejected; same evidence
+   under other names rejected; retrospective PLAN.txt or legacy YAML in a
+   grandfathered directory rejected; archive not scanned; archived hash pinned;
+   repository gate passes). Existing tests unchanged.
+5. .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md (new) and a one-line pointer
+   in migrations/README.md. Covers: deployed version, DB connectivity/identity,
+   migration 002, grants, v1-mode check, durable-state prerequisites, authorized
+   cutover, heartbeat/events/repetition verification, failure conditions,
+   separately authorized rollback. Read-only preflight commands only.
+
+NON-GOALS
+No change to Journal v2 evaluation, deduplication, heartbeat or battery model; no
+app/, migrations SQL, run.py, deployment, CI, inverter threshold or hardware
+changes; no new dependencies; no production access; no migration, cutover or
+rollback executed; Journal v2 not activated; adaptive learning enablement untouched.
+.project-memory/pending/journal-v2/PLAN.txt (left over from PR #71) is not touched.
+
+VALIDATION
+bash scripts/check-project-memory.sh (exit 0, 0 rejected); gate regression tests;
+bash -n on changed shell; Journal v2 static/CLI tests with Postgres flags unset;
+node UI tests; git diff --check; scope and secrets inspection of the diff.
+
+RISKS
+Pinned hashes make any later edit to the four grandfathered report files fail the
+gate (intended: artifacts must stay unchanged). The gate is run manually and by
+agents; it is not wired into GitHub CI (.github/ does not invoke it), and this
+PR does not change that. It needs sha256sum or shasum (standard on Linux and
+macOS); absence of both fails closed.
+
+REVIEW REQUIRED
+Independent plan-review must approve this plan and explicitly acknowledge the
+0070 archival relocation before merge.

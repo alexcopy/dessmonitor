@@ -1,0 +1,213 @@
+VERDICT: APPROVED
+
+REVISION 4 FINAL INDEPENDENT RE-REVIEW
+REVISION 4 CUTOVER RULE: PASS. Uncertain outcomes remain UNKNOWN; a fresh v1
+read never establishes non-commit. The process scan, clock-based drain and
+automatic non-commit determination have been removed. While UNKNOWN, retry,
+rollback, empty-state override, manual mode changes and session or pod
+termination are prohibited. A fresh v2 read requires the expected durable
+state and a matching cutover event; inaccessible or inconsistent evidence stays
+UNKNOWN. Step 8 excludes rollback while UNKNOWN. Incident investigation and
+authorization of any subsequent operation are assigned to the operator and DBA.
+The coder report explicitly marks revision 3 superseded. The transaction and
+CLI behavior were inspected; no database or production system was accessed.
+
+PROCESS DEVIATION: Implementation preceded independent plan approval, contrary
+to the normal workflow. This approval is obtained after implementation; it is
+not prior approval or retroactive authorization. The operator explicitly directed
+this subsequent review. Historical findings below remain as a record, not the
+current verdict.
+
+0070 ARCHIVE ACKNOWLEDGEMENT: The earlier independent acknowledgement of the
+byte-preserving relocation remains; it is not attributed to the original
+reviewer and does not change that review's verdict. Earlier historical exception
+and privilege findings remain as recorded below.
+
+PROJECT MEMORY GATE: PASS (49 directories, zero rejected); all 15 gate regression
+tests passed; git diff --check passed. The gate checks structure, not verdicts.
+REMAINING BLOCKERS: None within this targeted plan review.
+READY FOR PRECOMMIT REVIEW: YES.
+
+REVISION 3 INDEPENDENT RE-REVIEW
+CUTOVER RACE: FAIL
+Revision 3 addresses the previously identified missing drain step: a v1 read
+alone no longer proves non-commit; the procedure requires a process check,
+database drain and a fresh final read. It forbids retry, rollback,
+--allow-empty-state, manual mode changes and termination of sessions while
+UNKNOWN. However, the two evidence gaps below can produce a false non-commit
+conclusion, so the blocker remains open.
+
+REMAINING BLOCKERS
+1. Clock skew. JOURNAL_V2_OPERATOR_RUNBOOK.md:288 obtains t_exit using date -u
+   on the operator machine; lines 323 and 327 compare it to PostgreSQL's
+   xact_start, which uses the database server's clock. For example, if the DB
+   clock is two minutes ahead, an actual in-flight cutover transaction begun one
+   minute before the client ends has xact_start one minute later than t_exit.
+   The drain omits that transaction even if it is waiting for the advisory lock
+   or processing a previously sent COMMIT. In the latter case, a subsequent v1
+   read can precede that commit and falsely establish non-commit. Capture a
+   conservative cutoff from the same authoritative PostgreSQL server after
+   independently establishing client termination, or otherwise prove a bound
+   that makes clock skew impossible to exclude a relevant transaction; retain
+   UNKNOWN if that evidence cannot be obtained.
+2. Incomplete process visibility. At lines 279-286 the /proc loop silently
+   continues on every OSError reading a cmdline and prints NO_CUTOVER_PROCESS
+   if no other match exists. On a system with restricted /proc visibility,
+   permissions, or another read error, the cutover process may be alive but
+   unreadable. In particular, a process stalled before beginning its transaction
+   may start it after the drain and final v1 read. Require positive evidence that
+   the recorded invocation has ended, and fail closed when process enumeration
+   or relevant cmdline visibility is incomplete; do not treat unreadability as
+   process absence. Preserve the backend-drain check after pod deletion/restart.
+
+EVIDENCE AND VALIDATION
+The coder reports four disposable PostgreSQL scenarios: lock waiter, lost
+acknowledgement, disconnected client with an outstanding backend, and limited
+session visibility, plus a /proc check in python:3.12-slim. These are reported
+results, not independently repeated in this review; no database was accessed.
+They do not establish the two conditions above. Static inspection confirms the
+drain includes visible older lock waiters and open transactions, including after
+pod deletion/restart, provided its time cutoff and process-termination evidence
+are reliable. The Project Memory gate passed (49 directories, zero rejections),
+all 15 gate regression tests passed, and git diff --check passed. The gate checks
+artifact structure, not this verdict.
+
+PROCESS AND ARCHIVE
+Implementation preceded independent plan approval. This review is not prior or
+retroactive authorization. The earlier independent acknowledgement of the 0070
+archive relocation is preserved and is not attributed to the original reviewer.
+
+READY FOR PRECOMMIT REVIEW: NO
+
+SUBSEQUENT INDEPENDENT RE-REVIEW
+The two findings recorded below were addressed in coder revision 2. The
+privilege finding is resolved. The original unconditional assertion that every
+exception means v1 is removed, but the revised procedure has a remaining
+cutover race described under REMAINING BLOCKER below. Therefore the plan review
+remains CHANGES REQUIRED, and is not ready for precommit review.
+
+CUTOVER OUTCOME: FAIL
+The new runbook correctly marks exceptions, timeouts and lost acknowledgements
+UNKNOWN, requires a fresh status read, and prohibits retry or rollback while the
+outcome is unknown. It distinguishes v2, unchanged v1 and conflicting state.
+However, a fresh v1 read does not establish that a still-running cutover cannot
+commit later. See REMAINING BLOCKER.
+
+PRIVILEGE PREFLIGHT: PASS (static review; reported database tests not rerun)
+The matrix individually checks SELECT, INSERT, UPDATE and DELETE on each v2
+table for the worker, SELECT/INSERT/DELETE on the v1 journal for the worker,
+worker and web SELECT on inverter_metrics, and web SELECT on v2 and v1 tables.
+It derives each table's schema and checks USAGE for the respective roles.
+Missing privileges lead to an exception with ON_ERROR_STOP. The coder reports
+testing both missing schema privileges and missing web metrics SELECT on a new
+disposable PostgreSQL container; these results were reviewed but not
+independently rerun. No PostgreSQL database was accessed in this re-review.
+
+PROCESS DEVIATION (SUBSEQUENT RE-REVIEW)
+Implementation preceded independent plan approval, contrary to AGENT_STANDARD
+section 1 and ORCHESTRATOR_STANDARD section 5. The coder report now explicitly
+records this deviation. Neither this re-review nor any future approval may be
+described as prior or retroactive authorization. The operator requested a
+subsequent independent review; this does not alter the historical sequence.
+
+0070 ARCHIVE ACKNOWLEDGEMENT
+The previous independent acknowledgement of the byte-preserving relocation
+remains in force. It is not an acknowledgement by the original reviewer and
+does not alter the original CHANGES REQUIRED verdict.
+
+PROJECT MEMORY GATE AND VALIDATION
+HEAD 306c5b2095e91b093cf63d94822cdd8b28ee0633; branch master. The gate passed
+with 49 directories and zero rejections. The gate regression suite passed all
+15 tests. git diff --check passed. The gate checks artifact existence and does
+not supersede this review's verdict.
+
+REMAINING BLOCKER
+.project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md:245-249 treats an unchanged v1
+status as proof the cutover did not commit. Counterexample: the original cutover
+process is still waiting at pg_advisory_xact_lock (app/control/
+adaptive_journal_v2.py:449-451), while the command times out or kubectl exec
+loses its connection. An independent status read can see unchanged v1 while
+that process is still alive; once the lock is released it can commit v2.
+The procedure must keep the outcome UNKNOWN until the original operation is
+known to have terminated or completed, using a reviewed mechanism to establish
+that fact; only then may an unchanged authoritative v1 status establish that
+this attempt did not commit. Continue to forbid retry and rollback while unknown.
+
+READY FOR PRECOMMIT REVIEW: NO
+
+ORIGINAL REVIEW (retained as historical findings; see subsequent re-review)
+
+PLAN ASSESSMENT
+At the time of the original review the operator runbook needed the safety
+corrections listed below. The plan correctly states that the Project Memory gate is not wired
+into CI. The observed diff contains no runtime, migration SQL, or deployment
+changes; no such changes are required for these documentation corrections.
+
+The plan and coder report still describe the identifier as unassigned and the
+artifacts as staged outside the PR directory. The current operator instruction
+assigns 0040 and the files are now in that directory. Those statements are
+outdated; they are not evidence that earlier approval took place.
+
+PROCESS DEVIATION
+Implementation was completed before independent plan approval, contrary to the
+orchestrator's required ordering. The coder report explicitly discloses this,
+although its separate 'DEVIATIONS FROM PLAN: None' line is misleading. This
+review is being performed after implementation and is not prior approval. No
+precommit review is asserted or fabricated.
+
+HISTORICAL EXCEPTIONS
+The exception table lists only the exact 0038 and 0039 directories. All six
+pinned files have SHA-256 hashes matching both the gate and their HEAD versions;
+the exception requires the original override, coder report and precommit review,
+and rejects retrospective plan/review artifacts. This review does not create
+approvals for either historical directory.
+
+0070 ARCHIVE AND AUTHORIZATION
+The archived review matches the HEAD original byte for byte, SHA-256
+bc73d22c5ca5228e342a7efa9c67e1d610c8728ed9a547626284c92282bf5d70.
+Its original CHANGES REQUIRED verdict remains intact; archival does not approve
+or supersede it. I independently acknowledge this byte-preserving relocation for
+the present review. The provenance records operator direction; no evidence has
+been supplied that the original reviewer personally acknowledged it, and this
+acknowledgement must not be attributed to that reviewer. It is not plan approval.
+
+RUNBOOK SAFETY
+Migration 002 table ownership and schema CREATE requirements are documented,
+including guard-function ownership for reapplication. The preflight checks each
+listed table privilege individually. The worker's failing and degraded states
+are distinguished; degraded is not itself an execution failure. However, the
+preflight omits necessary schema access and the separately configured web role's
+metrics access, and the cutover exception guidance is unsafe; see BLOCKERS.
+No actual production connection, migration, cutover, or hardware action was
+performed in this review.
+
+VALIDATION
+Before this review file existed, the gate correctly rejected 0040 because its
+canonical plan review was missing, and the regression suite had 14 passes and
+one corresponding repository-gate failure. This is the expected pre-review state,
+not a successful gate. After this review file was created, the gate passed with
+49 directories and zero rejected, and all 15 gate regression tests passed. The
+gate checks artifact structure, not approval of this CHANGES REQUIRED verdict.
+bash -n scripts/check-project-memory.sh and git diff
+--check passed. The six historical evidence hashes and the archived review were
+independently compared with HEAD. Scoped pattern inspection found no exposed
+credentials in the reviewed new artifacts. No database was accessed.
+
+ORIGINAL BLOCKERS (addressed by coder revision 2; see remaining blocker above)
+1. .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md:204-208 asserts that any
+   exception means nothing changed and v1 remains active. The cutover transaction
+   can commit before a connection failure loses its acknowledgement; the CLI can
+   also raise while closing the pool after cutover_to_v2 has returned
+   (scripts/adaptive_journal_v2.py:49-56). In either case the actual mode may be
+   v2. Replace the unconditional assertion with UNKNOWN outcome handling: stop,
+   independently inspect the persisted mode and cutover state using the authorized
+   status/read-only procedure, and determine next steps before retry or rollback.
+2. .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md:124-159 reports PASS based only
+   on table grants. Table privileges do not confer schema USAGE. A runtime role
+   with all listed table grants but no USAGE on the objects' schema can pass this
+   check and still fail to resolve/access the tables. In the supported separate
+   web-role configuration, the matrix also omits web SELECT on inverter_metrics,
+   which app/web_queries.py:32-55 requires for battery observations. Include
+   explicit schema USAGE checks for the applicable roles and web metrics SELECT,
+   or explicitly scope and separately verify those prerequisites before claiming
+   readiness. Test each negative case without using a shared database.

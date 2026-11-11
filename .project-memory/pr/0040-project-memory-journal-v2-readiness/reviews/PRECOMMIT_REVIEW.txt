@@ -1,0 +1,187 @@
+PRECOMMIT REVIEW — PR 0040-project-memory-journal-v2-readiness
+================================================================
+
+VERDICT: APPROVED
+
+Independent final precommit review of the complete working tree against HEAD
+306c5b2095e91b093cf63d94822cdd8b28ee0633 (master, includes merged GitHub PR #71).
+Journal v2 remains inactive; this PR is a housekeeping change set (project-memory
+gate cleanup, 0070 archival, operator runbook). Review was read-only except for
+this canonical PRECOMMIT_REVIEW.txt. No application change, production access,
+migration, cutover, rollback, commit, push or PR creation was performed.
+
+PLAN APPROVAL: PASS
+reviews/PLAN_REVIEW.txt opens with VERDICT: APPROVED (REVISION 4 FINAL
+INDEPENDENT RE-REVIEW). All earlier findings are preserved in the same file as a
+historical record (REVISION 3 re-review with blockers, SUBSEQUENT INDEPENDENT
+RE-REVIEW, ORIGINAL REVIEW with its blockers), explicitly marked as record, not
+the current verdict. The revision 4 cutover rule (UNKNOWN handling), process
+deviation statement and 0070 archive acknowledgement are present. No remaining
+blocker is asserted in the current verdict; READY FOR PRECOMMIT REVIEW: YES.
+PLAN.txt documents the four change items (AGENT_STANDARD 3a/3b, gate script,
+0070 relocation, runbook) and non-goals; the implemented tree matches the change
+list (coder report DEVIATIONS FROM PLAN: content none).
+
+PROJECT MEMORY EXCEPTIONS: PASS
+scripts/check-project-memory.sh HISTORICAL_OVERRIDE_ARTIFACTS pins exactly the
+two grandfathered directories (0038-architect-dashboard-analytics-ui,
+0039-output-power-out-w-fallback) and exactly three artifacts each
+(OPERATOR_OVERRIDE.txt, CODER_REPORT.txt, reviews/PRECOMMIT_REVIEW.txt) with
+SHA-256 values. Independently recomputed hashes match the pinned values for all
+six files (14164e7a...01b1, 2e94830c...3766, 3779f042...7b4d, fe735b51...48b64,
+6c56659c...7e46, b6e01721...2056b). The override path fails closed: unknown
+basename, missing/symlinked file, missing sha256 tool, or hash mismatch returns
+rejection; it is consulted only in the PRECOMMIT-present canonical branch after
+all other rejection checks (legacy names, YAML, casing, placement) still pass.
+The mechanism cannot authorize future or differently named directories: the 15
+regression tests include identical evidence under 0040-..., 0038-...-v2,
+0038a-... and 0071-... names, all rejected (4 rejections asserted), and
+retrospective PLAN.txt or legacy reviews/plan-review.yml inside a grandfathered
+directory are rejected. AGENT_STANDARD.txt section 3a states the exception
+grants nothing to any other directory and is amendable only by a separate
+reviewed planning PR. Gate executed: 49 directories, 0 rejected, 0 errors,
+0038 and 0039 reported as PRECOMMIT COMPLETE (grandfathered operator override).
+
+0070 ARCHIVE: PASS
+The archived file .project-memory/archive/0070-journal-v2-review/reviews/
+plan-review.yml is byte-identical to the HEAD original
+.project-memory/pr/0070-journal-v2-review/reviews/plan-review.yml (git show
+HEAD:... | shasum -a 256 and the working-tree archived file both produce
+bc73d22c5ca5228e342a7efa9c67e1d610c8728ed9a547626284c92282bf5d70; diff of the
+two streams is empty). PROVENANCE.txt records the original path, the unchanged
+SHA-256, the introducing commit 306c5b2095e91b093cf63d94822cdd8b28ee0633
+("Implement adaptive decision Journal v2 (#71)" — independently confirmed via
+git ls-tree HEAD and git log --find-object for the blob 70d005ec...), the
+author role (independent plan-review agent, self-identified in the file as
+review_id pr-0070-journal-v2-review with base_commit 6520be3), the original
+CHANGES REQUIRED verdict (blockers B-01..B-04) and the reason for relocation
+(0070 does not identify the PR it reviewed; legacy reviews/plan-review.yml is
+forbidden in canonical directories). The archived review content still carries
+verdict: CHANGES REQUIRED; archival does not change, supersede or approve it.
+Operator authorization is documented as pending reviewer acknowledgement, and
+the independent plan reviewer's acknowledgement is recorded in PLAN_REVIEW.txt
+(0070 ARCHIVE ACKNOWLEDGEMENT) with an explicit statement that it is not
+attributed to the original reviewer. No impersonation: no document claims the
+original reviewer approved the move. The gate does not scan the archive
+(regression test test_archived_artifacts_are_not_scanned) and the repository
+archive hash is pinned in the regression suite (test_repository_archive_
+preserves_original_0070_review).
+
+JOURNAL V2 RUNBOOK: PASS
+.project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md is documentation only. Verified
+by inspection:
+- Migration ownership: step 3a checks current_database/current_user/
+  current_schema, resolves adaptive_decision_journal owner via
+  pg_get_userbyid(c.relowner), requires pg_has_role(current_user, owner,
+  'USAGE') AND has_schema_privilege(current_schema(), 'CREATE'), fails closed
+  with a raised exception under ON_ERROR_STOP, and documents that reapplying
+  002 needs the same owner for CREATE OR REPLACE FUNCTION.
+- Schema USAGE: the privilege preflight unions per-(role, table, privilege)
+  rows with schema rows checking has_schema_privilege(role, schema, 'USAGE')
+  for every schema containing any required table, for worker and web roles.
+- Individual table privileges: the required matrix lists worker
+  SELECT/INSERT/UPDATE/DELETE on the six v2 tables, worker SELECT/INSERT/
+  DELETE on adaptive_decision_journal, worker SELECT on inverter_metrics, web
+  SELECT on all v2 tables + journal + inverter_metrics; the SQL checks each
+  (role, table, privilege) on its own row with a comment explaining that a
+  comma-separated list is not used because has_table_privilege would be true
+  if any privilege were held; the temp-view query derives each table's schema
+  by joining pg_class/pg_namespace.
+- Web access to inverter_metrics: explicit web_role/inverter_metrics/SELECT
+  row; missing privileges produce a FAIL listing kind/role/object/privilege
+  and a non-zero exit; the runbook notes /api/controls/decisions returns 503
+  without web access (fails closed).
+- Cutover UNKNOWN (spec 5): step 6 states any exception, timeout, lost
+  connection, disconnected kubectl exec or missing JSON result is UNKNOWN;
+  UNKNOWN is neither a failed cutover nor a rollback; a later v1 reading
+  proves nothing; v2 is confirmed only by mode v2 plus state.initialized_from
+  matching step 5 plus a JOURNAL_V2_CUTOVER event with the same
+  initialized_from; a v1 read (even with unchanged changed_at), v2 without
+  matching state/event, or unreadable/unreachable status all stay UNKNOWN.
+- No automatic actions while UNKNOWN (spec 6): the revision 3 /proc scan,
+  t_exit cutoff, pg_stat_activity drain, non-commit determination and DBA_DSN
+  usage were removed in revision 4 and are absent from the current file;
+  while UNKNOWN the runbook prohibits retry, --allow-empty-state, rollback,
+  manual adaptive_journal_control changes and session/pod termination, and
+  requires escalation to operator and DBA; step 8 explicitly applies its
+  rollback conditions only after v2 is confirmed, never while UNKNOWN.
+- No production operation executed (spec 7): every step that changes state
+  (3a apply, 3b grants, 6 cutover, 8 rollback/down) is marked as requiring
+  explicit, separate operator authorization; steps 1-2 and 4-5 are read-only
+  preflight; the runbook never prints or pastes DATABASE_URL; no production
+  connection was made during this review or by this PR's code.
+
+SCOPE AND SECRETS: PASS
+Complete intended commit file list (11 paths, all verified in git status):
+modified .project-memory/AGENT_STANDARD.txt, migrations/README.md,
+scripts/check-project-memory.sh, tests/test_project_memory_gate.py; deleted
+.project-memory/pr/0070-journal-v2-review/reviews/plan-review.yml (renamed to
+archive); untracked .project-memory/archive/0070-journal-v2-review/
+PROVENANCE.txt, .project-memory/archive/0070-journal-v2-review/reviews/
+plan-review.yml, .project-memory/JOURNAL_V2_OPERATOR_RUNBOOK.md,
+.project-memory/pr/0040-project-memory-journal-v2-readiness/PLAN.txt,
+CODER_REPORT.txt, reviews/PLAN_REVIEW.txt. No app/, service/, run.py,
+migration *.sql, battery model, hardware control, deployment manifest,
+Dockerfile, docker-compose, .github/ or CI configuration changed (git diff
+--name-only HEAD confirms the five tracked paths; the untracked set contains
+only the files listed above; .project-memory/pending/journal-v2/PLAN.txt is
+tracked at HEAD from PR #71 and unchanged, per plan non-goal). Scope search
+found no credentials, tokens, private configuration, .env files or temporary
+scratchpad content in the diff or the new artifacts; the runbook uses
+placeholder role names and explicitly warns never to print DATABASE_URL.
+The 0040 directory contains no stray files; the empty
+.project-memory/pending/project-memory-cleanup-journal-v2-runbook/ directory
+is untracked (empty directories are not committed) and not part of the commit.
+
+VALIDATION RESULTS:
+- bash scripts/check-project-memory.sh: PASSED, 49 PR directories (37 legacy,
+  12 canonical), 0 rejected, 0 errors; 0038/0039 grandfathered; 0040 CODER
+  COMPLETE before this artifact and PRECOMMIT COMPLETE after it is written.
+- python3 -m unittest discover -s tests -p test_project_memory_gate.py:
+  Ran 15 tests, OK (includes tamper, wrong-name, retrospective-artifact,
+  archive-hash-pin and repository-gate tests).
+- git diff --check: clean (exit 0).
+- bash -n scripts/check-project-memory.sh: syntax OK.
+- Hash verification: six pinned grandfathered artifact hashes and the archived
+  0070 review SHA-256 (bc73d22c...5d70) independently recomputed and matching.
+- No PostgreSQL integration rerun performed (not required; no concrete defect
+  found in the runbook SQL by static inspection, and the coder report records
+  execution of both SQL blocks on throwaway containers); no database was
+  connected to during this review.
+
+PROCESS DEVIATION:
+Implementation preceded independent plan approval, contrary to AGENT_STANDARD
+section 1 and ORCHESTRATOR_STANDARD section 5. This is accurately documented in
+CODER_REPORT.txt (BLOCKERS and DEVIATIONS FROM PLAN: "Process: implementation
+was done before independent plan approval"; also "The reviewer must treat this
+as unapproved work") and in PLAN_REVIEW.txt (PROCESS DEVIATION: "This approval
+is obtained after implementation; it is not prior approval or retroactive
+authorization"). The coder report explicitly marks revision 3 superseded and
+does not claim prior approval; nothing in the reviewed artifacts represents the
+subsequent approval as prior authorization. The PR id was assigned by the
+operator after revision 1; earlier unassigned/staged statements are superseded
+in the coder report and do not assert earlier approval.
+
+COMPLETE BLOCKER LIST:
+None. All ten specification checks pass: (1) PLAN_REVIEW genuinely APPROVED with
+findings preserved; (2) exceptions cover exactly 0038/0039 with SHA-256-pinned
+original evidence and cannot authorize future incomplete directories; (3) 0070
+review preserved byte-for-byte with accurate provenance and original CHANGES
+REQUIRED verdict, operator direction and reviewer acknowledgement documented
+without impersonation; (4) runbook checks migration ownership, schema USAGE,
+individual table privileges and web inverter_metrics access; (5) cutover
+failures stay UNKNOWN unless v2 is positively confirmed by consistent state and
+event evidence; (6) no automatic retry/rollback/manual mode change or false
+non-commit determination while UNKNOWN; (7) runbook executes no production
+operation and each state-changing step requires separate operator
+authorization; (8) no Journal v2 algorithm, migration SQL, battery calculation,
+hardware control, application runtime, deployment manifest or CI configuration
+changed; (9) implementation-before-plan-approval deviation is accurately
+documented and not represented as prior authorization; (10) no credentials,
+tokens, private configuration or scratchpad files included.
+
+SAFE TO COMMIT: YES
+SAFE TO MERGE: YES
+PRODUCTION CUTOVER AUTHORIZED: NO
+(Journal v2 remains inactive; the runbook documents a future, separately
+authorized cutover procedure only.)
