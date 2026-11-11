@@ -1,9 +1,13 @@
-"""Opt-in disposable localhost PostgreSQL only; never use a configurable DSN."""
+"""Opt-in (EASUN_TEST_POSTGRES=1) disposable PostgreSQL only, proven by tests/pg_isolation.py.
+
+Run under ``tests/disposable_postgres.py run --``; there is no default DSN.
+"""
 import asyncio
 import os
 import sys
 import unittest
 from decimal import Decimal
+from pathlib import Path
 
 try:
     import asyncpg
@@ -12,18 +16,18 @@ except ImportError:
 
 from app.control.easun_output_actuator import Authorization, EASUNOutputActuator, FakeDessTransport, PostgresJournal
 from app.control.easun_output_mapping import OutputField
+import pg_isolation
 
-DSN = 'postgresql://postgres:synthetic-easun-test@127.0.0.1:55439/easun_test'
+DSN = pg_isolation.configured_dsn()
 CAT = {'id': OutputField.BATTERY.value, 'item': [{'key':'26.0','val':'26.0V'}, {'key':'26.5','val':'26.5V'}]}
 AUTH = Authorization(True, 24, Decimal('24'), Decimal('27'))
 
 @unittest.skipUnless(asyncpg is not None and os.environ.get('EASUN_TEST_POSTGRES') == '1', 'requires disposable local test database')
 class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.pool = await asyncpg.create_pool(DSN, min_size=2, max_size=5)
+        # Every connection is proven to be this run's disposable database before use.
+        self.pool = await pg_isolation.create_pool(DSN, min_size=2, max_size=5)
         async with self.pool.acquire() as c:
-            # Fail closed if the dedicated test database isn't the expected one.
-            self.assertEqual(await c.fetchval('SELECT current_database()'), 'easun_test')
             await c.execute(PostgresJournal.SCHEMA)
             await c.execute(PostgresJournal.SCHEMA)
             await c.execute('TRUNCATE easun_output_reconciliation_events, easun_output_command_journal')
@@ -88,18 +92,35 @@ class PostgresIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_process_crash_after_committed_intent(self):
         script = '''
-import asyncio, os, asyncpg
+import asyncio, os, sys
+sys.path.insert(0, sys.argv[1])
+import pg_isolation
 from app.control.easun_output_actuator import PostgresJournal
 async def main():
-    pool = await asyncpg.create_pool("postgresql://postgres:synthetic-easun-test@127.0.0.1:55439/easun_test")
+    # Same verified DSN as the parent; no fallback inside the subprocess either.
+    pool = await pg_isolation.create_pool(sys.argv[2])
     journal = PostgresJournal(pool)
     assert await journal.acquire()
     await journal.intent("crashed-process", "bat_sp_battery_mode_voltage", "26.0V", "26.5", "26.5")
     os._exit(0)
 asyncio.run(main())
 '''
-        proc = await asyncio.create_subprocess_exec(sys.executable, '-c', script)
-        self.assertEqual(await proc.wait(), 0)
+        waiter = await pg_isolation.connect(DSN)
+        try:
+            spawned_at = await waiter.fetchval('SELECT clock_timestamp()')
+            proc = await asyncio.create_subprocess_exec(sys.executable, '-c', script, str(Path(__file__).resolve().parent), DSN)
+            self.assertEqual(await proc.wait(), 0)
+            # The server ends a crashed client's sessions (and its advisory lock) asynchronously; wait for that.
+            for _ in range(100):
+                if not await waiter.fetchval('''SELECT count(*) FROM pg_stat_activity
+                        WHERE backend_type = 'client backend' AND backend_start > $1 AND pid <> pg_backend_pid()''',
+                        spawned_at):
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                self.fail('crashed process sessions did not end')
+        finally:
+            await waiter.close()
         fake = FakeDessTransport(CAT, '26.0V')
         result = await self.actuator(fake).execute(OutputField.BATTERY, '26.0V', '26.5')
         self.assertEqual(result.reason, 'UNRESOLVED_INTENT')

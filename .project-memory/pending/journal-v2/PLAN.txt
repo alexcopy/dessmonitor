@@ -1,0 +1,167 @@
+PLAN COMPLETE
+
+TITLE
+Adaptive Decision Journal v2 (dry-run journal storage) and PostgreSQL test isolation
+
+IDENTIFIER NOTE
+Journal v2 has no GitHub PR and no PR number yet; the changes are uncommitted on
+master for the owner to place into a new PR. This plan is therefore staged at
+.project-memory/pending/journal-v2/PLAN.txt, outside .project-memory/pr/, and must
+be moved to .project-memory/pr/<assigned id>/PLAN.txt once a number is assigned.
+It is not GitHub PR #70: PR #70 (battery model and Decision Log changes, commit
+6520be3) is already merged into master and must not be reused for Journal v2.
+The independent reviewer's review is in .project-memory/pr/0070-journal-v2-review/
+reviews/plan-review.yml (reviewer-owned; not moved or modified by the coder).
+
+REPOSITORY STATE
+- Branch: master
+- Base: 6520be305323da6a75ad8dcf4da09c5a582c4234 (includes merged PR #70)
+- Working tree: Journal v2 implementation and isolation fixes, uncommitted.
+- Review status: independent review verdict CHANGES REQUIRED; delta review pending.
+
+SCOPE AND OBJECTIVE
+The adaptive output learning worker is dry-run only. In Journal v1 it writes one
+full JSON entry to adaptive_decision_journal every evaluation (about once per
+minute), even when nothing changed, so the journal is dominated by repetitive
+HOLD / NO_CANDIDATE rows. Objective: keep dry-run adaptive learning exactly as
+it is, but persist only durable learner state, significant transitions, compact
+repetition counters, one latest snapshot and per-worker heartbeats.
+
+In scope:
+- app/control/adaptive_journal_v2.py (new), app/control/online_output_learning.py
+  (shared evaluation step, journal-mode routing)
+- migrations/002_adaptive_decision_journal_v2.sql and its _down.sql (new)
+- scripts/adaptive_journal_v2.py (operator status / cutover / rollback CLI)
+- app/web_queries.py, app/web_routes.py, adaptive_decisions.js/.html (read-only UI)
+- tests: Journal v2 tests, UI tests, storage benchmark, and the PostgreSQL test
+  isolation guard (tests/pg_isolation.py, tests/disposable_postgres.py,
+  tests/test_pg_isolation.py) applied to every PostgreSQL test and benchmark.
+- scripts/check-project-memory.sh (rejected directories fail the gate) with
+  tests/test_project_memory_gate.py; tests/test_benchmark_storage_modes.py.
+
+Out of scope (must not change):
+- battery physics, voltage validity, virtual threshold rules, evaluation logic
+- inverter settings, DESS/Tuya writes, any hardware path
+- ADAPTIVE_OUTPUT_LEARNING_ENABLED and other feature flags
+- deletion of historical v1 journal rows (v1 30-day retention is unchanged)
+- deployment pipeline
+
+JOURNAL V2 BEHAVIOR
+- v1 and v2 call the same evaluation step (_evaluate_locked); only persistence differs.
+- Durable learner state: one adaptive_learning_state row (proposal state, pending
+  confirmation, cooldown start, last processed evidence), not subject to retention.
+  Strictly validated; corrupt, incompatible or missing state stops the worker
+  (fail closed), it is never reset.
+- Events: adaptive_decision_events holds only material transitions
+  (decision, hypothesis, confirmation, evidence blocked/recovered, battery
+  observation/response, worker failed/recovered, cutover). Event ids are
+  deterministic per state revision, inserts are idempotent.
+- Repetitions: identical outcomes update one adaptive_state_repetitions row
+  (count, new vs repeated/cached evidence) instead of adding entries.
+- Latest snapshot: one adaptive_latest_evaluation row, rewritten only when the
+  outcome changes or after 5 minutes; otherwise only small columns update.
+- Heartbeats: one adaptive_worker_heartbeat row per worker; failure and recovery
+  each create one event per outage. Lock-losing or replayed workers still heartbeat.
+- Concurrency: the existing advisory lock serialises evaluations; replays
+  (now <= last_evaluated_at) are no-ops.
+- All proposals remain NON_ACTIONABLE; hardware_write_attempted is constrained FALSE.
+
+DATABASE MIGRATION
+- 002 is additive and repeatable; it refuses to run without 001; it never alters
+  or deletes v1 rows; it creates the control row in mode v1, so applying it does
+  not activate v2.
+- A BEFORE INSERT OR UPDATE trigger on adaptive_decision_journal rejects v1 writes
+  (SQLSTATE 55000) while mode is v2, so old replicas cannot write mixed history.
+  DELETE (v1 retention) stays allowed.
+- 002_down refuses while v2 is active; in v1 it removes only the v2 objects.
+- No GRANT statements: the operator grants the six v2 tables to the worker role
+  (read/write) and the web role (read) before cutover.
+
+TEST ISOLATION
+- PostgreSQL tests stay opt-in per suite (EASUN_TEST_POSTGRES, WEB_QUERY_LOCAL_POSTGRES,
+  DECISION_LOG_LOCAL_POSTGRES, BATTERY_GRID_LOCAL_POSTGRES,
+  DECISION_PAGINATION_LOCAL_POSTGRES, JOURNAL_V2_LOCAL_POSTGRES, PG_ISOLATION_LIVE).
+- No test, fixture, subprocess or benchmark has a default or hard-coded DSN.
+- tests/disposable_postgres.py run -- <command> creates a new container
+  dm-disposable-pg-<run id> (tmpfs, 127.0.0.1, free non-reserved port) and issues a
+  run capability: random password and 256-bit token, stored only in a 0600 file in a
+  private 0700 temp directory (outside Git, deleted afterwards). The token digest is
+  put on a container label and into dm_disposable_owner.run_owner, claimed atomically
+  (an existing claim = competing runner = refused). The child environment holds the
+  password-less DSN, the run id and the capability path; inherited DATABASE_URL and
+  libpq variables are removed. Only the container with this run's labels is removed.
+- tests/pg_isolation.py, before any connection: static DSN checks (loopback literal,
+  non-reserved explicit port, no password, no query overrides, database exactly
+  dm_disposable_<run id>); private capability file for the same run and DSN; the
+  provisioner (pid + start time) is this process or an ancestor; Docker reports the
+  container running with this run's labels and loopback binding; caller options pass
+  an allowlist (timeouts, pool sizes, init) -- host/port/database/user/password/
+  passfile/server_settings/ssl/connection_class/connect/setup/reset etc. rejected.
+- On every connection (read-only): database name; run id in current_setting and in
+  the server's own postmaster.opts; marker comment; exactly one ownership row matching
+  the token digest and provisioner; no client session without this run's session tag
+  (HMAC of the token); no non-disposable database on the server.
+- App code under test that connects with asyncpg.connect(DATABASE_URL) runs inside
+  pg_isolation.app_connections(), which routes it through the same guard.
+- Threat boundary: protects against accidental use (stale defaults, copied DSN/run id,
+  leaked environment, competing runners, option redirection, forged markers, shared
+  containers such as easun-test-pg). Not against a party with unrestricted access to
+  the user account, the provisioner process, its capability file or Docker.
+
+VERIFICATION CRITERIA
+- Negative tests (always run, no socket): missing DSN/run id, incident DSNs,
+  reserved ports/databases, non-loopback/multi-host/query-override DSNs, _test
+  suffix, forbidden/ambiguous connection options with zero network attempts,
+  missing/foreign/non-private capability, copied identity in an unrelated process,
+  pid reuse, competing capability, container identity, wrong server identity,
+  forged run setting/marker/ownership, competing sessions, shared server; every
+  PostgreSQL suite's setup and both benchmarks refuse before asyncpg is called;
+  source scan finds no DSN literal, DSN env default or direct asyncpg connect.
+- Live negative tests on a provisioned server: unrelated (re-parented) process with
+  copied environment, competing raw session, forged run setting + marker, tampered
+  or missing ownership record, second provisioner claim, shared-server database.
+- On a newly provisioned disposable PostgreSQL: all JournalV2PostgresTests
+  scenarios; migration 002 apply/re-apply, down safety; CLI cutover and rollback;
+  1,000 identical HOLD evaluations; multi-worker concurrency and restart; mixed
+  v1/v2 writer protection; existing PostgreSQL integration suites; storage
+  benchmark in explicit modes (periodic manual VACUUM / no VACUUM, autovacuum
+  disabled on measured tables and checked) plus a separately labelled final-VACUUM
+  measurement; regression tests pin the SQL each mode runs.
+- Project-memory gate: rejected canonical directories are printed with reasons and
+  make the gate exit 1 (tests/test_project_memory_gate.py).
+- Full Python suite and Node UI tests, py_compile, node --check, git diff --check.
+- Adaptive learning still enabled; battery calculations unchanged; no hardware
+  writes or threshold changes; v2 inactive until explicit cutover; v1 history and
+  export functioning; deduplication, durable state and heartbeat semantics unchanged.
+
+EXPLICIT CUTOVER REQUIREMENTS
+1. Deploy the code (v2-aware workers stay in v1 mode until cutover).
+2. Apply migration 002 and grant the v2 tables (worker read/write, web read).
+   Without the web grant the decisions API returns 503 (fail closed).
+3. Run scripts/adaptive_journal_v2.py status, then cutover --confirm. Cutover takes
+   the advisory lock (waits for a running evaluation), seeds state from the newest
+   v1 entry carrying proposal_state, fails closed if it is invalid, records
+   JOURNAL_V2_CUTOVER, and is idempotent (ALREADY_V2). --allow-empty-state only
+   after operator review when no v1 state exists.
+4. Never against production from a developer machine without the owner's approval.
+
+ROLLBACK
+- scripts/adaptive_journal_v2.py rollback --confirm: sets mode v1 and writes one v1
+  journal entry carrying the current proposal state, so v1 resumes with the same
+  active proposal and cooldown. v2 tables are kept.
+- 002_down only after rollback (it refuses while v2 is active).
+
+KNOWN LIMITATIONS
+- No anti-flap rules: about 380 events on the varied synthetic day.
+- Events and heartbeat tables have no retention yet.
+- Export remains v1-only.
+- Latest snapshot time-relative fields can be up to 5 minutes old.
+- On-disk savings depend on vacuuming (see the benchmark modes).
+- Schema validation checks table and trigger existence, not full column definitions.
+- Strict state validation can block cutover on legacy states with unknown keys.
+- Replica clock skew makes a lagging worker's evaluations no-ops (heartbeat still updates).
+- Daily summary deferred. Not verified on TimescaleDB, production data or a real browser.
+- PostgreSQL tests require Docker and ps (process ancestry) for the provisioner/guard.
+- The project-memory gate fails on 0038, 0039 (no PLAN artifacts; OPERATOR_OVERRIDE.txt
+  is not a recognised exception) and 0070-journal-v2-review (reviewer's legacy YAML)
+  until the owner/reviewer resolve them.

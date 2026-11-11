@@ -22,7 +22,9 @@
 # Frozen historical non-numeric allowlist:
 #   fix-auth-validation-python-discovery
 #
-# Exits 0 if all checks pass, 1 if errors found.
+# Exits 0 if all checks pass, 1 if errors found. Every rejected PR directory
+# (unknown name, legacy artifact in a canonical directory, missing required
+# artifact) is printed with its reasons and counted as an error.
 # Deterministic, offline, non-mutating, CI-safe.
 # ==============================================================================
 
@@ -410,6 +412,7 @@ pr_count=0
 legacy_count=0
 canonical_count=0
 rejected_count=0
+REJECTED_DIRS=()
 
 for pr_dir in "$PR_BASE"/*/; do
     [ -d "$pr_dir" ] || continue
@@ -421,7 +424,9 @@ for pr_dir in "$PR_BASE"/*/; do
     classification=$?
 
     if [ "$classification" -eq 2 ]; then
+        # classify_pr_dir already printed the reason and counted the error.
         rejected_count=$((rejected_count + 1))
+        REJECTED_DIRS+=("$basename")
         continue
     elif [ "$classification" -eq 0 ]; then
         legacy_count=$((legacy_count + 1))
@@ -432,7 +437,12 @@ for pr_dir in "$PR_BASE"/*/; do
         stage=$(detect_canonical_stage "$pr_dir" "$basename")
         canon_exit=$?
         if [ "$canon_exit" -ne 0 ]; then
+            # The reasons were captured by $(...); print every one and count the rejection as an error.
+            printf '%s\n' "$stage"
+            echo -e "${RED}REJECTED DIRECTORY: $basename${NC}"
             rejected_count=$((rejected_count + 1))
+            REJECTED_DIRS+=("$basename")
+            ERRORS=$((ERRORS + 1))
         else
             echo -e "OK: $basename [$stage]"
         fi
@@ -451,6 +461,9 @@ echo " Legacy directories:       $legacy_count"
 echo " Canonical directories:    $canonical_count"
 echo " Rejected directories:     $rejected_count"
 echo " Errors:                   $ERRORS"
+for rejected_dir in ${REJECTED_DIRS[@]+"${REJECTED_DIRS[@]}"}; do
+    echo -e "${RED} Rejected: $rejected_dir${NC}"
+done
 echo ""
 
 if [ "$ERRORS" -gt 0 ]; then

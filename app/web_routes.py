@@ -65,6 +65,8 @@ _DECISION_EXPORT_FIELDS = frozenset((
     'battery_response', 'monitored_threshold', 'candidate_status',
     'telemetry_audit', 'daily_behavior_review', 'virtual_threshold_experiment', 'adaptive_hysteresis',
     'charging_context', 'quantitative_history_truncated', 'quantitative_history_coverage',
+    'journal_version', 'state_revision', 'snapshot_evaluated_at', 'last_evaluated_at',
+    'evaluations_since_snapshot',
 ))
 
 
@@ -92,6 +94,80 @@ def _battery_voltage_fields(entry):
     fields = battery_voltage_presentation(entry.get('battery_v'))
     fields['battery_v_validity_source'] = 'DERIVED_ON_READ_FROM_LEGACY_ENTRY'
     return fields
+
+
+def _iso(value):
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+def _journal_view(journal):
+    """Bounded, JSON-safe Journal v2 summary for the operator UI."""
+    if not isinstance(journal, dict) or journal.get('mode') != 'v2':
+        return {'mode': 'v1', 'v2_installed': bool(isinstance(journal, dict) and journal.get('v2_installed'))}
+    state = journal.get('state') or {}
+    repetition = journal.get('repetition')
+    def payload(value):
+        value = json.loads(value) if isinstance(value, str) else value
+        return value if isinstance(value, dict) else {}
+    return {
+        'mode': 'v2', 'v2_installed': True, 'changed_at': _iso(journal.get('changed_at')),
+        'history_note': 'Decision history below is the Journal v1 record up to the v2 cutover; '
+                        'v2 records significant events and repetition counters instead of every evaluation.',
+        'state': {key: _iso(state.get(key)) for key in ('revision', 'algorithm_version', 'initialized_from',
+                  'initialized_at', 'updated_at', 'last_evaluated_at')} if state else None,
+        'current_repetition': None if not repetition else {
+            'outcome': payload(repetition.get('outcome')), 'first_seen_at': _iso(repetition.get('first_seen_at')),
+            'last_seen_at': _iso(repetition.get('last_seen_at')), 'evaluation_count': repetition.get('evaluation_count'),
+            'new_evidence_count': repetition.get('new_evidence_count'),
+            'repeated_evidence_count': repetition.get('repeated_evidence_count')},
+        'events': [{'event_id': row.get('event_id'), 'event_time': _iso(row.get('event_time')),
+                    'event_type': row.get('event_type'), 'state_revision': row.get('state_revision'),
+                    'worker_id': row.get('worker_id'), 'payload': payload(row.get('payload'))}
+                   for row in journal.get('events') or []],
+        'workers': [{key: _iso(row.get(key)) for key in ('worker_id', 'status', 'last_heartbeat_at',
+                     'last_evaluation_at', 'last_success_at', 'last_error', 'blocking_reason',
+                     'consecutive_failures', 'failure_started_at')} for row in journal.get('workers') or []],
+    }
+
+
+def _worker_health_from_v2(journal, latest, *, enabled):
+    """Worker health from v2 heartbeats; same keys as the v1 view."""
+    if not enabled:
+        return _worker_health_from_journal(latest, enabled=False, unavailable_reason='ADAPTIVE_OUTPUT_LEARNING_DISABLED')
+    workers = journal.get('workers') or []
+    stored = latest.get('worker_health') if isinstance(latest, dict) else None
+    stored = stored if isinstance(stored, dict) else {}
+    def newest(key):
+        values = [row.get(key) for row in workers if isinstance(row.get(key), datetime)]
+        return max(values) if values else None
+    last_evaluation, last_success = newest('last_evaluation_at'), newest('last_success_at')
+    evaluated = [row for row in workers if isinstance(row.get('last_evaluation_at'), datetime)]
+    current = max(evaluated, key=lambda row: row['last_evaluation_at']) if evaluated else None
+    last_error = current.get('last_error') if current and current.get('status') == 'failing' else None
+    if not workers:
+        status, blocking = 'degraded', 'NO_WORKER_HEARTBEAT'
+    elif current is not None and current.get('status') == 'failing':
+        status, blocking = 'degraded', 'WORKER_EVALUATION_FAILED'
+    elif last_success is None or (datetime.now(timezone.utc) - last_success).total_seconds() > 180:
+        status, blocking = 'degraded', 'WORKER_EVALUATION_STALE'
+    elif latest is None:
+        status, blocking = 'degraded', 'NO_V2_EVALUATION_YET'
+    else:
+        status = stored.get('status') if stored.get('status') in ('healthy', 'degraded') else 'degraded'
+        blocking = stored.get('blocking_reason')
+    latest = latest if isinstance(latest, dict) else {}
+    return {
+        'enabled': True, 'status': status, 'status_source': 'JOURNAL_V2_HEARTBEAT',
+        'last_evaluation_at': _iso(last_evaluation), 'last_successful_evaluation_at': _iso(last_success),
+        'last_error': last_error, 'blocking_reason': blocking,
+        'observation_count': stored.get('observation_count'), 'collection_count': stored.get('collection_count'),
+        'effective_window_seconds': stored.get('effective_window_seconds'),
+        'evidence_level': latest.get('evidence_level'), 'proposed_voltage': latest.get('proposed_voltage'),
+        'confirmation_progress': latest.get('confirmation_progress'),
+        'cooldown_remaining_seconds': latest.get('cooldown_remaining_seconds'),
+        'confidence': latest.get('confidence'), 'reason_codes': latest.get('reason_codes') or [],
+        'worker_count': len(workers), 'failing_workers': sum(1 for row in workers if row.get('status') == 'failing'),
+    }
 
 
 def _decision_export(entry):
@@ -581,7 +657,10 @@ def create_auth_router(
                 "has_more": False, "next_cursor": None, "latest_decision": None},
                 headers={"Cache-Control": "no-store"})
         try:
-            latest_row = await web_queries.latest_decision(database_url)
+            journal = await web_queries.journal_v2_status(database_url)
+            v2_active = journal.get('mode') == 'v2'
+            # In v2 mode the latest evaluation comes only from v2; a v1 row is never shown as current.
+            latest_row = None if v2_active else await web_queries.latest_decision(database_url)
             secret = getattr(config, 'session_secret', None) or os.environ.get('WEB_AUTH_SESSION_SECRET', '')
             if not secret:
                 raise RuntimeError('Cursor signing is not configured')
@@ -598,9 +677,19 @@ def create_auth_router(
             rows = rows[:limit]
             parsed = [json.loads(row['entry']) for row in rows]
             entries = [_decision_export(entry) for entry in parsed]
-            latest = json.loads(latest_row['entry']) if latest_row else None
-            health = _worker_health_from_journal(latest, enabled=enabled,
-                unavailable_reason=None if latest else 'NO_PERSISTED_WORKER_EVALUATION')
+            if v2_active:
+                snapshot = journal.get('latest') or {}
+                stored = snapshot.get('entry')
+                latest = json.loads(stored) if isinstance(stored, str) else stored
+                if isinstance(latest, dict):
+                    latest.update(snapshot_evaluated_at=_iso(snapshot.get('evaluated_at')),
+                                  last_evaluated_at=_iso(snapshot.get('last_evaluated_at')),
+                                  evaluations_since_snapshot=snapshot.get('evaluations_since_snapshot'))
+                health = _worker_health_from_v2(journal, latest, enabled=enabled)
+            else:
+                latest = json.loads(latest_row['entry']) if latest_row else None
+                health = _worker_health_from_journal(latest, enabled=enabled,
+                    unavailable_reason=None if latest else 'NO_PERSISTED_WORKER_EVALUATION')
             next_cursor = None
             if has_more and rows:
                 last = rows[-1]
@@ -610,7 +699,8 @@ def create_auth_router(
                     'after_id': last['evaluation_id']}
                 next_cursor = _encode_decision_cursor(value, secret)
             return JSONResponse({"decisions": entries, "worker_health": health,
-                "has_more": has_more, "next_cursor": next_cursor, "latest_decision": _decision_export(latest) if latest else None}, headers={"Cache-Control": "no-store"})
+                "has_more": has_more, "next_cursor": next_cursor, "latest_decision": _decision_export(latest) if latest else None,
+                "journal": _journal_view(journal)}, headers={"Cache-Control": "no-store"})
         except Exception:
             return JSONResponse({"detail": "Decision journal unavailable"}, status_code=503,
                 headers={"Cache-Control": "no-store"})

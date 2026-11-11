@@ -1839,11 +1839,78 @@ async def _fetch_mode_run_boundaries(conn, lower, upper, max_runs=MAX_MODE_RUNS)
     return mode_rows, total_runs, total_runs > max_runs
 
 
+async def journal_mode(conn):
+    """'v2' only after an explicit Journal v2 cutover; absent v2 tables mean 'v1'."""
+    if await conn.fetchval("SELECT to_regclass('adaptive_journal_control')") is None:
+        return 'v1'
+    mode = await conn.fetchval('SELECT mode FROM adaptive_journal_control WHERE id = 1')
+    return mode if mode in ('v1', 'v2') else 'v1'
+
+
+async def _evaluate_locked(conn, now, previous, *, verified_observations=None, learner=None,
+                           historical_battery_v=26.0):
+    """Read bounded telemetry and evaluate; the caller holds LOCK_ID and the transaction.
+
+    Shared unchanged by Journal v1 and v2 so both persist the same evaluation.
+    """
+    prior_state = previous.get('proposal_state') if isinstance(previous, dict) else None
+    daily_review_due = not isinstance(prior_state, dict) or prior_state.get('daily_review_date_utc') != now.date().isoformat()
+    history_window = DAILY_REVIEW_WINDOW if daily_review_due else WINDOW
+    # One extra row in both paths makes truncation observable rather than silent;
+    # evaluate_collected_history keeps only the newest MAX_ANALYSIS_OBSERVATIONS
+    # in-window rows and reports when older ones were omitted.
+    history_limit = (MAX_DAILY_REVIEW_OBSERVATIONS + 1
+                     if daily_review_due else MAX_ANALYSIS_OBSERVATIONS + 1)
+    rows = await conn.fetch('''SELECT time, working_mode, battery_voltage, battery_soc,
+        battery_current_chg, battery_current_dis, pv_power_w, output_power_w
+        FROM inverter_metrics WHERE time >= $1 AND time <= $2 ORDER BY time DESC LIMIT $3''',
+        now - history_window, now, history_limit)
+    rows = list(reversed(rows))
+    daily_review_truncated = daily_review_due and len(rows) > MAX_DAILY_REVIEW_OBSERVATIONS
+    if daily_review_truncated:
+        rows = rows[-MAX_DAILY_REVIEW_OBSERVATIONS:]
+    mode_rows, mode_run_count, mode_history_truncated = await _fetch_mode_run_boundaries(
+        conn, now - WINDOW, now)
+    entry = evaluate_collected_history(rows, now, previous,
+                                       historical_battery_v=historical_battery_v,
+                                       verified_observations=verified_observations, learner=learner,
+                                       daily_review_due=daily_review_due,
+                                       daily_review_truncated=daily_review_truncated,
+                                       mode_observations=mode_rows,
+                                       mode_history_truncated=mode_history_truncated,
+                                       mode_run_count=mode_run_count)
+    verified = entry['verified_sag']
+    estimate = verified.get('estimate') if isinstance(verified, dict) else None
+    blocking = None
+    if verified.get('status') != 'VERIFIED':
+        blocking = (verified.get('reason_codes') or ['VERIFIED_LEARNING_BLOCKED'])[0]
+    elif not estimate or not estimate.get('usable'):
+        blocking = estimate.get('reason') if estimate else 'SAG_ESTIMATE_UNAVAILABLE'
+    entry['worker_health'] = {
+        'enabled': True,
+        'status': 'degraded' if blocking else 'healthy',
+        'last_evaluation_at': now.isoformat(),
+        'last_successful_evaluation_at': now.isoformat(),
+        'last_error': None,
+        'blocking_reason': blocking,
+        'observation_count': entry['unique_observation_count'],
+        'collection_count': entry['collection_count'],
+        'effective_window_seconds': entry['effective_window_seconds'],
+    }
+    return entry
+
+
 async def run_evaluation(pool, now, *, verified_observations=None, learner=None, historical_battery_v=26.0):
-    """One idempotent transaction shared by cooperating replicas."""
+    """One idempotent Journal v1 transaction shared by cooperating replicas.
+
+    Returns False without writing when another replica holds the lock or when
+    Journal v2 is active (the caller then uses adaptive_journal_v2).
+    """
     async with pool.acquire() as conn:
         async with conn.transaction():
             if not await conn.fetchval('SELECT pg_try_advisory_xact_lock($1)', LOCK_ID):
+                return False
+            if await journal_mode(conn) != 'v1':
                 return False
             previous_json = await conn.fetchval('SELECT entry FROM adaptive_decision_journal ORDER BY evaluated_at DESC LIMIT 1')
             previous = json.loads(previous_json) if previous_json else None
@@ -1856,50 +1923,8 @@ async def run_evaluation(pool, now, *, verified_observations=None, learner=None,
                     WHERE entry ? 'proposal_state' AND entry->>'algorithm_version' = ANY($1::text[])
                     ORDER BY evaluated_at DESC LIMIT 1''', list(STATE_COMPATIBLE_VERSIONS))
                 previous = json.loads(saved_json) if saved_json else None
-            prior_state = previous.get('proposal_state') if isinstance(previous, dict) else None
-            daily_review_due = not isinstance(prior_state, dict) or prior_state.get('daily_review_date_utc') != now.date().isoformat()
-            history_window = DAILY_REVIEW_WINDOW if daily_review_due else WINDOW
-            # One extra row in both paths makes truncation observable rather than silent;
-            # evaluate_collected_history keeps only the newest MAX_ANALYSIS_OBSERVATIONS
-            # in-window rows and reports when older ones were omitted.
-            history_limit = (MAX_DAILY_REVIEW_OBSERVATIONS + 1
-                             if daily_review_due else MAX_ANALYSIS_OBSERVATIONS + 1)
-            rows = await conn.fetch('''SELECT time, working_mode, battery_voltage, battery_soc,
-                battery_current_chg, battery_current_dis, pv_power_w, output_power_w
-                FROM inverter_metrics WHERE time >= $1 AND time <= $2 ORDER BY time DESC LIMIT $3''',
-                now - history_window, now, history_limit)
-            rows = list(reversed(rows))
-            daily_review_truncated = daily_review_due and len(rows) > MAX_DAILY_REVIEW_OBSERVATIONS
-            if daily_review_truncated:
-                rows = rows[-MAX_DAILY_REVIEW_OBSERVATIONS:]
-            mode_rows, mode_run_count, mode_history_truncated = await _fetch_mode_run_boundaries(
-                conn, now - WINDOW, now)
-            entry = evaluate_collected_history(rows, now, previous,
-                                               historical_battery_v=historical_battery_v,
-                                               verified_observations=verified_observations, learner=learner,
-                                               daily_review_due=daily_review_due,
-                                               daily_review_truncated=daily_review_truncated,
-                                               mode_observations=mode_rows,
-                                               mode_history_truncated=mode_history_truncated,
-                                               mode_run_count=mode_run_count)
-            verified = entry['verified_sag']
-            estimate = verified.get('estimate') if isinstance(verified, dict) else None
-            blocking = None
-            if verified.get('status') != 'VERIFIED':
-                blocking = (verified.get('reason_codes') or ['VERIFIED_LEARNING_BLOCKED'])[0]
-            elif not estimate or not estimate.get('usable'):
-                blocking = estimate.get('reason') if estimate else 'SAG_ESTIMATE_UNAVAILABLE'
-            entry['worker_health'] = {
-                'enabled': True,
-                'status': 'degraded' if blocking else 'healthy',
-                'last_evaluation_at': now.isoformat(),
-                'last_successful_evaluation_at': now.isoformat(),
-                'last_error': None,
-                'blocking_reason': blocking,
-                'observation_count': entry['unique_observation_count'],
-                'collection_count': entry['collection_count'],
-                'effective_window_seconds': entry['effective_window_seconds'],
-            }
+            entry = await _evaluate_locked(conn, now, previous, verified_observations=verified_observations,
+                                           learner=learner, historical_battery_v=historical_battery_v)
             entry['evaluation_id'] = hashlib.sha256(
                 f"{VERSION}:{now.isoformat()}:{entry['evaluation_id']}".encode()).hexdigest()
             await conn.execute('''INSERT INTO adaptive_decision_journal
@@ -1915,6 +1940,8 @@ async def _record_worker_failure(pool, now, error_type):
     async with pool.acquire() as conn:
         async with conn.transaction():
             if not await conn.fetchval('SELECT pg_try_advisory_xact_lock($1)', LOCK_ID):
+                return False
+            if await journal_mode(conn) != 'v1':
                 return False
             previous_json = await conn.fetchval('SELECT entry FROM adaptive_decision_journal ORDER BY evaluated_at DESC LIMIT 1')
             previous = json.loads(previous_json) if previous_json else {}
@@ -1956,20 +1983,37 @@ async def learning_loop(database_url, stop_event):
     pool = None
     try:
         import asyncpg
+        from app.control.adaptive_journal_v2 import worker_identity
+        worker_id = worker_identity()
         LOGGER.warning('[OUTPUT_LEARNING] collection-time exploration only; verified learning is blocked')
         while not stop_event.is_set():
             schema_validated = False
+            mode = 'v1'
             try:
                 if pool is None:
                     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=10)
                 await validate_journal_schema(pool)
+                async with pool.acquire() as conn:
+                    mode = await journal_mode(conn)
+                if mode == 'v2':
+                    from app.control import adaptive_journal_v2
+                    await adaptive_journal_v2.validate_v2_schema(pool)
                 schema_validated = True
-                await run_evaluation(pool, datetime.now(timezone.utc),
-                                     historical_battery_v=_configured_historical_baseline())
+                if mode == 'v2':
+                    await adaptive_journal_v2.run_evaluation_v2(
+                        pool, datetime.now(timezone.utc), worker_id=worker_id,
+                        historical_battery_v=_configured_historical_baseline())
+                else:
+                    await run_evaluation(pool, datetime.now(timezone.utc),
+                                         historical_battery_v=_configured_historical_baseline())
             except Exception as exc:
                 if pool is not None and schema_validated:
                     try:
-                        await _record_worker_failure(pool, datetime.now(timezone.utc), type(exc).__name__)
+                        if mode == 'v2':
+                            await adaptive_journal_v2.record_worker_failure_v2(
+                                pool, datetime.now(timezone.utc), type(exc).__name__, worker_id=worker_id)
+                        else:
+                            await _record_worker_failure(pool, datetime.now(timezone.utc), type(exc).__name__)
                     except Exception:
                         pass
                 LOGGER.warning('[OUTPUT_LEARNING] diagnostic journal unavailable (%s)', type(exc).__name__)

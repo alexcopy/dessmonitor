@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 from app import web_routes
 from app.battery_intervals import battery_voltage_presentation
 from app.control import online_output_learning as ol
+import pg_isolation
 
 T0 = datetime(2026, 11, 10, 10, 0, tzinfo=timezone.utc)
 NOW = T0 + timedelta(minutes=5)
@@ -131,6 +132,9 @@ class DecisionRouteVoltageTests(unittest.IsolatedAsyncioTestCase):
         router = web_routes.create_auth_router(None, None)
         self.api = next(r.endpoint for r in router.routes if r.path == '/api/controls/decisions')
         self.export = next(r.endpoint for r in router.routes if r.path == '/api/controls/decisions/export')
+        # Journal v2 not installed: these tests cover the Journal v1 read path.
+        _v1 = patch.object(web_routes.web_queries, 'journal_v2_status', new=AsyncMock(return_value={'mode': 'v1', 'v2_installed': False}))
+        _v1.start(); self.addCleanup(_v1.stop)
         new = json.loads(json.dumps(ol.evaluate_collected_history(reviewer_rows(0.0), NOW), allow_nan=False))
         legacy = {'evaluation_id': 'legacy', 'evaluated_at': '2026-11-10T09:00:00+00:00', 'decision': 'HOLD',
                   'algorithm_version': 'online-exploratory-5', 'battery_v': 0.0, 'hardware_write_attempted': False}
@@ -169,20 +173,17 @@ class DecisionRouteVoltageTests(unittest.IsolatedAsyncioTestCase):
         self.assert_invalid_zero(decisions[1], 'DERIVED_ON_READ_FROM_LEGACY_ENTRY')
 
 
-_PG_DSN = os.environ.get('DECISION_LOG_TEST_DSN', 'postgresql://postgres:synthetic@127.0.0.1:55440/easun_test')
+_PG_DSN = pg_isolation.configured_dsn()  # no fallback; proven by tests/pg_isolation.py before use
 
 
 @unittest.skipUnless(os.environ.get('DECISION_LOG_LOCAL_POSTGRES') == '1',
                      'requires disposable local PostgreSQL (DECISION_LOG_LOCAL_POSTGRES=1)')
 class DecisionLogVoltagePostgresTests(unittest.IsolatedAsyncioTestCase):
-    """Worker write -> journal -> web query -> API view, on a disposable *_test database."""
+    """Worker write -> journal -> web query -> API view, on this run's disposable database."""
 
     async def asyncSetUp(self):
-        import asyncpg
-        self.pool = await asyncpg.create_pool(_PG_DSN, min_size=1, max_size=3)
+        self.pool = await pg_isolation.create_pool(_PG_DSN, min_size=1, max_size=3)
         async with self.pool.acquire() as c:
-            if not (await c.fetchval('SELECT current_database()')).endswith('_test'):
-                raise RuntimeError('refusing to use a non-test database')
             await c.execute('DROP TABLE IF EXISTS adaptive_decision_journal; DROP TABLE IF EXISTS inverter_metrics')
             await c.execute((Path(__file__).parents[1] / 'migrations' / '001_adaptive_decision_journal.sql').read_text())
             await c.execute('''CREATE TABLE inverter_metrics (time TIMESTAMPTZ PRIMARY KEY, working_mode TEXT,
@@ -205,12 +206,14 @@ class DecisionLogVoltagePostgresTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_journal_and_api(self):
         from app import web_queries
         self.assertTrue(await ol.run_evaluation(self.pool, NOW, historical_battery_v=26.0))
-        latest = await web_queries.latest_decision(_PG_DSN)
+        with pg_isolation.app_connections():  # web_queries opens raw asyncpg connections
+            latest = await web_queries.latest_decision(_PG_DSN)
         stored = json.loads(latest['entry'])
         self.assertEqual(stored_battery_fields(stored), {'battery_v': None, 'battery_v_reported_raw': 0.0,
                                                         'battery_v_status': 'INVALID_ZERO_VOLTAGE'})
         self.assertIn('INVALID_BATTERY_VOLTAGE', stored['reason_codes'])
-        rows = await web_queries.decision_journal(_PG_DSN, NOW - timedelta(days=1), NOW, 10)
+        with pg_isolation.app_connections():  # web_queries opens raw asyncpg connections
+            rows = await web_queries.decision_journal(_PG_DSN, NOW - timedelta(days=1), NOW, 10)
         views = [web_routes._decision_export(json.loads(r['entry'])) for r in rows]
         self.assertEqual([v['battery_v_validity_source'] for v in views],
                          ['RECORDED_BY_WORKER', 'DERIVED_ON_READ_FROM_LEGACY_ENTRY'])

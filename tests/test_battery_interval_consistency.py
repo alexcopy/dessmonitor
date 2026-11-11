@@ -168,6 +168,8 @@ class FakeJournalConnection:
     async def fetchval(self, sql, *params):
         if 'pg_try_advisory_xact_lock' in sql:
             return True
+        if 'to_regclass' in sql:
+            return None  # Journal v2 not installed
         if "entry ? 'proposal_state'" in sql:
             allowed = set(params[0]) if params else {VERSION}
             selected = [record for record in self.records

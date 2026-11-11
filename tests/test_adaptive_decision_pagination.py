@@ -13,6 +13,9 @@ class DecisionPaginationTests(unittest.IsolatedAsyncioTestCase):
         self.export = routes['/api/controls/decisions/export']
         self.now = datetime.now(timezone.utc).replace(microsecond=0)
         self.rows = [self.row(i) for i in range(123)]
+        # Journal v2 not installed: these tests cover the Journal v1 read path.
+        _v1 = patch.object(web_queries, 'journal_v2_status', new=AsyncMock(return_value={'mode': 'v1', 'v2_installed': False}))
+        _v1.start(); self.addCleanup(_v1.stop)
 
     def row(self, i):
         stamp = self.now - timedelta(seconds=i // 2)
@@ -157,9 +160,9 @@ class DecisionPaginationTests(unittest.IsolatedAsyncioTestCase):
 @unittest.skipUnless(__import__('os').environ.get('DECISION_PAGINATION_LOCAL_POSTGRES') == '1', 'requires disposable pagination PostgreSQL')
 class DecisionPaginationPostgresTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_cursor_export_over_ten_thousand(self):
-        import asyncpg
-        dsn='postgresql://postgres:synthetic@127.0.0.1:55440/dessmonitor_test'
-        conn=await asyncpg.connect(dsn)
+        import pg_isolation
+        dsn=pg_isolation.configured_dsn()
+        conn=await pg_isolation.connect(dsn)
         try:
             await conn.execute('DROP TABLE IF EXISTS adaptive_decision_journal')
             await conn.execute('''CREATE TABLE adaptive_decision_journal (
@@ -176,7 +179,7 @@ class DecisionPaginationPostgresTests(unittest.IsolatedAsyncioTestCase):
         routes={r.path:r.endpoint for r in web_routes.create_auth_router(None,None).routes}
         page=routes['/api/controls/decisions']; export=routes['/api/controls/decisions/export']
         seen=[]; cursor=None
-        with patch.object(web_routes,'_check_auth',return_value=(True,'tester')), patch.dict('os.environ',{'DATABASE_URL':dsn,'WEB_AUTH_SESSION_SECRET':'a'*64}):
+        with patch.object(web_routes,'_check_auth',return_value=(True,'tester')), pg_isolation.app_connections(), patch.dict('os.environ',{'WEB_AUTH_SESSION_SECRET':'a'*64}):
             while True:
                 response=await page(object(),cursor=cursor)
                 data=json.loads(response.body)

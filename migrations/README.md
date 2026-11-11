@@ -22,6 +22,28 @@ superuser can update or delete rows, change the schema, or remove the check.
 Use a separately controlled append-only audit destination if tamper evidence
 is required.
 
-Never point migration verification at production. For a local isolated test,
-create a disposable PostgreSQL database, apply the SQL twice, and run the
-PostgreSQL acceptance tests described in the repository's task report.
+Never point migration verification at production or at an existing shared
+database. PostgreSQL tests have no default DSN; run them only through the
+provisioner, which creates and afterwards removes a new uniquely named container
+and issues a per-run capability (private token and password in a 0600 file; the
+DSN in the environment carries no password):
+
+    EASUN_TEST_POSTGRES=1 JOURNAL_V2_LOCAL_POSTGRES=1 ... \
+        python tests/disposable_postgres.py run -- python -m unittest discover -s tests
+
+`tests/pg_isolation.py` refuses, before connecting, any target, connection option or
+process it cannot prove belongs to that run, and re-verifies server identity, the
+ownership record and the absence of competing sessions on every connection (see its
+docstring for the enforced threat boundary). Docker is required.
+
+## 002 — Adaptive Decision Journal v2 (additive)
+
+`002_adaptive_decision_journal_v2.sql` adds the v2 tables, a control row in mode
+`v1`, and a guard trigger that rejects INSERT/UPDATE on `adaptive_decision_journal`
+only while the mode is `v2`. Applying it changes no behavior; it is repeatable and
+never alters or deletes v1 rows. Activate v2 only with
+`scripts/adaptive_journal_v2.py cutover --confirm`, and return with `rollback --confirm`.
+`002_adaptive_decision_journal_v2_down.sql` removes the v2 objects and refuses while
+v2 is active. The worker role needs `SELECT/INSERT/UPDATE/DELETE` on the v2 tables, and
+the web role needs `SELECT`. See `app/control/ADAPTIVE_DECISION_JOURNAL_V2_DESIGN.md`
+for the full procedure.

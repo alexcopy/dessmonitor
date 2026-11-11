@@ -172,10 +172,24 @@ class ReadOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
 
 @unittest.skipUnless(os.environ.get('WEB_QUERY_LOCAL_POSTGRES') == '1', 'requires disposable localhost PostgreSQL')
 class LocalPostgresTests(unittest.IsolatedAsyncioTestCase):
+    """Runs only on the disposable database proven by tests/pg_isolation.py (no default DSN)."""
+
+    async def asyncSetUp(self):
+        import pg_isolation
+        from benchmark_controls_history import seed_database
+        conn = await pg_isolation.connect(pg_isolation.configured_dsn())
+        try:
+            await conn.execute('''DROP TABLE IF EXISTS adaptive_decision_journal, daily_energy_balance, device_metrics,
+                device_energy_counters, device_daily_energy, weather_data CASCADE;
+                DROP FUNCTION IF EXISTS time_bucket(interval, timestamptz)''')
+        finally:
+            await conn.close()
+        await seed_database()  # synthetic 7-day inverter_metrics, verified connection
+
     async def test_other_queries_execute_with_synthetic_postgres_tables(self):
-        import asyncpg
-        dsn = 'postgresql://postgres:synthetic-controls-performance@127.0.0.1:55439/controls_perf_test'
-        conn = await asyncpg.connect(dsn)
+        import pg_isolation
+        dsn = pg_isolation.configured_dsn()
+        conn = await pg_isolation.connect(dsn)
         try:
             await conn.execute("""
                 CREATE TABLE adaptive_decision_journal (evaluation_id text, evaluated_at timestamptz, entry text);
@@ -201,11 +215,12 @@ class LocalPostgresTests(unittest.IsolatedAsyncioTestCase):
                      (web_queries.inverter_metrics, (dsn,)), (web_queries.energy_devices_today, (dsn,)),
                      (web_queries.energy_meter_daily, (dsn, '1')), (web_queries.charts_inverter, (dsn, '24')),
                      (web_queries.charts_hourly_load, (dsn, '24')), (web_queries.charts_weather, (dsn, '24'))]
-            for query, args in calls:
-                with self.subTest(query=query.__name__):
-                    self.assertTrue(await query(*args))
+            with pg_isolation.app_connections():  # web_queries opens raw asyncpg connections
+                for query, args in calls:
+                    with self.subTest(query=query.__name__):
+                        self.assertTrue(await query(*args))
         finally:
-            conn = await asyncpg.connect(dsn)
+            conn = await pg_isolation.connect(dsn)
             try:
                 await conn.execute("""
                     DROP TABLE adaptive_decision_journal, daily_energy_balance, device_metrics,
@@ -218,30 +233,32 @@ class LocalPostgresTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_history_query_and_cleanup_after_server_error_and_timeout(self):
         import asyncpg
-        dsn = 'postgresql://postgres:synthetic-controls-performance@127.0.0.1:55439/controls_perf_test'
-        conn = await asyncpg.connect(dsn)
+        import pg_isolation
+        dsn = pg_isolation.configured_dsn()
+        conn = await pg_isolation.connect(dsn)
         try:
             as_of = await conn.fetchval("SELECT max(time) + INTERVAL '1 minute' FROM inverter_metrics")
         finally:
             await conn.close()
         from datetime import timedelta
-        rows = await web_queries.charge_history(dsn, as_of - timedelta(days=1), as_of)
-        self.assertEqual(sum(not row['is_context'] for row in rows), 1440)
-        self.assertEqual(sum(row['is_context'] for row in rows), 1)
-        self.assertTrue(all(row['verified_since'] == as_of - timedelta(days=7) for row in rows))
-        self.assertIn('charger_priority_raw', rows[0])
-        self.assertIn('ac_input_voltage', rows[0])
-        first = as_of - timedelta(days=7)
-        empty = await web_queries.charge_history(dsn, first - timedelta(hours=2), first - timedelta(hours=1))
-        self.assertEqual(len(empty), 1)
-        self.assertIsNone(empty[0]['time'])
-        self.assertEqual(empty[0]['verified_since'], first)
-        with self.assertRaises(asyncpg.PostgresError):
-            await web_queries._fetch(dsn, 'SELECT missing_column FROM inverter_metrics')
-        with self.assertRaises(asyncio.TimeoutError):
-            await asyncio.wait_for(web_queries._fetch(dsn, 'SELECT pg_sleep(3)'), timeout=0.05)
-        conn = await asyncpg.connect(dsn)
+        with pg_isolation.app_connections():  # web_queries opens raw asyncpg connections
+            rows = await web_queries.charge_history(dsn, as_of - timedelta(days=1), as_of)
+            self.assertEqual(sum(not row['is_context'] for row in rows), 1440)
+            self.assertEqual(sum(row['is_context'] for row in rows), 1)
+            self.assertTrue(all(row['verified_since'] == as_of - timedelta(days=7) for row in rows))
+            self.assertIn('charger_priority_raw', rows[0])
+            self.assertIn('ac_input_voltage', rows[0])
+            first = as_of - timedelta(days=7)
+            empty = await web_queries.charge_history(dsn, first - timedelta(hours=2), first - timedelta(hours=1))
+            self.assertEqual(len(empty), 1)
+            self.assertIsNone(empty[0]['time'])
+            self.assertEqual(empty[0]['verified_since'], first)
+            with self.assertRaises(asyncpg.PostgresError):
+                await web_queries._fetch(dsn, 'SELECT missing_column FROM inverter_metrics')
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(web_queries._fetch(dsn, 'SELECT pg_sleep(3)'), timeout=0.05)
+        conn = await pg_isolation.connect(dsn)
         try:
-            self.assertEqual(await conn.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datname = 'controls_perf_test' AND pid <> pg_backend_pid()"), 0)
+            self.assertEqual(await conn.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()"), 0)
         finally:
             await conn.close()

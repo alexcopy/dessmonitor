@@ -1,7 +1,77 @@
-# Adaptive Decision Journal v2 — Design Only
+# Adaptive Decision Journal v2
 
-This is a proposal. It adds no schema, migration, production operation, or journal
-write behavior to the current branch.
+## Implementation status (minimal v2)
+
+Implemented: durable learner state, significant events, repetition counters, the
+latest evaluation snapshot, per-worker heartbeats, an explicit cutover/rollback, and
+a database guard against mixed v1/v2 writers. Deferred: anti-flap event rules, the
+daily summary table, event retention and a v2 export. The evaluation itself
+(`evaluate_collected_history`) is unchanged and shared by v1 and v2.
+
+- Migration: `migrations/002_adaptive_decision_journal_v2.sql` (additive, repeatable);
+  reverse with `002_adaptive_decision_journal_v2_down.sql` (refuses while v2 is active).
+- Code: `app/control/adaptive_journal_v2.py`; the worker loop reads
+  `adaptive_journal_control.mode` every iteration and uses v1 or v2 accordingly.
+  `ADAPTIVE_OUTPUT_LEARNING_ENABLED` is unchanged.
+- Tables: `adaptive_learning_state` (one row, `FOR UPDATE` under the existing advisory
+  lock, strict validation, no retention), `adaptive_decision_events` (deterministic IDs
+  from the locked state revision), `adaptive_state_repetitions` (per outcome
+  fingerprint: first/last seen, evaluation count, new vs repeated evidence),
+  `adaptive_latest_evaluation` (one row; full entry rewritten only on an outcome change
+  or every 5 minutes), `adaptive_worker_heartbeat` (per worker; `ADAPTIVE_WORKER_ID` or
+  host name), `adaptive_journal_control` (mode `v1`/`v2`).
+- Events: `JOURNAL_V2_CUTOVER`, `BASELINE_RECORDED` (only after an empty-state start),
+  `DECISION_CHANGED` (decision or stability), `HYPOTHESIS_CREATED/UPDATED/REJECTED`,
+  `CONFIRMATION_CHANGED`, `HYPOTHESIS_CONFIRMED`, `EVIDENCE_BLOCKED/RECOVERED` (a fixed
+  set of evidence-usability reason codes), `BATTERY_OBSERVATION_CHANGED` (voltage
+  validity status), `BATTERY_RESPONSE_CHANGED`, `WORKER_FAILED/RECOVERED` (per worker,
+  on transitions only).
+- New evidence means the existing confirmation logic accepted a new, unseen sample
+  (`proposal_state.last_collection_time` advanced); cached and repeated payloads are
+  counted as repeated evidence and never advance confirmation.
+
+### Cutover (operator)
+
+1. Deploy this code while the journal is still v1. New workers keep writing v1.
+2. Apply `001` (if needed) and `002` to the target database with `psql -v ON_ERROR_STOP=1`.
+   Grant the worker role `SELECT, INSERT, UPDATE, DELETE` on the six v2 tables, and the
+   web role `SELECT` on them. The decisions API returns 503 if the web role cannot read
+   them.
+3. Run `DATABASE_URL=... python scripts/adaptive_journal_v2.py status` and check that
+   the mode is `v1`.
+4. Run `python scripts/adaptive_journal_v2.py cutover --confirm`. It takes the learner
+   advisory lock, waiting for any in-flight evaluation. It validates the newest v1
+   entry carrying `proposal_state` and fails closed if that state is corrupt,
+   incompatible or missing (`--allow-empty-state` only after review). It then writes
+   durable state and sets the mode to `v2` in one transaction.
+5. From then on, any v1 INSERT/UPDATE into `adaptive_decision_journal` is rejected by
+   the guard trigger, including from old, not-yet-upgraded replicas. Upgraded workers
+   switch to v2 on their next iteration. v1 rows stay readable; v1 30-day retention
+   continues.
+
+### Rollback (operator)
+
+1. Run `python scripts/adaptive_journal_v2.py rollback --confirm`. Under the same lock
+   it sets the mode to `v1` and writes one v1 handoff entry carrying the durable
+   `proposal_state`, so v1 resumes with the same pending confirmation and cooldown.
+2. Optional, only after rollback: apply `002_adaptive_decision_journal_v2_down.sql`. It
+   refuses while the mode is `v2`, and it removes only v2 objects.
+
+### Known limitations
+
+- Events record every learner state transition. Anti-flap rules are deferred: on a
+  synthetic day with frequent candidate changes about 380 events were written
+  (~0.4 MB).
+- Events and the heartbeat table have no retention. Repetition rows follow the
+  30-day window.
+- The export endpoint still exports Journal v1 rows only.
+- Time-relative fields in the latest snapshot (ages, remaining cooldown seconds) can
+  be up to 5 minutes old. The snapshot time is shown with them.
+
+---
+
+The original design proposal follows; where it differs from the implementation
+above, the implementation status takes precedence.
 
 ## Current write-path investigation
 

@@ -1,8 +1,9 @@
-"""Reproducible Controls history benchmark using a local synthetic PostgreSQL DB.
+"""Reproducible Controls history benchmark using a disposable synthetic PostgreSQL DB.
 
-This script intentionally has a fixed localhost-only DSN and database name so it
-cannot be pointed at a production database by environment configuration. Run
-with ``--seed`` before a baseline, then omit it for after measurements.
+There is no default DSN. Run it under ``tests/disposable_postgres.py run --``; every
+connection is proven by ``tests/pg_isolation.py`` to be that run's disposable
+database before any DROP/seed. Run with ``--seed`` before a baseline, then omit it
+for after measurements (within the same provisioned run).
 """
 from __future__ import annotations
 
@@ -12,19 +13,23 @@ from contextlib import nullcontext
 import json
 import math
 import statistics
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import asyncpg
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pg_isolation  # noqa: E402
 from starlette.responses import JSONResponse
 
 from app import web_routes
 from app.web_routes import _transition_summary, build_observed_output_transitions
 
 
-DSN = "postgresql://postgres:synthetic-controls-performance@127.0.0.1:55439/controls_perf_test"
+DSN = pg_isolation.configured_dsn()  # no fallback
 SAMPLE_COUNT = 7 * 24 * 60
 LAST_QUERY = None
 LAST_QUERY_PARAMS = None
@@ -58,7 +63,7 @@ def synthetic_records():
 
 
 async def seed_database():
-    conn = await asyncpg.connect(DSN)
+    conn = await pg_isolation.connect(DSN)
     try:
         await conn.execute("DROP TABLE IF EXISTS inverter_metrics")
         await conn.execute("""CREATE TABLE inverter_metrics (
@@ -88,7 +93,6 @@ async def measure_endpoint_days(endpoint, days: int, repetitions: int, payload_d
                                 frozen: datetime | None, requires_auth: bool,
                                 request_days: int | None = None):
     request_days = days if request_days is None else request_days
-    original_connect = asyncpg.connect
     samples = []
     last_body = b""
     class FixedDateTime(datetime):
@@ -98,7 +102,9 @@ async def measure_endpoint_days(endpoint, days: int, repetitions: int, payload_d
 
     auth_patch = patch.object(web_routes, "_check_auth", return_value=(True, "synthetic")) if requires_auth else nullcontext()
     clock_patch = patch.object(web_routes, "datetime", FixedDateTime) if frozen is not None else nullcontext()
-    with patch.dict("os.environ", {"DATABASE_URL": DSN}), auth_patch, clock_patch:
+    # App code opens raw asyncpg connections from DATABASE_URL: route them through the guard.
+    with pg_isolation.app_connections(), auth_patch, clock_patch:
+        original_connect = asyncpg.connect  # the guarded connect
         for _ in range(repetitions):
             query_ms = []
             async def traced_connect(*args, **kwargs):
@@ -159,7 +165,7 @@ async def measure_endpoint_days(endpoint, days: int, repetitions: int, payload_d
 
 async def legacy_endpoint(days: int, as_of: datetime):
     """Reproduce the pre-optimization route from master for a fixed clock."""
-    conn = await asyncpg.connect(DSN)
+    conn = await pg_isolation.connect(DSN)
     try:
         verified_since = await conn.fetchval("SELECT MIN(time) FROM inverter_metrics")
         rows = await conn.fetch("""
@@ -204,7 +210,7 @@ async def main():
     args = parser.parse_args()
     if args.seed:
         await seed_database()
-    conn = await asyncpg.connect(DSN)
+    conn = await pg_isolation.connect(DSN)
     try:
         count = await conn.fetchval("SELECT count(*) FROM inverter_metrics")
         as_of = await conn.fetchval("SELECT max(time) + INTERVAL '1 minute' FROM inverter_metrics")
@@ -232,7 +238,7 @@ async def main():
     if args.explain:
         if args.implementation != "current" or LAST_QUERY is None:
             raise RuntimeError("--explain requires --implementation current")
-        conn = await asyncpg.connect(DSN)
+        conn = await pg_isolation.connect(DSN)
         try:
             query_plans = {}
             for days in (1, 2, 7):
