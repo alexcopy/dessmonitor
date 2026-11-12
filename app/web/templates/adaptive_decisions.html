@@ -26,10 +26,46 @@
 </div>
 </nav>
 <script defer src="/static/global_nav.js"></script>
+<style>
+.decision-summary-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap:1rem; }
+.decision-summary-item { min-width:0; padding:1rem; border-left:3px solid #6b7f95; background:#f7f9fb; }
+.decision-summary-item h3 { margin:0 0 .4rem; font-size:.82rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.decision-summary-item p { margin:0; overflow-wrap:anywhere; }
+.decision-disclosure dd, .decision-disclosure p, #decision-export-scope { overflow-wrap:anywhere; }
+#decision-export-scope { display:block; max-width:42rem; }
+.decision-timeline { margin:0; padding-left:1.4rem; }
+.decision-timeline li + li { margin-top:1rem; }
+.decision-event-heading { display:flex; flex-wrap:wrap; gap:.35rem .8rem; align-items:baseline; }
+.decision-event-heading time { color:#596579; font-size:.9rem; }
+.decision-timeline details { margin-top:.35rem; }
+.decision-timeline p { overflow-wrap:anywhere; }
+.decision-timeline pre, .decision-record-details pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.decision-disclosure > summary { cursor:pointer; font-size:1.1rem; font-weight:700; }
+.decision-disclosure[open] > summary { margin-bottom:1rem; }
+</style>
 <main class="dm-main">
 <h1 class="dm-analytics-title dm-mono">Adaptive Decision Log</h1>
-<p>DRY-RUN — NO HARDWARE WRITE. Proposals are hypothetical. Collection-time evidence stays exploratory.</p>
-<section class="box" aria-labelledby="decision-worker-heading">
+<p><strong>Dry run — no hardware writes.</strong> Proposals are hypothetical, and collection-time evidence is exploratory.</p>
+<section class="box" aria-labelledby="decision-summary-heading">
+<h2 id="decision-summary-heading" class="title is-5">Current status</h2>
+<div class="decision-summary-grid">
+<article class="decision-summary-item"><h3>Worker health</h3><p id="worker-summary-status">Loading…</p></article>
+<article class="decision-summary-item"><h3>Latest evaluation</h3><p id="worker-summary-evaluated-at">Loading…</p></article>
+<article class="decision-summary-item"><h3>Current decision</h3><p id="worker-current-decision">Loading…</p></article>
+<article class="decision-summary-item"><h3>Detected cycling</h3><p id="worker-summary-cycling">Loading…</p></article>
+<article class="decision-summary-item"><h3>Evidence quality</h3><p id="worker-summary-evidence">Loading…</p></article>
+<article class="decision-summary-item"><h3>Current threshold</h3><p id="worker-summary-current-threshold">Loading…</p></article>
+<article class="decision-summary-item"><h3>Why it is on hold</h3><p id="worker-summary-hold">Loading…</p></article>
+</div>
+</section>
+<section class="box" aria-labelledby="journal-events-heading">
+<h2 id="journal-events-heading" class="title is-5">Significant events</h2>
+<p>Material decision changes, newest first.</p>
+<ol id="journal-events-body" class="decision-timeline" aria-label="Significant decision events"></ol>
+</section>
+<details class="box decision-disclosure" id="technical-details">
+<summary>Technical details</summary>
+<section aria-labelledby="decision-worker-heading">
 <h2 id="decision-worker-heading" class="title is-5">Worker health and latest evaluation</h2>
 <dl>
 <dt>Worker</dt><dd id="worker-status">Loading…</dd>
@@ -46,18 +82,19 @@
 <dt>Confidence / reasons</dt><dd id="worker-confidence">—</dd>
 </dl>
 </section>
-<section class="box" aria-labelledby="journal-v2-heading">
+<section aria-labelledby="journal-v2-heading">
 <h2 id="journal-v2-heading" class="title is-5">Journal storage and significant events</h2>
 <dl>
 <dt>Journal mode</dt><dd id="journal-mode">—</dd>
 <dt>Current outcome repetition</dt><dd id="journal-repetition">—</dd>
 <dt>Workers</dt><dd id="journal-workers">—</dd>
 </dl>
-<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Significant decision events">
-<table class="dm-table dm-table-compact"><thead><tr><th>Event time</th><th>Event</th><th>Details</th></tr></thead>
-<tbody id="journal-events-body"></tbody></table></div>
 </section>
-<section class="box" aria-labelledby="decision-diagnostics-heading">
+<details id="journal-raw-events-disclosure">
+<summary>Raw significant event records</summary>
+<ol id="journal-raw-events"></ol>
+</details>
+<section aria-labelledby="decision-diagnostics-heading">
 <h2 id="decision-diagnostics-heading" class="title is-5">Why the latest evaluation holds</h2>
 <p>Times below are collection brackets, not device measurement times. EASUN-reported current is not total battery current; charging from other controllers is possible while EASUN reports zero. Battery throughput is a reported-channel proxy. Cycling confidence is a heuristic, not a calibrated probability.</p>
 <dl>
@@ -77,13 +114,19 @@
 <dt>Telemetry provenance</dt><dd id="worker-telemetry-provenance">—</dd>
 </dl>
 </section>
+</details>
 <div role="group" aria-label="Time range">
+<span>History range:</span>
 <button type="button" data-decision-days="1">24h</button>
 <button type="button" data-decision-days="2">48h</button>
 <button type="button" data-decision-days="7">7d</button>
-<a id="decision-export" href="/api/controls/decisions/export?days=1" download="adaptive-decisions.json">Export JSON</a>
+<a id="decision-export" href="/api/controls/decisions/export?days=1" download="adaptive-decisions.json">Export Journal v1 JSON</a>
+<small id="decision-export-scope">Exports retained Journal v1 evaluation records; Journal v2 state and events are not included.</small>
 </div>
-<section class="box" aria-labelledby="battery-observations-heading">
+<details class="box decision-disclosure" id="decision-history">
+<summary>History</summary>
+<p id="decision-history-source">Loading history source…</p>
+<section aria-labelledby="battery-observations-heading">
 <h2 id="battery-observations-heading" class="title is-5">Historical battery observations</h2>
 <p>Rows are stored collection records. Collection time is not verified device time. Identical payloads and repeated battery fields are marked; EASUN current does not include any unobserved charging source.</p>
 <p id="battery-grid-status" role="status">Loading observations…</p>
@@ -103,15 +146,14 @@
 <button id="battery-load-more" type="button" hidden>Load more observations</button>
 </section>
 <p id="decision-status" role="status">Loading…</p>
-<section class="box" aria-labelledby="virtual-decisions-heading">
-<h2 id="virtual-decisions-heading" class="title is-5">Virtual decisions and recorded evaluations</h2>
+<section aria-labelledby="virtual-decisions-heading">
+<h2 id="virtual-decisions-heading" class="title is-5">Historical decisions and virtual comparisons</h2>
 <p>Recorded evaluations and virtual replays are separate evidence layers. Historical references are not current settings. All valid threshold pairs are exploratory comparisons with no selected winner; replay cannot establish what the inverter would have done.</p>
 <div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Adaptive decisions, scroll horizontally">
 <table class="dm-table dm-table-compact"><thead><tr>
-<th>Evidence layer</th><th>Evaluation time</th><th>Recorded decision</th><th>Historical pair</th><th>Hypothetical pair</th>
-<th>Recent battery evidence</th><th>Observed cycling</th><th>Sag / recovery evidence</th><th>External charging uncertainty</th>
-<th>Predicted benefit / risk</th><th>Confidence</th><th>Candidate status</th><th>Explanation / diagnostics</th>
+<th>Evaluation time</th><th>Decision</th><th>Evidence snapshot</th><th>Reason and full record</th>
 </tr></thead><tbody id="decision-body"></tbody></table></div>
 <button id="decision-load-more" type="button" hidden>Load more</button>
 </section>
+</details>
 </main></body></html>

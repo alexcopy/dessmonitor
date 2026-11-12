@@ -41,12 +41,15 @@ test('decision page shows blocked evidence and exports selected range', async ()
     start(); await tick();
     assert.equal(elements['decision-body'].children.length, 3);
     const cells = elements['decision-body'].children[0].children;
-    assert.equal(cells[2].textContent, 'INSUFFICIENT_DATA');
-    assert.match(cells[3].textContent, /BU 25.5 \/ BB 26 V \(historical\)/);
-    const detail = cells[12].children[0]; detail.open = true; detail.toggle();
+    assert.equal(cells[1].textContent, 'INSUFFICIENT_DATA');
+    assert.match(cells[2].textContent, /EXPLORATORY/);
+    const detail = cells[3].children[0]; detail.open = true; detail.toggle();
     assert.match(detail.children[1].textContent, /DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED/);
-    assert.equal(elements['decision-body'].children[1].children[2].textContent, 'HOLD');
-    assert.equal(elements['decision-body'].children[2].children[2].textContent, 'BLOCKED');
+    assert.match(detail.children[1].textContent, /"battery": 26/);
+    assert.equal(elements['decision-body'].children[1].children[1].textContent, 'HOLD');
+    assert.equal(elements['decision-body'].children[1].children[3].children[0].children[0].textContent,
+        'The hypothetical proposal requires more confirmation.');
+    assert.equal(elements['decision-body'].children[2].children[1].textContent, 'BLOCKED');
     assert.equal(elements['worker-status'].textContent, 'DEGRADED (enabled)');
     assert.equal(elements['worker-last-success'].textContent, '2026-01-01T00:00:00Z');
     assert.match(elements['worker-window'].textContent, /4 unique observations/);
@@ -60,6 +63,145 @@ test('decision page shows blocked evidence and exports selected range', async ()
 test('controls links to the read-only decision page', () => {
     const html = fs.readFileSync(path.join(root, 'app/web/templates/controls.html'), 'utf8');
     assert.match(html, /href="\/controls\/decisions"/);
+});
+test('summary is first and diagnostic and history tables are closed by default', () => {
+    const html = fs.readFileSync(path.join(root, 'app/web/templates/adaptive_decisions.html'), 'utf8');
+    const summary = html.indexOf('id="decision-summary-heading"');
+    const timeline = html.indexOf('id="journal-events-body"');
+    const technical = html.indexOf('id="technical-details"');
+    const history = html.indexOf('id="decision-history"');
+    const observations = html.indexOf('id="battery-observation-body"');
+    const decisions = html.indexOf('id="decision-body"');
+    assert.ok(summary >= 0 && summary < timeline && timeline < technical && technical < history);
+    assert.ok(history < observations && history < decisions, 'historical tables stay inside History');
+    assert.match(html, /<details class="box decision-disclosure" id="technical-details">\s*<summary>Technical details<\/summary>/);
+    assert.match(html, /<details class="box decision-disclosure" id="decision-history">\s*<summary>History<\/summary>/);
+    assert.doesNotMatch(html, /<details[^>]*\bopen(?:\s|>)/, 'all disclosure sections start collapsed');
+    assert.match(html, /<ol id="journal-events-body"/, 'significant events use a compact timeline');
+    assert.match(html, /decision-summary-grid \{ display:grid; grid-template-columns:repeat\(auto-fit/);
+    assert.match(html, /overflow-wrap:anywhere/, 'long values wrap instead of forcing page-level overflow');
+    assert.match(html, /Export Journal v1 JSON/);
+    assert.match(html, /Journal v2 state and events are not included/);
+});
+test('history waits for expansion before rendering decisions or fetching observations', async () => {
+    const ids = ['decision-history','decision-status','decision-body','decision-export','decision-load-more',
+        'battery-grid-status','battery-observation-body','battery-behavior-body','battery-load-more',
+        'worker-status','worker-last-evaluation','worker-last-success','worker-reason','worker-window',
+        'worker-evidence','worker-current','worker-baseline','worker-proposed','worker-stability',
+        'worker-confidence','worker-monitored-threshold','worker-summary-status','worker-summary-evaluated-at',
+        'worker-current-decision','worker-summary-cycling','worker-summary-evidence',
+        'worker-summary-current-threshold','worker-summary-hold','journal-mode','journal-repetition',
+        'journal-workers','journal-events-body','journal-raw-events','journal-raw-events-disclosure',
+        'decision-history-source'];
+    const elements = Object.fromEntries(ids.map(id => [id, element()]));
+    elements['decision-history'].open = false;
+    elements['decision-history'].toggle = null;
+    let start;
+    const urls = [];
+    const document = {getElementById:id=>elements[id],createElement:element,querySelectorAll:()=>[],
+        addEventListener:(_,fn)=>{start=fn;}};
+    const fetch = async url => {
+        urls.push(url);
+        if (url.includes('/battery-observations')) return {ok:true,json:async()=>({observations:[],battery_behavior:[],has_more:false})};
+        return {ok:true,json:async()=>({latest_decision:{evaluated_at:'2026-11-12T10:00:00Z',decision:'HOLD',
+            evidence_level:'EXPLORATORY',reason_codes:['CYCLING_DETECTED']},worker_health:{enabled:true,status:'healthy'},
+            decisions:[{evaluation_id:'v1-row',evaluated_at:'2026-11-12T09:00:00Z',decision:'HOLD',
+                evidence_level:'EXPLORATORY',reason_codes:['CYCLING_DETECTED'], explanation:'Full record text'}],
+            has_more:false,journal:{mode:'v1'}})};
+    };
+    vm.runInNewContext(source,{document,fetch,JSON,String,Number,Object,Array,Math});
+    start(); await tick(); await tick();
+    assert.equal(elements['worker-current-decision'].textContent,'HOLD — no threshold change recommended');
+    assert.equal(elements['decision-body'].children.length,0,'historical rows are buffered outside the DOM');
+    assert.equal(urls.filter(url=>url.includes('/battery-observations')).length,0,
+        'battery history is not requested to build the summary');
+    elements['decision-history'].open = true; elements['decision-history'].toggle();
+    await tick(); await tick();
+    assert.equal(elements['decision-body'].children.length,1);
+    assert.equal(urls.filter(url=>url.includes('/battery-observations')).length,1);
+    const record = elements['decision-body'].children[0].children[3].children[0];
+    record.open = true; record.toggle();
+    assert.match(record.children[1].textContent,/Full record text/);
+});
+test('summary shows current threshold values only with verified device read-back', async () => {
+    const ids = ['decision-status','decision-body','decision-export','decision-load-more','battery-grid-status',
+        'battery-observation-body','battery-behavior-body','battery-load-more','worker-status',
+        'worker-last-evaluation','worker-last-success','worker-reason','worker-window','worker-evidence',
+        'worker-current','worker-baseline','worker-proposed','worker-stability','worker-confidence',
+        'worker-summary-status','worker-summary-evaluated-at','worker-current-decision','worker-summary-cycling',
+        'worker-summary-evidence','worker-summary-current-threshold','worker-summary-hold'];
+    const elements = Object.fromEntries(ids.map(id => [id,element()]));
+    let start;
+    const document={getElementById:id=>elements[id],createElement:element,querySelectorAll:()=>[],
+        addEventListener:(_,fn)=>{start=fn;}};
+    const fetch=async url=>url.includes('/battery-observations')
+        ? {ok:true,json:async()=>({observations:[],battery_behavior:[],has_more:false})}
+        : {ok:true,json:async()=>({latest_decision:{evaluated_at:'2026-11-12T12:00:00Z',decision:'HOLD',
+            evidence_level:'EXPLORATORY',monitored_threshold:{key:'battery',label:'Back to Battery'},
+            current_settings:{battery:26.4,provenance:'VERIFIED_DEVICE_READBACK'}},
+            worker_health:{enabled:true,status:'healthy'},decisions:[]})};
+    vm.runInNewContext(source,{document,fetch,JSON,String,Number,Object,Array,Math});start();await tick();
+    assert.equal(elements['worker-summary-current-threshold'].textContent,
+        'Back to Battery: 26.4 V (verified device read-back).');
+});
+test('compact status translates HOLD reasons and avoids repeating explanations in history', async () => {
+    const ids = ['decision-status','decision-body','decision-export','decision-load-more','battery-grid-status',
+        'battery-observation-body','battery-behavior-body','battery-load-more','worker-status','worker-last-evaluation',
+        'worker-last-success','worker-reason','worker-window','worker-evidence','worker-current','worker-baseline',
+        'worker-proposed','worker-stability','worker-confidence','worker-monitored-threshold','worker-summary-status',
+        'worker-current-decision','worker-summary-cycling','worker-summary-evidence','worker-summary-hold',
+        'worker-summary-evaluated-at','worker-summary-current-threshold','decision-history',
+        'journal-mode','journal-repetition','journal-workers','journal-events-body','journal-raw-events'];
+    const elements = Object.fromEntries(ids.map(id => [id, element()]));
+    elements['decision-history'].open = false;
+    let start;
+    const document = {getElementById:id=>elements[id],createElement:element,querySelectorAll:()=>[],
+        addEventListener:(_,fn)=>{start=fn;}};
+    const latest = {evaluation_id:'latest',evaluated_at:'2026-11-12T10:00:00Z',decision:'HOLD',
+        evidence_level:'EXPLORATORY',unique_observation_count:117,collection_count:127,
+        current_settings:{battery:26.0,provenance:'unknown'},candidate_voltage:26.5,
+        reason_codes:['CYCLING_DETECTED','LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE'],
+        decision_diagnostics:{cycling:{detected:true,reported_mode_changes:21},
+            sample_counts:{rejected_duplicate_cached_payload:8},
+            hold_reasons:['CYCLING_DETECTED','LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE']}};
+    const decisions = [1,2,3].map(index => ({evaluation_id:'row-'+index,
+        evaluated_at:'2026-11-12T0'+index+':00:00Z',decision:'HOLD',
+        reason_codes:['CYCLING_DETECTED','LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE'],
+        decision_diagnostics:{hold_reasons:['CYCLING_DETECTED','LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE']},
+        explanation:'Repeated raw technical explanation'}));
+    decisions.push({evaluation_id:'row-4',evaluated_at:'2026-11-12T04:00:00Z',decision:'BLOCKED',
+        reason_codes:['FUTURE_REASON_CODE'],explanation:'Unknown reason raw text'});
+    const fetch = async url => url.includes('/battery-observations')
+        ? {ok:true,json:async()=>({observations:[],battery_behavior:[],has_more:false})}
+        : {ok:true,json:async()=>({latest_decision:latest,decisions,worker_health:{enabled:true,status:'degraded'}})};
+    vm.runInNewContext(source,{document,fetch,JSON,String,Number,Object,Array,Math});
+    start(); await tick();
+    assert.equal(elements['worker-summary-status'].textContent,'Degraded; worker enabled');
+    assert.equal(elements['worker-summary-evaluated-at'].textContent,'2026-11-12T10:00:00Z');
+    assert.match(elements['worker-current-decision'].textContent,/HOLD — no threshold change recommended/);
+    assert.match(elements['worker-current-decision'].textContent,/non-actionable hypothetical proposal: Back to Battery 26.5 V/);
+    assert.equal(elements['worker-summary-current-threshold'].textContent,'Unknown — no verified device read-back.');
+    assert.match(elements['worker-summary-cycling'].textContent,/Detected — 21 reported Line\/Invert changes/);
+    assert.match(elements['worker-summary-evidence'].textContent,/Limited — exploratory/);
+    assert.match(elements['worker-summary-evidence'].textContent,/117 unique observations from 127 collections/);
+    assert.match(elements['worker-summary-evidence'].textContent,/repeated cached payloads excluded/);
+    assert.match(elements['worker-summary-hold'].textContent,/Frequent reported Line\/Invert changes/);
+    assert.match(elements['worker-summary-hold'].textContent,/Charging in Line mode can raise voltage/);
+    assert.doesNotMatch(elements['worker-summary-hold'].textContent,/CYCLING_DETECTED|LINE_MODE_CHARGING/);
+    assert.equal(elements['decision-body'].children.length,0,
+        'the latest HOLD explanation is the only visible evaluation explanation before History opens');
+    elements['decision-history'].open = true; elements['decision-history'].toggle(); await tick();
+    const reasons = elements['decision-body'].children.map(row=>row.children[3].children[0].children[0].textContent);
+    assert.match(reasons[0],/Frequent reported Line\/Invert changes/);
+    assert.match(reasons[1],/repeat 2/);
+    assert.match(reasons[2],/repeat 3/);
+    assert.match(reasons[3],/Additional recorded reason: FUTURE_REASON_CODE/,
+        'unknown codes remain visible with a safe fallback');
+    assert.equal(new Set(reasons).size,4,'repeated historical explanations are shown once');
+    const record = elements['decision-body'].children[1].children[3].children[0];
+    record.open = true; record.toggle();
+    assert.match(record.children[1].textContent,/Repeated raw technical explanation/,
+        'the full historical explanation remains available on expansion');
 });
 test('decision page explains cycling, blocked voltage comparison and hypothesis support', async () => {
     const ids = ['decision-status','decision-body','decision-export','decision-load-more','battery-grid-status','battery-observation-body',
@@ -139,8 +281,10 @@ test('decision page explains cycling, blocked voltage comparison and hypothesis 
     assert.match(elements['worker-virtual-thresholds'].textContent, /no winner/);
     assert.match(elements['worker-virtual-thresholds'].textContent, /25\/26 V/);
     assert.match(elements['worker-virtual-thresholds'].textContent, /24\.5\/25\.5 V/);
-    assert.match(elements['decision-body'].children[0].children[4].textContent, /2 exploratory pairs; no preferred pair/);
-    assert.doesNotMatch(elements['decision-body'].children[0].children[4].textContent, /ranked replay/i);
+    const record = elements['decision-body'].children[0].children[3].children[0];
+    record.open = true; record.toggle();
+    assert.match(record.children[1].textContent, /"back_to_battery_v": 25.5/);
+    assert.doesNotMatch(record.children[1].textContent, /ranked replay/i);
     assert.match(elements['worker-adaptive-hysteresis'].textContent, /no recommendation/);
     assert.match(elements['worker-charging-context'].textContent, /EXTERNAL_CHARGING_POSSIBLE/);
     assert.match(elements['worker-charging-context'].textContent, /NOT DETECTED AT A SPECIFIC MOMENT/);

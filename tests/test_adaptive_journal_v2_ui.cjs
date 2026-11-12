@@ -11,7 +11,10 @@ const IDS = ['decision-status', 'decision-body', 'decision-export', 'decision-lo
     'battery-observation-body', 'battery-behavior-body', 'battery-load-more', 'worker-status', 'worker-last-evaluation',
     'worker-last-success', 'worker-reason', 'worker-window', 'worker-evidence', 'worker-current', 'worker-baseline',
     'worker-proposed', 'worker-stability', 'worker-confidence', 'worker-monitored-threshold', 'worker-battery-response',
-    'journal-mode', 'journal-repetition', 'journal-workers', 'journal-events-body'];
+    'journal-mode', 'journal-repetition', 'journal-workers', 'journal-events-body', 'journal-raw-events',
+    'journal-raw-events-disclosure', 'decision-history-source', 'worker-summary-status',
+    'worker-summary-evaluated-at', 'worker-current-decision', 'worker-summary-cycling',
+    'worker-summary-evidence', 'worker-summary-current-threshold', 'worker-summary-hold'];
 function element() {
     return {children: [], dataset: {}, textContent: '', href: '', appendChild(child) {this.children.push(child);},
         replaceChildren() {this.children = [];}, addEventListener(name, fn) {this[name] = fn;}};
@@ -59,11 +62,23 @@ test('v2 journal: mode, repetition counters, workers and events are rendered', a
     assert.match(elements['journal-workers'].textContent, /pod-b: FAILING.*3 consecutive failures \(RuntimeError\)/);
     const rows = elements['journal-events-body'].children;
     assert.equal(rows.length, 2);
-    assert.deepEqual(rows[0].children.slice(0, 2).map(c => c.textContent), ['2026-11-10T11:00:00+00:00', 'WORKER_FAILED']);
-    assert.ok(rows[1].children[2].textContent.length <= 300, 'long payloads are bounded');
+    assert.deepEqual(rows[0].children[0].children.map(c => c.textContent),
+        ['2026-11-10T11:00:00+00:00', 'Worker reported an error']);
+    assert.match(rows[0].children[1].textContent, /reported a failure/);
+    assert.equal(rows[0].children[2].children[0].textContent, 'Original event payload');
+    rows[0].children[2].open = true; rows[0].children[2].toggle();
+    assert.match(rows[0].children[2].children[1].textContent, /worker_id/);
+    elements['journal-raw-events-disclosure'].open = true;
+    elements['journal-raw-events-disclosure'].toggle();
+    assert.equal(elements['journal-raw-events'].children.length, 2);
+    assert.match(elements['journal-raw-events'].children[1].children[0].children[1].textContent, /initialized_from/);
+    assert.ok(elements['journal-raw-events'].children[1].children[0].children[1].textContent.length > 300,
+        'the complete event payload remains available in Technical details');
     // Latest panel shows the v2 evaluation; history keeps the v1 row.
     assert.equal(elements['worker-last-evaluation'].textContent, '2026-11-10T12:00:00+00:00');
     assert.equal(elements['decision-body'].children.length, 1);
+    assert.equal(elements['worker-current-decision'].textContent,'HOLD — no threshold change recommended');
+    assert.equal(elements['worker-summary-evaluated-at'].textContent,'2026-11-10T12:00:00+00:00');
 });
 
 test('v2 journal with no evaluation yet never falls back to a v1 latest entry', async () => {
@@ -76,7 +91,33 @@ test('v2 journal with no evaluation yet never falls back to a v1 latest entry', 
     assert.equal(elements['journal-repetition'].textContent, 'No Journal v2 evaluation yet');
     assert.equal(elements['worker-battery-response'].textContent, 'Not recorded');
     assert.equal(elements['worker-reason'].textContent, 'NO_WORKER_HEARTBEAT');
-    assert.equal(elements['journal-events-body'].children[0].children[1].textContent, 'No significant events yet');
+    assert.equal(elements['journal-events-body'].children[0].textContent, 'No significant events yet.');
+    assert.equal(elements['worker-current-decision'].textContent,'No Journal v2 evaluation recorded');
+    assert.match(elements['worker-summary-hold'].textContent,/historical Journal v1 records are not used/);
+    assert.equal(elements['decision-body'].children[0].children[1].textContent,'HOLD',
+        'the v1 historical row remains in History without becoming the current decision');
+});
+
+test('timeline shows recent events first and keeps older events and raw payloads expandable', async () => {
+    const payload = JSON.parse(JSON.stringify(V2));
+    payload.journal.events = Array.from({length: 10}, (_, index) => ({
+        event_time: '2026-11-10T' + String(9 - index).padStart(2, '0') + ':00:00+00:00',
+        event_type: 'WORKER_RECOVERED', worker_id: 'worker-' + index, payload: {revision: index}
+    }));
+    const elements = await render(payload);
+    elements['journal-raw-events-disclosure'].open = true;
+    elements['journal-raw-events-disclosure'].toggle();
+    const timeline = elements['journal-events-body'].children;
+    assert.equal(timeline.length, 9, 'eight recent events plus one closed earlier-events disclosure');
+    assert.match(timeline[0].children[0].children[0].textContent, /09:00:00/);
+    assert.match(timeline[7].children[0].children[0].textContent, /02:00:00/);
+    const earlier = timeline[8].children[0];
+    assert.equal(earlier.open, undefined, 'older event list is collapsed by default');
+    earlier.open = true; earlier.toggle();
+    assert.equal(earlier.children[1].children.length,2,'older event records render only after expansion');
+    assert.equal(timeline[0].children[2].children[0].textContent,'Original event payload');
+    assert.equal(elements['journal-raw-events'].children.length, 10,
+        'all raw Journal v2 event objects remain accessible under Technical details');
 });
 
 test('v1 journal payload (no journal key, or installed but inactive) is labelled v1', async () => {
@@ -85,5 +126,5 @@ test('v1 journal payload (no journal key, or installed but inactive) is labelled
     elements = await render({decisions: [], has_more: false, latest_decision: null, worker_health: {},
         journal: {mode: 'v1', v2_installed: true}});
     assert.match(elements['journal-mode'].textContent, /Journal v2 installed but not active/);
-    assert.equal(elements['journal-events-body'].children.length, 0);
+    assert.match(elements['journal-events-body'].children[0].textContent, /separate event timeline is unavailable/);
 });

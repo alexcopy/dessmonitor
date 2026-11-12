@@ -1,0 +1,25 @@
+TASK
+Review the plan for the Adaptive Decision Log UI cleanup.
+
+VERDICT
+approved
+
+REVIEW SCOPE
+Reviewed only `.project-memory/pr/0073-adaptive-decision-log-ui/PLAN.txt`, the applicable project-memory standards, the read-only UI contract, the Journal v2 operator runbook, and the user's task requirements. Implementation and test changes were not reviewed in this planning gate.
+
+FINDINGS
+The plan is scoped to the requested template, presentation JavaScript, focused UI tests, and required project-memory artifacts. It forbids API, database, journal writer, algorithm, worker, device, hardware, and deployment changes.
+
+The plan preserves the important Journal v1/v2 distinction: the v2 snapshot remains the current decision source and may remain null; historical v1 rows do not substitute for it. It accurately describes the existing JSON export as v1-only and requires scope wording without changing its endpoint or payload.
+
+The plan covers the compact status summary, centralized reason translations with a safe fallback, a concise real-event timeline with older-event and original-payload expansion, and separate collapsed Technical details and History sections. It retains full records, invalid-voltage handling, dry-run language, scientific limitations, and verified-readback rules.
+
+The lazy-history requirement is explicit: retain the bounded decisions request for the current summary, defer historical DOM rendering until History opens, defer battery-history requests until expansion, and preserve limits, filters, pagination, reset, retry, generation, stale-response, and duplicate guards.
+
+The focused test plan covers summary/timestamp, reason mapping, v1/v2/null-latest compatibility, repeated explanations, timeline payloads, disclosure defaults, lazy rendering, pagination/export, voltage cases, and narrow-width behavior. It does not require changing API or stored data.
+
+REVIEW CONSTRAINTS
+Implementation must not add write paths, infer physical switch times, fabricate confidence or measurements, misstate unknown live settings, imply virtual proposals are actionable, or claim the v1 export includes complete Journal v2 state/events. The initial visible layout should remain usable without page-level horizontal scrolling; any expanded wide grids should scroll locally.
+
+VALIDATION
+This is a plan-only review. Implementation validation remains pending. No implementation or test command is claimed as run by this reviewer.

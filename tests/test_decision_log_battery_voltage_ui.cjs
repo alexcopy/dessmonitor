@@ -45,17 +45,17 @@ async function render(latest, decisions, observations) {
     return elements;
 }
 function expandedDetail(row) {
-    const detail = row.children[12].children[0]; detail.open = true; detail.toggle();
+    const detail = row.children[3].children[0]; detail.open = true; detail.toggle();
     return detail.children[1].textContent;
 }
 function assertRendered(elements, expected, label) {
     assert.ok(elements['worker-battery-response'].textContent.includes('; battery ' + expected + '; '),
         label + ' latest: ' + elements['worker-battery-response'].textContent);
     const row = elements['decision-body'].children[0];
-    assert.ok(row.children[5].textContent.startsWith('Battery ' + expected + '; '), label + ' row: ' + row.children[5].textContent);
+    assert.ok(row.children[2].textContent.includes('battery ' + expected), label + ' row: ' + row.children[2].textContent);
     assert.ok(expandedDetail(row).startsWith('Latest battery voltage: ' + expected + '\n'), label + ' detail');
     if (expected.startsWith('Invalid')) {
-        for (const text of [elements['worker-battery-response'].textContent, row.children[5].textContent]) {
+        for (const text of [elements['worker-battery-response'].textContent, row.children[2].textContent]) {
             assert.doesNotMatch(text, /(battery|Battery|V) -?\d+(\.\d+)? V;/, label + ' shows a bare voltage: ' + text);
         }
     }
@@ -91,7 +91,7 @@ test('historical rows each keep their own validity', async () => {
     const rows = names.map((name, i) => entry(byName[name].api, i));
     const elements = await render(rows[0], rows);
     names.forEach((name, i) => {
-        assert.ok(elements['decision-body'].children[i].children[5].textContent.startsWith('Battery ' + byName[name].ui + '; '), name);
+        assert.ok(elements['decision-body'].children[i].children[2].textContent.includes('battery ' + byName[name].ui), name);
     });
     assert.ok(elements['worker-battery-response'].textContent.includes('; battery 25.5 V; '));
 });
@@ -137,8 +137,8 @@ for (const [label, fields, expected] of LATEST_WITHOUT_RESPONSE) {
         const latest = elements['worker-battery-response'].textContent;
         assert.notEqual(latest, 'Not recorded');
         assert.equal(latest, 'battery ' + expected + '; reported charge/discharge —/— A; battery response diagnostics not recorded');
-        const history = elements['decision-body'].children[0].children[5].textContent;
-        const historyVoltage = history.slice('Battery '.length, history.indexOf('; EASUN charge/discharge'));
+        const history = elements['decision-body'].children[0].children[2].textContent;
+        const historyVoltage = history.slice(history.indexOf('battery ') + 'battery '.length);
         assert.equal(historyVoltage, expected, 'history row');
         assert.equal(latest.slice('battery '.length, latest.indexOf('; reported charge/discharge')), historyVoltage,
             'latest panel and history row agree');

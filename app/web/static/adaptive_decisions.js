@@ -6,12 +6,18 @@
     var generation = 0;
     var seen = new Set();
     var pendingReset = false;
+    var historyReasonOccurrences = Object.create(null);
+    var historyExpanded = true;
+    var deferredDecisionItems = [];
+    var rawJournalEvents = [];
+    var rawJournalEventsRendered = false;
     var batteryCursor = null;
     var batteryLoading = false;
     var batteryGeneration = 0;
     var batterySeenObservations = new Set();
     var batterySeenBehavior = new Set();
     var batteryPendingReset = false;
+    var batteryLoadedDays = null;
     function setText(id, value) {
         var node = document.getElementById(id);
         if (node) node.textContent = value == null || value === '' ? '—' : String(value);
@@ -64,6 +70,157 @@
     }
     function monitoredThreshold(item) {
         return item && item.monitored_threshold && item.monitored_threshold.label || 'Back to Battery';
+    }
+    var reasonExplanations = {
+        CYCLING_DETECTED: 'Frequent reported Line/Invert changes make a safe threshold change hard to assess.',
+        LINE_MODE_CHARGING_CONFOUNDS_VOLTAGE: 'Charging in Line mode can raise voltage, so it cannot be compared as battery sag.',
+        INSUFFICIENT_COMPARABLE_PAIRS: 'There are too few comparable observations to estimate battery voltage response.',
+        INSUFFICIENT_HYPOTHESIS_EVIDENCE: 'The available evidence does not support a threshold recommendation.',
+        NO_VOLTAGE_CONTRAST_ESTIMATE: 'No reliable voltage comparison is available.',
+        EXPLORATORY_ANALYSIS_UNAVAILABLE: 'The exploratory analysis is unavailable.',
+        DEVICE_TIMESTAMP_PROVENANCE_UNVERIFIED: 'Device measurement times have not been verified.',
+        DEVICE_OBSERVATION_TIME_INVALID: 'Device observation times are invalid or unavailable.',
+        VERIFIED_OBSERVATION_SOURCE_UNAVAILABLE: 'A verified observation source is unavailable.',
+        VERIFIED_OBSERVATION_PROVENANCE_UNAVAILABLE: 'The observation source cannot be verified.',
+        VERIFIED_SAMPLE_INVALID: 'The verified observation sample is invalid.',
+        SAMPLE_SOURCE_NOT_VERIFIED: 'The observation source is not verified.',
+        SAG_LEARNER_CONFIGURATION_UNAVAILABLE: 'The verified learning configuration is unavailable.',
+        SAG_LEARNER_CONFIGURATION_INVALID: 'The verified learning configuration is invalid.',
+        RECEIPT_TIME_UNAVAILABLE: 'Receipt times are unavailable.',
+        BMS_LIMITS_UNKNOWN: 'Battery management limits are unknown.',
+        CURRENT_THRESHOLD_SETTINGS_UNKNOWN: 'Current inverter threshold settings are unknown.',
+        NO_RECENT_COLLECTIONS: 'There are no recent observations.',
+        LATEST_COLLECTION_STALE: 'The latest observation is too old to rely on.',
+        INVALID_BATTERY_VOLTAGE: 'The latest battery voltage is invalid.',
+        WORKING_MODE_UNKNOWN: 'The latest inverter operating mode is unknown.',
+        MODE_HISTORY_TRUNCATED: 'Some older operating mode history is unavailable.',
+        MODE_HISTORY_OBSERVATION_GAP: 'There is a gap in the operating mode observations.',
+        QUANTITATIVE_HISTORY_TRUNCATED: 'Some older measurements were omitted from the analysis.',
+        COLLECTION_TIME_ONLY: 'Evidence uses collection times rather than verified device measurement times.',
+        HISTORICAL_BASELINE_ONLY: 'The comparison uses a historical reference, not a current setting.',
+        HYPOTHESIS_NOT_SAFETY_QUALIFIED: 'The hypothesis has not passed safety qualification.',
+        LATEST_OBSERVATION_NOT_COMPARABLE: 'The latest observation cannot be compared reliably.',
+        HISTORICAL_BASELINE_UNKNOWN: 'The historical reference voltage is unknown.',
+        HISTORICAL_BASELINE_OUT_OF_RANGE: 'The historical reference voltage is outside the supported range.',
+        CATALOGUE_OR_HYSTERESIS_BLOCK: 'Inverter catalogue or switching limits prevent a safe comparison.',
+        COOLDOWN_STATE_UNVERIFIED: 'The cooldown state cannot be verified.',
+        DRY_RUN_COOLDOWN: 'A dry-run cooldown is active.',
+        PROPOSAL_AWAITING_CONFIRMATION: 'The hypothetical proposal requires more confirmation.',
+        PROPOSAL_AWAITING_COMPATIBLE_CONFIRMATION: 'A hypothetical proposal is waiting for compatible observations.',
+        WORKER_EVALUATION_FAILED: 'The latest worker evaluation failed.',
+        ADAPTIVE_OUTPUT_LEARNING_DISABLED: 'The adaptive learning worker is disabled.',
+        NO_WORKER_HEARTBEAT: 'No worker heartbeat has been recorded.',
+        NO_PERSISTED_WORKER_EVALUATION: 'No evaluation has been stored yet.',
+        DATABASE_URL_UNAVAILABLE: 'The decision journal database is unavailable.',
+        FEWER_THAN_6_UNIQUE_COMPLETE_OBSERVATIONS: 'There are fewer than six complete, unique observations.',
+        LATEST_COLLECTION_INCOMPLETE_STALE_OR_CONFLICTING: 'The latest observation is incomplete, stale, or conflicting.',
+        TOO_FEW_LINE_NOT_CHARGING_OBSERVATIONS: 'There are too few Line mode observations without reported charging.',
+        TOO_FEW_INVERT_DISCHARGING_OBSERVATIONS: 'There are too few Invert mode observations with reported discharge.',
+        PAIRS_DISAGREE_OUTLIERS_REJECTED: 'Comparable voltage pairs disagree or were rejected as outliers.'
+    };
+    function explainReason(code) {
+        if (!code) return '';
+        if (reasonExplanations[code]) return reasonExplanations[code];
+        return 'Additional recorded reason: ' + String(code) + '.';
+    }
+    function reasonList(item) {
+        var diagnostics = item && item.decision_diagnostics;
+        var codes = diagnostics && Array.isArray(diagnostics.hold_reasons) ? diagnostics.hold_reasons : [];
+        if (!codes.length && item && Array.isArray(item.reason_codes)) codes = item.reason_codes;
+        var unique = [];
+        codes.forEach(function (code) { if (code && unique.indexOf(code) === -1) unique.push(code); });
+        return unique;
+    }
+    function decisionReasonSummary(item) {
+        var codes = reasonList(item);
+        var primaryReason = codes.length ? explainReason(codes[0]) : '';
+        var signature = primaryReason || 'NO_REASON_RECORDED';
+        var occurrence = (historyReasonOccurrences[signature] || 0) + 1;
+        historyReasonOccurrences[signature] = occurrence;
+        if (occurrence > 1) return 'Same reason as an earlier evaluation (repeat ' + occurrence + ').';
+        return primaryReason || 'No specific reason was recorded for this evaluation.';
+    }
+    function renderSummary(data) {
+        var health = data.worker_health || {};
+        var latest = data.latest_decision || null;
+        var journal = data.journal || {};
+        var diagnostics = latest && latest.decision_diagnostics || {};
+        var cycling = diagnostics.cycling;
+        var samples = diagnostics.sample_counts || {};
+        var workerLabel = health.status ? String(health.status).charAt(0).toUpperCase() +
+            String(health.status).slice(1) + (health.enabled === true ? '; worker enabled' :
+                health.enabled === false ? '; worker disabled' : '')
+            : health.enabled === false ? 'Disabled' : 'Unknown';
+        setText('worker-summary-status', workerLabel);
+        var evaluatedAt = latest && (latest.evaluated_at || latest.snapshot_evaluated_at);
+        if (!evaluatedAt && health.last_evaluation_at) {
+            evaluatedAt = journal.mode === 'v2' && !latest
+                ? health.last_evaluation_at + ' (worker evaluation; no Journal v2 decision snapshot)'
+                : health.last_evaluation_at;
+        }
+        setText('worker-summary-evaluated-at', evaluatedAt || 'Unavailable');
+        var decision = latest && latest.decision;
+        var decisionText = !latest ? journal.mode === 'v2'
+            ? 'No Journal v2 evaluation recorded' : 'No evaluation recorded'
+            : decision === 'HOLD' ? 'HOLD — no threshold change recommended'
+                : decision === 'INSUFFICIENT_DATA' ? 'Insufficient evidence — no change proposed'
+                    : decision === 'BLOCKED' ? 'Blocked — no change proposed'
+                        : String(decision || 'Unknown decision').replace(/_/g, ' ');
+        var proposed = latest && (latest.proposed_voltage != null ? latest.proposed_voltage : latest.candidate_voltage);
+        if (proposed != null) {
+            decisionText += '; non-actionable hypothetical proposal: ' +
+                (latest.threshold || monitoredThreshold(latest)) + ' ' + proposed + ' V';
+        }
+        setText('worker-current-decision', decisionText);
+        var cyclingText = 'Unknown — no cycling assessment recorded.';
+        if (cycling) {
+            cyclingText = (cycling.detected ? 'Detected' : 'Not established') + ' — ' +
+                (cycling.reported_mode_changes == null ? 'mode changes not recorded' :
+                    cycling.reported_mode_changes + ' reported Line/Invert changes') +
+                ' in collection order; actual switch times are unknown.';
+        }
+        setText('worker-summary-cycling', cyclingText);
+        var level = latest && latest.evidence_level || health.evidence_level;
+        var uniqueCount = latest && latest.unique_observation_count != null ? latest.unique_observation_count
+            : health.observation_count;
+        var collectionCount = latest && latest.collection_count != null ? latest.collection_count
+            : health.collection_count;
+        var evidenceText = !latest ? 'Unavailable — no evaluation evidence recorded.'
+            : level === 'VERIFIED' ? 'Verified evidence is available for this evaluation.'
+                : level === 'EXPLORATORY' ? 'Limited — exploratory collection-time evidence; device measurement time is unverified.'
+                    : 'Unavailable — evidence quality was not recorded.';
+        if (uniqueCount != null) evidenceText += ' ' + uniqueCount + ' unique observations';
+        if (collectionCount != null) evidenceText += (uniqueCount != null ? ' from ' : ' ') + collectionCount + ' collections';
+        if (samples.rejected_duplicate_cached_payload) {
+            evidenceText += '; repeated cached payloads excluded';
+        }
+        setText('worker-summary-evidence', evidenceText);
+        var settings = latest && latest.current_settings;
+        var thresholdKey = latest && latest.monitored_threshold && latest.monitored_threshold.key || 'battery';
+        var currentValue = settings && settings[thresholdKey];
+        setText('worker-summary-current-threshold', currentValue != null &&
+            settings.provenance === 'VERIFIED_DEVICE_READBACK'
+            ? monitoredThreshold(latest) + ': ' + currentValue + ' V (verified device read-back).'
+            : 'Unknown — no verified device read-back.');
+        var holdReasons = reasonList(latest);
+        if (!holdReasons.length && (health.blocking_reason || health.last_error)) {
+            holdReasons.push(health.blocking_reason || health.last_error);
+        }
+        var holdText;
+        if (!latest) {
+            var unavailable = holdReasons.length ? explainReason(holdReasons[0]) + ' ' : '';
+            holdText = unavailable + (journal.mode === 'v2'
+                ? 'No Journal v2 decision is available; historical Journal v1 records are not used as the current decision.'
+                : 'No latest evaluation is available.');
+        }
+        else if (decision === 'HOLD' || decision === 'INSUFFICIENT_DATA' || decision === 'BLOCKED' || holdReasons.length) {
+            holdText = holdReasons.length ? holdReasons.slice(0, 3).map(explainReason).join(' ')
+                : 'The recorded decision is ' + String(decision).replace(/_/g, ' ').toLowerCase() +
+                    ', but no specific hold or blocking reason was recorded.';
+        } else {
+            holdText = 'The current evaluation did not record a HOLD or blocking reason.';
+        }
+        setText('worker-summary-hold', holdText);
     }
     function renderHealth(data) {
         var health = data.worker_health || {};
@@ -159,6 +316,7 @@
             confidence = value == null ? '—' : String(value);
         }
         setText('worker-confidence', confidence + (reasons ? ' — ' + reasons : ''));
+        renderSummary(data);
         renderDiagnostics(latest);
     }
     function joinCounts(counts) {
@@ -235,48 +393,13 @@
     }
     function renderDecision(item) {
         var tr = document.createElement('tr');
-        var historical = item.historical_settings || {};
-        var experiment = item.virtual_threshold_experiment || {};
-        var virtualPairs = Array.isArray(experiment.candidates) ? experiment.candidates : [];
-        var layers = ['RECORDED_OBSERVATION'];
-        if (item.battery_response || item.exploratory_voltage_contrast) layers.push('DERIVED_ESTIMATE');
-        if (virtualPairs.length) layers.push('VIRTUAL_REPLAY');
-        if (item.candidate_voltage != null) layers.push('HYPOTHETICAL_CANDIDATE');
-        else layers.push('BLOCKED_INSUFFICIENT_EVIDENCE');
-        var hypotheticalPair = item.candidate_voltage != null
-            ? 'BU ' + (historical.utility == null ? '25.5' : historical.utility) + ' / BB ' + item.candidate_voltage + ' V (candidate)'
-            : virtualPairs.length ? virtualPairs.length + ' exploratory pairs; no preferred pair'
-                : 'None; blocked';
-        var response = item.battery_response || {};
-        var batteryEvidence = 'Battery ' + batteryVoltageText(item) + '; EASUN charge/discharge ' +
-            (item.charge_a == null ? '—' : item.charge_a) + '/' + (item.discharge_a == null ? '—' : item.discharge_a) +
-            ' A; dV/dt ' + (response.latest_voltage_slope_v_per_hour == null ? '—' : response.latest_voltage_slope_v_per_hour + ' V/h') +
-            '; EASUN Ah +/− ' + (response.charged_ah_proxy == null ? '—' : response.charged_ah_proxy) + '/' +
-            (response.discharged_ah_proxy == null ? '—' : response.discharged_ah_proxy) + '; CAPACITY_NOT_IDENTIFIABLE';
-        var contrast = item.exploratory_voltage_contrast || {};
-        var recoveries = response.recent_intervals || [];
-        var recoveryCount = recoveries.filter(function (interval) {
-            return interval.voltage_recovery_with_reported_discharge_or_load_reduction;
-        }).length;
-        var cycling = item.recent_reported_mode_changes == null ? '—' : item.recent_reported_mode_changes + ' collection-order transitions';
-        var external = (item.charging_context && item.charging_context.evidence_labels || [
-            'EXTERNAL_CHARGING_POSSIBLE', 'TOTAL_BATTERY_CURRENT_UNOBSERVED', 'CHARGING_RELATIONSHIP_UNVERIFIED']).join(', ');
-        var prediction = 'NOT_IDENTIFIABLE / UNKNOWN; no validated pair-selection method';
-        var confidence = item.confidence == null ? '—' : item.confidence + ' (' +
-            ((item.confidence_breakdown || {}).basis || item.evidence_level || 'unqualified') + ')';
-        [layers.join(' / '), item.evaluated_at, item.decision,
-            'BU ' + (historical.utility == null ? '25.5' : historical.utility) + ' / BB ' +
-                (historical.battery == null ? 'UNKNOWN' : historical.battery) + ' V (historical); live settings UNKNOWN',
-            hypotheticalPair, batteryEvidence, cycling,
-            'Exploratory contrast ' + (contrast.contrast_v == null ? 'unavailable' : contrast.contrast_v + ' V') +
-                '; not verified sag; recovery associations ' + recoveryCount,
-            external, prediction, confidence, item.candidate_status || item.stability || 'BLOCKED_INSUFFICIENT_EVIDENCE']
-            .forEach(function (value) {
-                var td = document.createElement('td'); td.textContent = value == null ? '—' : String(value); tr.appendChild(td);
-            });
+        var evidence = item.evidence_level || 'Evidence quality unavailable';
+        evidence += ' — battery ' + batteryVoltageText(item);
+        appendCells(tr, [item.evaluated_at, item.decision, evidence]);
         var reason = document.createElement('td'), detail = document.createElement('details');
+        detail.className = 'decision-record-details';
         var summary = document.createElement('summary');
-        summary.textContent = item.explanation || (Array.isArray(item.reason_codes) ? item.reason_codes.join(', ') : 'Evidence unavailable');
+        summary.textContent = decisionReasonSummary(item);
         var pre = document.createElement('pre');
         detail.addEventListener('toggle', function () {
             if (detail.open && !pre.dataset.generated) {
@@ -288,16 +411,119 @@
         return tr;
     }
 
+    var eventLabels = {
+        BASELINE_RECORDED: 'Baseline recorded',
+        JOURNAL_V2_CUTOVER: 'Journal v2 started',
+        DECISION_CHANGED: 'Decision changed',
+        HYPOTHESIS_CREATED: 'Hypothetical proposal recorded',
+        HYPOTHESIS_REJECTED: 'Hypothetical proposal cleared',
+        HYPOTHESIS_UPDATED: 'Hypothetical proposal updated',
+        CONFIRMATION_CHANGED: 'Confirmation progress changed',
+        HYPOTHESIS_CONFIRMED: 'Hypothesis confirmed for review',
+        EVIDENCE_BLOCKED: 'Evidence became blocked',
+        EVIDENCE_RECOVERED: 'Evidence blockers cleared',
+        BATTERY_OBSERVATION_CHANGED: 'Battery observation status changed',
+        BATTERY_RESPONSE_CHANGED: 'Battery response estimate changed',
+        WORKER_FAILED: 'Worker reported an error',
+        WORKER_RECOVERED: 'Worker recovered'
+    };
+    function eventSummary(event) {
+        var payload = event && event.payload || {};
+        var type = event && event.event_type;
+        if (type === 'DECISION_CHANGED' && payload.to && payload.to.decision) {
+            return 'Outcome is now ' + String(payload.to.decision).replace(/_/g, ' ') + '.';
+        }
+        if (type === 'HYPOTHESIS_CREATED' && payload.candidate_voltage != null) {
+            return 'A hypothetical ' + (payload.threshold || 'threshold') + ' value of ' +
+                payload.candidate_voltage + ' V was recorded for review.';
+        }
+        if (type === 'HYPOTHESIS_REJECTED') return 'The previous hypothetical proposal is no longer active.';
+        if (type === 'HYPOTHESIS_UPDATED') return 'A hypothetical proposal value changed.';
+        if (type === 'CONFIRMATION_CHANGED') return 'The number of compatible observations changed.';
+        if (type === 'HYPOTHESIS_CONFIRMED') return 'Confirmation was recorded; this remains non-actionable.';
+        if (type === 'EVIDENCE_BLOCKED') {
+            var added = Array.isArray(payload.added) ? payload.added : [];
+            return added.length ? 'New blocker: ' + added.slice(0, 2).map(explainReason).join(' ')
+                : 'New evidence blockers were recorded.';
+        }
+        if (type === 'EVIDENCE_RECOVERED') {
+            var removed = Array.isArray(payload.removed) ? payload.removed : [];
+            return removed.length ? 'Cleared: ' + removed.slice(0, 2).map(explainReason).join(' ')
+                : 'One or more evidence blockers cleared.';
+        }
+        if (type === 'BATTERY_OBSERVATION_CHANGED') return 'A reported battery measurement changed validity status.';
+        if (type === 'BATTERY_RESPONSE_CHANGED') return 'Reported response changed; the cause is unknown.';
+        if (type === 'WORKER_FAILED') return 'The worker reported a failure; check Technical details for health information.';
+        if (type === 'WORKER_RECOVERED') return 'The worker reported a successful recovery.';
+        if (type === 'JOURNAL_V2_CUTOVER') return 'Existing v1 records remain available in History.';
+        if (type === 'BASELINE_RECORDED') return 'The starting decision state was recorded.';
+        return 'A material decision-journal change was recorded.';
+    }
+
+    function renderEventItem(event) {
+        var item = document.createElement('li');
+        var heading = document.createElement('div');
+        heading.className = 'decision-event-heading';
+        var time = document.createElement('time');
+        time.textContent = event.event_time || 'Time unavailable';
+        var title = document.createElement('strong');
+        title.textContent = eventLabels[event.event_type] || 'Decision event';
+        heading.appendChild(time); heading.appendChild(title);
+        var description = document.createElement('p');
+        description.textContent = eventSummary(event);
+        var details = document.createElement('details');
+        var summary = document.createElement('summary');
+        summary.textContent = 'Original event payload';
+        var pre = document.createElement('pre');
+        details.addEventListener('toggle', function () {
+            if (details.open && !pre.dataset.generated) {
+                pre.textContent = JSON.stringify(event.payload || {}, null, 2);
+                pre.dataset.generated = 'true';
+            }
+        });
+        details.appendChild(summary); details.appendChild(pre);
+        item.appendChild(heading); item.appendChild(description); item.appendChild(details);
+        return item;
+    }
+
+    function renderRawJournalEvents(body) {
+        if (!body) return;
+        body.replaceChildren();
+        rawJournalEvents.forEach(function (event) {
+            var item = document.createElement('li');
+            var details = document.createElement('details');
+            var summary = document.createElement('summary');
+            summary.textContent = (eventLabels[event.event_type] || 'Decision event') + ' — ' +
+                (event.event_time || 'Time unavailable');
+            var pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(event, null, 2);
+            details.appendChild(summary); details.appendChild(pre); item.appendChild(details);
+            body.appendChild(item);
+        });
+        rawJournalEventsRendered = true;
+    }
+
     function renderJournal(journal, latest) {
         var body = document.getElementById('journal-events-body');
+        var rawBody = document.getElementById('journal-raw-events');
         if (body) body.replaceChildren();
+        if (rawBody) rawBody.replaceChildren();
+        rawJournalEvents = [];
+        rawJournalEventsRendered = false;
         if (!journal || journal.mode !== 'v2') {
             setText('journal-mode', 'Journal v1: every evaluation is stored as a full entry' +
                 (journal && journal.v2_installed ? '; Journal v2 installed but not active' : ''));
+            setText('decision-history-source', 'These rows are the retained Journal v1 evaluation history.');
             setText('journal-repetition', 'Not tracked in Journal v1');
             setText('journal-workers', 'Reported in worker health above');
+            if (body) {
+                var v1Note = document.createElement('li');
+                v1Note.textContent = 'Journal v1 stores full evaluations; its separate event timeline is unavailable. Open History for those records.';
+                body.appendChild(v1Note);
+            }
             return;
         }
+        setText('decision-history-source', 'These are retained Journal v1 evaluations; they do not replace the latest Journal v2 snapshot shown above.');
         var state = journal.state || {};
         setText('journal-mode', 'Journal v2 active since ' + (journal.changed_at || '—') + '; state revision ' +
             (state.revision == null ? '—' : state.revision) + '; last evaluation ' + (state.last_evaluated_at || '—') +
@@ -320,17 +546,30 @@
                 (worker.status === 'failing' ? ', ' + worker.consecutive_failures + ' consecutive failures (' +
                     (worker.last_error || 'unknown error') + ')' : '');
         }).join('; ') : 'No worker heartbeat recorded');
+        rawJournalEvents = Array.isArray(journal.events) ? journal.events : [];
+        var rawDisclosure = document.getElementById('journal-raw-events-disclosure');
+        if (rawDisclosure && rawDisclosure.open) renderRawJournalEvents(rawBody);
         if (!body) return;
-        (Array.isArray(journal.events) ? journal.events : []).forEach(function (event) {
-            var row = document.createElement('tr');
-            var details = JSON.stringify(event.payload || {});
-            appendCells(row, [event.event_time, event.event_type,
-                details.length > 300 ? details.slice(0, 297) + '…' : details]);
-            body.appendChild(row);
-        });
+        var events = rawJournalEvents;
+        events.slice(0, 8).forEach(function (event) { body.appendChild(renderEventItem(event)); });
+        if (events.length > 8) {
+            var earlier = document.createElement('li');
+            var disclosure = document.createElement('details');
+            var summary = document.createElement('summary');
+            summary.textContent = 'Show ' + (events.length - 8) + ' earlier significant events';
+            var earlierEvents = document.createElement('ol');
+            disclosure.addEventListener('toggle', function () {
+                if (disclosure.open && !earlierEvents.dataset.generated) {
+                    events.slice(8).forEach(function (event) { earlierEvents.appendChild(renderEventItem(event)); });
+                    earlierEvents.dataset.generated = 'true';
+                }
+            });
+            disclosure.appendChild(summary); disclosure.appendChild(earlierEvents); earlier.appendChild(disclosure);
+            body.appendChild(earlier);
+        }
         if (!body.children.length) {
-            var empty = document.createElement('tr');
-            appendCells(empty, [null, 'No significant events yet', null]);
+            var empty = document.createElement('li');
+            empty.textContent = 'No significant events yet.';
             body.appendChild(empty);
         }
     }
@@ -383,6 +622,18 @@
             item.confidence, item.freshness, item.limitation]);
         return row;
     }
+    function clearBatteryHistory() {
+        batteryGeneration++; batteryCursor = null; batteryLoadedDays = null;
+        batterySeenObservations = new Set(); batterySeenBehavior = new Set();
+        var observationsBody = document.getElementById('battery-observation-body');
+        var behaviorBody = document.getElementById('battery-behavior-body');
+        var status = document.getElementById('battery-grid-status');
+        var more = document.getElementById('battery-load-more');
+        if (observationsBody) observationsBody.replaceChildren();
+        if (behaviorBody) behaviorBody.replaceChildren();
+        if (status) status.textContent = 'Open History to load battery observations.';
+        if (more) { more.hidden = true; more.disabled = true; }
+    }
     async function loadBatteryHistory(reset) {
         var status = document.getElementById('battery-grid-status');
         var observationsBody = document.getElementById('battery-observation-body');
@@ -390,6 +641,7 @@
         if (batteryLoading) { if (reset) batteryPendingReset = true; return; }
         if (reset) {
             batteryGeneration++; batteryCursor = null;
+            batteryLoadedDays = null;
             batterySeenObservations = new Set(); batterySeenBehavior = new Set();
             observationsBody.replaceChildren(); behaviorBody.replaceChildren();
             var resetButton = document.getElementById('battery-load-more');
@@ -406,6 +658,7 @@
             var data = await response.json();
             if (requestGeneration !== batteryGeneration || requested !== days) return;
             if (!data || !Array.isArray(data.observations) || !Array.isArray(data.battery_behavior)) throw new Error('invalid');
+            batteryLoadedDays = requested;
             data.observations.forEach(function (item) {
                 var key = String(item.collection_time || '');
                 if (key && !batterySeenObservations.has(key)) {
@@ -438,11 +691,30 @@
             if (batteryPendingReset) { batteryPendingReset = false; loadBatteryHistory(true); }
         }
     }
+    function appendDecisionItems(items) {
+        var body = document.getElementById('decision-body');
+        (Array.isArray(items) ? items : []).forEach(function (item) {
+            var key = String(item.evaluation_id || item.evaluated_at) + ':' + String(item.evaluated_at);
+            if (!seen.has(key)) { seen.add(key); body.appendChild(renderDecision(item)); }
+        });
+    }
+    function renderDeferredDecisionItems() {
+        if (!historyExpanded || !deferredDecisionItems.length) return;
+        appendDecisionItems(deferredDecisionItems);
+        deferredDecisionItems = [];
+        var body = document.getElementById('decision-body');
+        var status = document.getElementById('decision-status');
+        status.textContent = body.children.length ? body.children.length + ' decisions loaded' : 'No decisions in this period.';
+    }
     async function load(reset) {
         var status = document.getElementById('decision-status');
         var body = document.getElementById('decision-body');
         if (loading) { if (reset) pendingReset = true; return; }
-        if (reset) { generation++; nextCursor = null; seen = new Set(); body.replaceChildren(); }
+        if (reset) {
+            generation++; nextCursor = null; seen = new Set(); historyReasonOccurrences = Object.create(null);
+            deferredDecisionItems = [];
+            body.replaceChildren();
+        }
         var requested = days, requestGeneration = generation, cursor = reset ? null : nextCursor;
         loading = true;
         status.textContent = cursor ? 'Loading older decisions…' : 'Loading decisions…';
@@ -456,13 +728,13 @@
             if (!data || !Array.isArray(data.decisions)) throw new Error('invalid');
             renderHealth(data);
             if (!cursor) renderJournal(data.journal, data.latest_decision);
-            data.decisions.forEach(function (item) {
-                var key = String(item.evaluation_id || item.evaluated_at) + ':' + String(item.evaluated_at);
-                if (!seen.has(key)) { seen.add(key); body.appendChild(renderDecision(item)); }
-            });
+            if (historyExpanded) appendDecisionItems(data.decisions);
+            else deferredDecisionItems = deferredDecisionItems.concat(data.decisions);
             nextCursor = data.next_cursor || null;
             var more = document.getElementById('decision-load-more'); more.hidden = !data.has_more; more.disabled = false;
-            status.textContent = body.children.length ? body.children.length + ' decisions loaded' : 'No decisions in this period.';
+            status.textContent = body.children.length ? body.children.length + ' decisions loaded'
+                : deferredDecisionItems.length ? 'Open History to display the ' + deferredDecisionItems.length + ' loaded evaluations.'
+                    : 'No decisions in this period.';
         } catch (_) {
             if (requestGeneration === generation && requested === days) {
                 status.textContent = reset ? 'Could not load this range; previous results were cleared.' : 'Decision journal unavailable; previous results retained. Retry Load more.';
@@ -475,9 +747,30 @@
         }
     }
     document.addEventListener('DOMContentLoaded', function () {
+        var historyDetails = document.getElementById('decision-history');
+        historyExpanded = !historyDetails || !!historyDetails.open;
+        if (historyDetails) {
+            historyDetails.addEventListener('toggle', function () {
+                historyExpanded = !!historyDetails.open;
+                if (historyExpanded) {
+                    renderDeferredDecisionItems();
+                    if (batteryLoadedDays !== days) loadBatteryHistory(true);
+                }
+            });
+        }
+        var rawEventsDetails = document.getElementById('journal-raw-events-disclosure');
+        if (rawEventsDetails) {
+            rawEventsDetails.addEventListener('toggle', function () {
+                if (rawEventsDetails.open && !rawJournalEventsRendered) {
+                    renderRawJournalEvents(document.getElementById('journal-raw-events'));
+                }
+            });
+        }
         document.querySelectorAll('[data-decision-days]').forEach(function (button) {
             button.addEventListener('click', function () {
-                days = Number(button.dataset.decisionDays); load(true); loadBatteryHistory(true);
+                days = Number(button.dataset.decisionDays); load(true);
+                if (historyExpanded) loadBatteryHistory(true);
+                else clearBatteryHistory();
             });
         });
         document.getElementById('decision-load-more').addEventListener('click', function () {
@@ -487,6 +780,6 @@
             this.disabled = true; loadBatteryHistory(false);
         });
         load(true);
-        loadBatteryHistory(true);
+        if (historyExpanded) loadBatteryHistory(true);
     });
 }());

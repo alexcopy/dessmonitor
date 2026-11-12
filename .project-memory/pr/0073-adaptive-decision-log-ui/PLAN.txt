@@ -1,0 +1,70 @@
+TASK
+Simplify the Adaptive Decision Log as a compact, read-only diagnostic dashboard.
+
+BRANCH AND BASE
+Branch: codex/adaptive-decision-log-ui
+Base branch: master
+PR identifier: 0073-adaptive-decision-log-ui
+
+OBJECTIVE
+Make the latest adaptive decision and its limitations understandable within a few seconds, while keeping the complete technical record available on demand. This is presentation-only work. No stored information is deleted or changed.
+
+CURRENT INTEGRATION
+The existing GET /api/controls/decisions endpoint returns worker health, a bounded page of historical decision records, latest_decision, Journal mode/state metadata, and significant Journal v2 events. When Journal v2 is active, latest_decision is sourced from the v2 snapshot and may be null; it must remain null in the UI rather than being replaced by an older v1 row. The existing battery-observations endpoint is separately cursor-paginated. The existing JSON export endpoint and its behavior are retained; it exports legacy Journal v1 records and does not include the complete Journal v2 state or event stream.
+
+The UI already applies generation checks, cursor reset and retry behavior, duplicate-row guards, separate battery pagination, and the shared battery-voltage presentation rules. These behaviors remain intact.
+
+ALLOWED FILES
+app/web/templates/adaptive_decisions.html
+app/web/static/adaptive_decisions.js
+tests/test_adaptive_decisions_ui.cjs
+tests/test_adaptive_journal_v2_ui.cjs
+tests/test_decision_log_battery_voltage_ui.cjs
+.project-memory/pr/0073-adaptive-decision-log-ui/PLAN.txt
+.project-memory/pr/0073-adaptive-decision-log-ui/reviews/PLAN_REVIEW.txt
+.project-memory/pr/0073-adaptive-decision-log-ui/CODER_REPORT.txt
+.project-memory/pr/0073-adaptive-decision-log-ui/reviews/PRECOMMIT_REVIEW.txt
+
+FORBIDDEN FILES AND OPERATIONS
+Do not modify API routes or response contracts, database schema or migrations, Journal v1/v2 writers, retention, learning or confirmation logic, worker scheduling, threshold calculations, device/inverter settings, hardware control paths, Tuya communication, deployment configuration, or safety gates. Do not stage, commit, push, create a pull request, or merge. Do not contact a live device, database, or external service.
+
+IMPLEMENTATION PLAN
+1. Put a compact status overview first. Show worker health in the reported state, latest evaluation time and decision, cycling status, evidence quality, the principal HOLD/blocking reasons, and a current threshold only when it is verified by device read-back. Mark any hypothetical proposal as non-actionable. Keep collection time, reported current, external charging, SOC, and heuristic cycling limitations explicit without inventing measurements or confidence.
+
+2. Centralize presentation-only reason-code translations. Use the known wording from the task for cycling, charging-confounded comparisons, insufficient comparable pairs, unverified device timestamps, and confirmation waits. Keep unknown codes visible using a safe readable fallback. Show one concise explanation of the latest HOLD/block; preserve original codes and full explanations in Technical details. Cycling alone must never be described as threshold-change evidence.
+
+3. Replace the default event table with a short reverse-chronological timeline built only from actual Journal v2 events in the existing response. Each item has timestamp, readable event name, and one-line explanation. Limit the initial list to a small recent set; put older returned events behind expansion. Put complete original event objects in Technical details. For Journal v1, state that its separate Journal v2 event timeline is unavailable. Do not infer physical switch times or manufacture events from repeated evaluations.
+
+4. Put all verbose worker, journal, diagnostic, and raw payload values in a closed Technical details section. Preserve current diagnostics for voltage comparisons/rejections, cycling, battery response/capacity, charging context, provenance, sample quality, virtual experiments, adaptive hysteresis, daily review, and Journal v2 internal state. Expansion must expose original values and reason codes.
+
+5. Put historical Journal v1 decisions, repeated evaluations, battery observations, derived behavior estimates, and their grids in a separate closed History section. Present decisions as a narrow list/table with timestamp, decision, concise evidence/reason, and an expandable complete record. Do not repeat identical long explanations in every row; refer to an earlier matching reason with a distinct occurrence marker while retaining each row's own full data. Keep wide battery tables locally scrollable only after History is opened.
+
+6. Avoid building hidden history DOM on initial load. The bounded decisions request remains necessary for the latest summary and retains its existing limit and response contract; hold its historical rows for rendering until History opens. Do not request more history to assemble the summary. Defer the battery-observations request until History first opens. Preserve cursor pagination, load-more, 24h/48h/7d filters, generation/stale-response checks, reset behavior, retries, and duplicate guards. On a range change while History is closed, clear/reset stale history state without issuing a battery-history request; load the selected range when History opens.
+
+7. Keep the existing JSON export endpoint, range parameter, download behavior, and payload unchanged. Label it as a Journal v1 export and explain that Journal v2 state/events are not included. Do not add export calls or imply the download is a complete v1+v2 archive.
+
+8. Use a responsive summary grid and vertical event timeline. Long text must wrap. Default content must fit without horizontal page scrolling at narrow widths; wide data may scroll inside its labelled table container after the relevant disclosure is expanded. Preserve semantic headings, labelled regions, keyboard-operable native disclosures, and textual status indicators.
+
+9. Retain dry-run/no-hardware-write messaging and all scientific and safety distinctions, including invalid, zero, missing, and unavailable voltage treatment. Do not add any write path.
+
+FOCUSED TEST PLAN
+Update the three existing UI suites to cover Journal v1/v2 behavior, compact summary and timestamp, reason translation, latest HOLD explanation, null v2 latest without v1 fallback, event names/order/older-event expansion and complete event payload access, closed Technical details and History, history deferral until expansion, no duplicate DOM after range reset/retry/pagination, export URL and v1-only label, and valid/invalid/zero/missing voltage cases. Add a narrow-viewport overflow check using a real browser if an existing browser harness is available; otherwise add a structural/CSS regression assertion and report that visual browser validation was unavailable.
+
+VALIDATION CHECKLIST
+Run and report the actual result of each command:
+node --check app/web/static/adaptive_decisions.js
+node --test tests/test_adaptive_decisions_ui.cjs
+node --test tests/test_adaptive_journal_v2_ui.cjs
+node --test tests/test_decision_log_battery_voltage_ui.cjs
+python3 -m compileall -q .
+scripts/check-repo-safety.sh
+scripts/check-project-memory.sh
+git diff --check
+
+Run the narrow-width browser check if available. Do not claim a check passed unless it was executed. If dependencies or browser tooling prevent a check, record the exact limitation.
+
+NON-GOALS
+No data deletion, migration, retention change, API/export extension, learning or threshold change, or device/hardware setting change. No commit, push, pull request, or merge.
+
+DELIVERABLE
+One focused implementation on codex/adaptive-decision-log-ui, ready for review, with associated UI tests and an accurate validation report. Do not merge automatically.
