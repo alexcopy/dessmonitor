@@ -1,0 +1,50 @@
+TASK
+Plan review for 0074-adaptive-decision-log-ux-redesign.
+
+REVIEW TYPE
+RETROSPECTIVE SELF-REVIEW. Written on 2026-11-12 by the same agent that implemented the change, after the
+implementation existed. It is NOT an independent plan review and does not satisfy the requirement that the
+plan be approved by a separate plan-review agent before coding (AGENT_STANDARD.txt sections 1 and 4). It
+records whether the retrospective PLAN.txt is a sound, bounded description of the work. Independent
+confirmation by the operator or a separate reviewer is still required before merge.
+
+VERDICT
+approved as a retrospective record (self-review). Independent plan review: NOT PERFORMED, pending.
+
+REVIEW SCOPE
+Read .project-memory/AGENT_STANDARD.txt, the PR 0073 artifacts (PLAN.txt, reviews/PLAN_REVIEW.txt,
+CODER_REPORT.txt, reviews/PRECOMMIT_REVIEW.txt), the user's redesign task and this PLAN.txt. Checked the
+plan's statements of fact against the code that supplies the page: app/web_routes.py (decisions API,
+worker health builders), app/control/adaptive_journal_v2.py (event derivation, snapshot semantics),
+app/control/online_output_learning.py (decision and stability values), app/web_queries.py (event order) and
+app/web_host.py (static allowlist, CSP).
+
+FINDINGS
+1. Scope is presentation-only and bounded to the template, the page JavaScript and three Node UI suites.
+   Forbidden areas (API, schema, writers, learning, worker, hardware, deployment, web_host allowlist, PR 0073
+   artifacts) are named explicitly.
+2. The inline <style> decision is justified: app/web_host.py serves /static only from a fixed allowlist, and
+   the HTML CSP is "style-src 'self' 'unsafe-inline'", so inline styles work while scripts stay external.
+3. The plan's semantic claims match the code: decision values are HOLD, INSUFFICIENT_DATA, BLOCKED and, only
+   when confirmed, HYPOTHETICAL_RAISE / HYPOTHETICAL_LOWER; DECISION_CHANGED fires on a change of decision OR
+   stability, so labelling a same-decision event "Stability changed" is accurate; events are returned
+   ORDER BY event_time DESC; evaluations_since_snapshot increments only while the outcome fingerprint is
+   unchanged.
+4. The primary-reason priority is a display choice. The plan requires that every recorded code remains listed,
+   so the algorithm's interpretation is not altered or hidden.
+5. The plan preserves the v2 null-latest rule, verified-readback-only threshold display, non-actionable
+   proposal wording, export scope, and voltage validity rules.
+6. Process deviation: implementation preceded the plan. This review cannot cure that; it is recorded here and
+   in CODER_REPORT.txt for the operator's decision.
+
+REVIEW CONSTRAINTS
+No write path; no inferred physical switch times; no invented measurements or confidence; current settings
+only from verified device read-back; proposals always non-actionable; no claim that the v1 export contains
+Journal v2 data; no page-level horizontal scroll at 375-1440 px.
+
+VALIDATION
+Plan-level review only. No implementation command is claimed as run in this artifact; validation results
+are recorded in CODER_REPORT.txt and reviews/PRECOMMIT_REVIEW.txt.
+
+REVIEWER
+Implementing agent (Claude Code), retrospective self-review. Not independent.

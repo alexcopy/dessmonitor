@@ -12,12 +12,13 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'app/web/static/adaptive_decisions.js'), 'utf8');
 const {cases} = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/decision_log_battery_voltage_cases.json'), 'utf8'));
 const tick = () => new Promise(resolve => setImmediate(resolve));
-const IDS = ['decision-status', 'decision-body', 'decision-export', 'decision-load-more', 'battery-grid-status',
-    'battery-observation-body', 'battery-behavior-body', 'battery-load-more', 'worker-status', 'worker-last-evaluation',
-    'worker-last-success', 'worker-reason', 'worker-window', 'worker-evidence', 'worker-current', 'worker-baseline',
-    'worker-proposed', 'worker-stability', 'worker-confidence', 'worker-monitored-threshold', 'worker-fast-context',
-    'worker-battery-response', 'worker-daily-review', 'worker-virtual-thresholds', 'worker-adaptive-hysteresis',
-    'worker-telemetry-provenance', 'worker-charging-context'];
+function textOf(node) {
+    return node.children && node.children.length ? node.children.map(textOf).join(' ') : String(node.textContent);
+}
+// Latest-evaluation voltage rows from Technical details -> Battery voltage comparison.
+function latestRows(elements) {
+    return Object.fromEntries(elements['diag-voltage'].children.map(row => [row.children[0].textContent, textOf(row.children[1])]));
+}
 function element() {
     return {children: [], dataset: {}, textContent: '', href: '', appendChild(child) {this.children.push(child);},
         replaceChildren() {this.children = [];}, addEventListener(name, fn) {this[name] = fn;}};
@@ -31,9 +32,10 @@ function entry(fields, minute) {
             freshness: 'RECENT', confidence: 'LOW', recent_intervals: []}}, fields);
 }
 async function render(latest, decisions, observations) {
-    const elements = Object.fromEntries(IDS.map(id => [id, element()]));
+    const elements = {};
     let start;
-    const document = {getElementById: id => elements[id], createElement: element,
+    const document = {getElementById: id => id === 'decision-history' ? undefined : elements[id] || (elements[id] = element()),
+        createElement: element,
         querySelectorAll: () => [], addEventListener: (_, fn) => {start = fn;}};
     // Round-trip through JSON text exactly as the browser receives the API response.
     const wire = value => JSON.parse(JSON.stringify(value));
@@ -49,14 +51,13 @@ function expandedDetail(row) {
     return detail.children[1].textContent;
 }
 function assertRendered(elements, expected, label) {
-    assert.ok(elements['worker-battery-response'].textContent.includes('; battery ' + expected + '; '),
-        label + ' latest: ' + elements['worker-battery-response'].textContent);
+    assert.equal(latestRows(elements)['Latest battery voltage'], expected, label + ' latest');
     const row = elements['decision-body'].children[0];
     assert.ok(row.children[2].textContent.includes('battery ' + expected), label + ' row: ' + row.children[2].textContent);
     assert.ok(expandedDetail(row).startsWith('Latest battery voltage: ' + expected + '\n'), label + ' detail');
     if (expected.startsWith('Invalid')) {
-        for (const text of [elements['worker-battery-response'].textContent, row.children[2].textContent]) {
-            assert.doesNotMatch(text, /(battery|Battery|V) -?\d+(\.\d+)? V;/, label + ' shows a bare voltage: ' + text);
+        for (const text of [latestRows(elements)['Latest battery voltage'], row.children[2].textContent]) {
+            assert.doesNotMatch(text, /(battery |^)-?\d+(\.\d+)? V$/, label + ' shows a bare voltage: ' + text);
         }
     }
 }
@@ -67,7 +68,7 @@ test('reviewer example 26.0 V -> 0.0 V is shown as invalid, with raw value and r
     const elements = await render(item, [item]);
     assert.equal(reviewer.ui, 'Invalid (reported 0.0 V; INVALID_ZERO_VOLTAGE; excluded from calculations)');
     assertRendered(elements, reviewer.ui, 'reviewer');
-    assert.doesNotMatch(elements['worker-battery-response'].textContent, /battery 0 V/);
+    assert.doesNotMatch(latestRows(elements)['Latest battery voltage'], /^0 V/);
     const detail = expandedDetail(elements['decision-body'].children[0]);
     assert.match(detail, /"battery_v": null/);
     assert.match(detail, /"battery_v_reported_raw": 0/);
@@ -93,7 +94,7 @@ test('historical rows each keep their own validity', async () => {
     names.forEach((name, i) => {
         assert.ok(elements['decision-body'].children[i].children[2].textContent.includes('battery ' + byName[name].ui), name);
     });
-    assert.ok(elements['worker-battery-response'].textContent.includes('; battery 25.5 V; '));
+    assert.equal(latestRows(elements)['Latest battery voltage'], '25.5 V');
 });
 
 test('battery observation grid marks invalid raw voltage instead of a blank or value', async () => {
@@ -134,22 +135,22 @@ for (const [label, fields, expected] of LATEST_WITHOUT_RESPONSE) {
             decision: 'HOLD', algorithm_version: 'online-exploratory-5'}, fields);
         assert.equal('battery_response' in item, false);
         const elements = await render(item, [item]);
-        const latest = elements['worker-battery-response'].textContent;
-        assert.notEqual(latest, 'Not recorded');
-        assert.equal(latest, 'battery ' + expected + '; reported charge/discharge —/— A; battery response diagnostics not recorded');
+        const latest = latestRows(elements);
+        assert.equal(latest['Latest battery voltage'], expected);
+        assert.equal(latest['Reported charge / discharge'], '— / — A');
+        assert.equal(latest['Battery response'], 'Diagnostics not recorded');
         const history = elements['decision-body'].children[0].children[2].textContent;
         const historyVoltage = history.slice(history.indexOf('battery ') + 'battery '.length);
         assert.equal(historyVoltage, expected, 'history row');
-        assert.equal(latest.slice('battery '.length, latest.indexOf('; reported charge/discharge')), historyVoltage,
-            'latest panel and history row agree');
+        assert.equal(latest['Latest battery voltage'], historyVoltage, 'latest panel and history row agree');
     });
 }
 
 test('latest panel keeps numeric zero currents and says Not recorded only without an entry', async () => {
     const item = {evaluated_at: '2026-11-01T00:00:00+00:00', decision: 'HOLD', battery_v: 0.0, charge_a: 0, discharge_a: 0};
     let elements = await render(item, [item]);
-    assert.equal(elements['worker-battery-response'].textContent, 'battery Invalid (reported 0.0 V; INVALID_ZERO_VOLTAGE;' + INV +
-        '; reported charge/discharge 0/0 A; battery response diagnostics not recorded');
+    assert.equal(latestRows(elements)['Latest battery voltage'], 'Invalid (reported 0.0 V; INVALID_ZERO_VOLTAGE;' + INV);
+    assert.equal(latestRows(elements)['Reported charge / discharge'], '0 / 0 A');
     elements = await render(null, []);
-    assert.equal(elements['worker-battery-response'].textContent, 'Not recorded');
+    assert.equal(latestRows(elements)['Latest battery voltage'], 'Not recorded');
 });

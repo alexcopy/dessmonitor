@@ -1,0 +1,307 @@
+INDEPENDENT PRECOMMIT REVIEW
+
+Task: 0074-adaptive-decision-log-ux-redesign
+Review type: independent, read-only code and UI review
+Review date: 2026-11-12
+
+VERDICT: CHANGES REQUIRED
+
+The redesign has a clear current-decision hierarchy, a substantially more readable dark layout, and
+retains the underlying history and raw records by inspection. Two requested items remain incomplete:
+the default timeline can condense distinct state changes into a generic count, and there is no focused UI
+regression test for confirmed HYPOTHETICAL_RAISE and HYPOTHETICAL_LOWER decisions. The review also
+identified an unsatisfied Project Memory sequencing gate; this review does not retroactively satisfy it.
+
+PRECONDITIONS AND WORKING TREE
+
+Commands run first, read-only:
+  git rev-parse --verify HEAD  -> 330ab811aa4dc9de4fb265aa0fe18eaebaf7877a
+  git branch --show-current   -> master
+  git status --short          -> two UI files, three UI test files, and the untracked PR 0074 artifact directory
+
+The complete tracked diff is limited to:
+  app/web/templates/adaptive_decisions.html
+  app/web/static/adaptive_decisions.js
+  tests/test_adaptive_decisions_ui.cjs
+  tests/test_adaptive_journal_v2_ui.cjs
+  tests/test_decision_log_battery_voltage_ui.cjs
+
+The PR 0074 directory contains PLAN.txt, reviews/PLAN_REVIEW.txt, CODER_REPORT.txt, and this review.
+No API, database, learning, hardware, deployment, or unrelated file is changed. The working tree remains
+uncommitted. No staging, commit, push, merge, branch operation, or hardware interaction was performed.
+
+BLOCKING FINDINGS
+
+B1. Event grouping can hide meaningful transitions from the concise timeline.
+  app/web/static/adaptive_decisions.js:890-918 groups every adjacent CONFIRMATION_CHANGED event by type,
+  even when the payload's from/to values differ. The visible card then says how many changes occurred and
+  shows only the first (newest) event's summary. A reset or reversal among the intermediate changes is
+  therefore not apparent in the timeline. BATTERY_RESPONSE_CHANGED summaries are always the same generic
+  sentence (line 880), so adjacent updates with different payloads are grouped as if identical. The full
+  event disclosure still contains every raw event, so records are preserved, but the default summary hides
+  distinctions contrary to the requirement that deduplication not hide meaningful changes. Condense only
+  materially identical transitions or summarize the changed states, and add a regression case covering a
+  reset/reversal and distinct battery-response payloads.
+
+B2. Required confirmed raise/lower UI regression coverage is absent.
+  The three modified UI tests contain no HYPOTHETICAL_RAISE or HYPOTHETICAL_LOWER case (the independent
+  search command is recorded below). By inspection, the generic decision path at
+  app/web/static/adaptive_decisions.js:346-361 displays the decision code as a label and describes it as
+  non-actionable; the candidate line at lines 395-402 also marks any voltage candidate non-actionable and
+  shows confirmation progress. That is not a substitute for the specifically requested regression tests
+  for both confirmed directions. Add UI tests that exercise confirmed raise and confirmed lower payloads,
+  including candidate value, confirmation state, and the non-actionable safety wording.
+
+NON-BLOCKING FINDINGS AND LIMITATIONS
+
+N1. Python test execution is incomplete in the available interpreters. Python 3.12.16 is present, but the
+  environment has no FastAPI dependency. Relevant modules either fail to import or skip for unavailable web
+  dependencies. Python 3.12 with the project's pinned dependencies was NOT tested. PostgreSQL-gated Journal
+  v2 tests were skipped because no disposable database was provisioned.
+
+N2. I independently inspected the available desktop, mobile, technical-details, and History PNG screenshots
+  directly. The desktop and mobile captures show a clear primary HOLD panel, compact indicators, a short
+  event list, closed disclosures, consistent dark surfaces, wrapping at mobile width, and History kept below
+  the primary decision. This was image inspection, not an interactive browser review. The local screenshot
+  file URL was blocked by the available browser surface; the existing browser tab was the production
+  controls page and was out of scope. The reported 30 browser scenarios were not independently rerun, and
+  screen-reader behavior was not tested. User visual acceptance remains outstanding.
+
+N3. A full-page technical screenshot contains a repeated navigation strip consistent with a sticky-header
+  screenshot stitching artifact. Without an interactive local browser review I cannot establish live sticky
+  header behavior from that capture.
+
+INDEPENDENT VERIFICATION EVIDENCE
+
+1. Current decision versus history. The template places the primary decision panel first, then exactly three
+   indicators and the concise timeline. Technical details and History use closed native disclosures. The
+   latest Journal v2 snapshot is rendered separately; the null-v2-latest case explicitly avoids falling back
+   to v1 as the current decision. UI tests cover hierarchy, closed History, and v1/v2/null-latest behavior.
+
+2. HOLD/BLOCKED rationale. Reason codes have short explanations and a presentation-only priority order.
+   The primary panel shows one reason and links to remaining factors; raw reason codes remain listed in
+   Technical details. Unknown codes keep a safe fallback. A missing reason is identified as unrecorded rather
+   than invented. The tests cover voltage-pair blockers, cycling, unknown codes, and a one-reason summary.
+
+3. Worker health versus evidence quality. Worker failures, stale heartbeat, no heartbeat, and disabled state
+   are handled separately from a healthy/degraded worker with limited evidence. The dedicated UI test covers
+   a failing worker and separately checks that degraded evidence remains “Running · evidence limited.”
+
+4. Safety and unsupported claims. The page shows “DRY-RUN — NO HARDWARE WRITE.” A current threshold is shown
+   only when settings provenance is VERIFIED_DEVICE_READBACK; otherwise the UI says “Not verified.” Proposal
+   and candidate text remains explicitly hypothetical and non-actionable. Reported mode changes are labelled
+   as not verified physical switching. No hardware status or new safety recommendation is introduced by
+   the reviewed presentation code.
+
+5. Journal compatibility and preserved data. Journal v1 keeps its historical evaluations and states that
+   its separate event timeline is unavailable. Journal v2 events are condensed for the default timeline, and
+   the full-event disclosure renders each original event and payload. Raw latest-evaluation JSON is available
+   on expansion. History retains range selection, decision pagination, battery-history pagination, and the
+   existing JSON export URL/parameters. The JS diff changes presentation and labels; no API implementation
+   or response contract is changed.
+
+6. Repeated historical explanations. decisionReasonSummary() returns the explanation on first occurrence
+   and a repeat marker for later rows. The history UI test checks that repeated explanations are not emitted
+   in every row and that the expanded record retains its original explanation.
+
+7. Battery voltage. The existing validity rules remain in batteryVoltageText(); invalid/missing voltage is
+   distinguished from valid voltage and the raw value/status remain visible. The voltage UI suite covers
+   zero, negative, non-finite, missing, legacy and valid values, as well as per-row validity and zero current.
+
+8. Theme, responsiveness, accessibility. Styles are scoped to the page and use dashboard dark tokens; the
+   test rejects light backgrounds and requires a narrow-screen media rule and wrapping. The template uses
+   semantic details/summary, status text, labels, and focus styles. Screenshot inspection found no apparent
+   page-level horizontal overflow. Automated contrast claims from the implementation report were not
+   independently reproduced; no screen reader was used.
+
+9. Confirmed hypothetical decisions. The generic UI branch appears to label HYPOTHETICAL_RAISE and
+   HYPOTHETICAL_LOWER and retain non-actionable wording when a candidate is present. Neither direction is
+   exercised by the focused UI tests, so behavior is not accepted as regression-covered.
+
+PROJECT MEMORY PROCESS DEVIATION
+
+PLAN.txt explicitly says it was written after implementation. PLAN_REVIEW.txt is also retrospective and
+was written by the implementing agent. AGENT_STANDARD.txt section 1 requires the plan -> independent plan
+review -> coding sequence. That sequence did not occur. This independent precommit review does not imply,
+and cannot retroactively provide, the missing pre-implementation planning approval. The structural
+scripts/check-project-memory.sh pass below only validates the memory directory structure; it does not
+validate that the sequential approval gate occurred. The operator must account for this governance
+deviation separately.
+
+VALIDATION RESULTS (INDEPENDENT RERUN)
+
+Node:
+  node --check app/web/static/adaptive_decisions.js
+    PASS, exit 0.
+  node --test tests/test_adaptive_decisions_ui.cjs
+    PASS, 17 passed, 0 failed, 0 skipped.
+  node --test tests/test_adaptive_journal_v2_ui.cjs
+    PASS, 6 passed, 0 failed, 0 skipped.
+  node --test tests/test_decision_log_battery_voltage_ui.cjs
+    PASS, 37 passed, 0 failed, 0 skipped.
+  Focused UI total: 60 passed.
+
+Python 3.12:
+  python3.12 -c 'import sys; print(sys.version); import fastapi, starlette, jinja2, asyncpg, pydantic; print("fastapi", fastapi.__version__); print("starlette", starlette.__version__); print("jinja2", jinja2.__version__); print("asyncpg", asyncpg.__version__); print("pydantic", pydantic.__version__)'
+    FAILED during dependency import: ModuleNotFoundError: No module named 'fastapi'. Interpreter is Python 3.12.16.
+  PYTHONDONTWRITEBYTECODE=1 python3.12 -m unittest discover -s tests -p test_web_navigation_and_static.py -v
+    FAILED to import: ModuleNotFoundError: No module named 'fastapi'.
+  PYTHONDONTWRITEBYTECODE=1 python3.12 -m unittest discover -s tests -p test_adaptive_decision_routes.py -v
+    Exit 0, 3 tests skipped because web dependencies are unavailable; no assertions ran.
+  PYTHONDONTWRITEBYTECODE=1 python3.12 -m unittest discover -s tests -p test_adaptive_decision_pagination.py -v
+    FAILED to import: ModuleNotFoundError: No module named 'fastapi'.
+  PYTHONDONTWRITEBYTECODE=1 python3.12 -m unittest discover -s tests -p test_decision_log_battery_voltage.py -v
+    FAILED to import: ModuleNotFoundError: No module named 'fastapi'.
+  PYTHONDONTWRITEBYTECODE=1 python3.12 -m unittest discover -s tests -p test_adaptive_journal_v2.py -v
+    PASS, 16 tests run: 4 passed and 12 PostgreSQL-gated tests skipped (requires JOURNAL_V2_LOCAL_POSTGRES=1).
+  PYTHONDONTWRITEBYTECODE=1 python3.12 -m unittest discover -s tests -p test_web_query_architecture.py -v
+    FAILED to import: ModuleNotFoundError: No module named 'fastapi'.
+
+  Python 3.12 with pinned requirements was NOT tested: the available 3.12 environment lacks its web
+  dependencies; dependencies were not installed during this read-only review. Python 3.15.2 was also
+  checked for the web imports and likewise lacked FastAPI. No claim is made that pinned Python validation
+  passed.
+
+Other checks:
+  PYTHONPYCACHEPREFIX=/private/tmp/dessmonitor-review-pycache python3.12 -m compileall -q .
+    PASS, exit 0; bytecode cache redirected outside the repository.
+  bash scripts/check-repo-safety.sh
+    PASS, exit 0; 0 errors, 0 warnings.
+  bash scripts/check-project-memory.sh
+    PASS, exit 0; 51 PR directories, 0 rejected, 0 errors. Structural check only.
+  git diff --check
+    PASS, exit 0; clean.
+  rg -n 'HYPOTHETICAL_RAISE|HYPOTHETICAL_LOWER|confirmed proposal|confirmed hypothetical' \
+    tests/test_adaptive_decisions_ui.cjs tests/test_adaptive_journal_v2_ui.cjs \
+    tests/test_decision_log_battery_voltage_ui.cjs
+    No matches (exit 1), confirming the focused UI test gap.
+
+REVIEW HANDOFF
+
+No code or test changes were made by this reviewer. Address B1 and B2 in the implementation, rerun the
+focused Node suite and available Python checks, then obtain the user's visual acceptance. Keep the original
+Project Memory sequence deviation explicit; do not represent this retrospective review as planning approval.
+
+
+================================================================================
+INDEPENDENT RE-REVIEW — 2026-11-12 (APPENDED; PRIOR REVIEW PRESERVED)
+================================================================================
+
+VERDICT: APPROVED
+
+B1 STATUS: resolved
+
+The revised grouping key compares event type, worker_id, and the complete canonical payload. Battery-response,
+baseline, and cutover events are never grouped. Confirmation entries are described from their from/to payload,
+so count decreases are labelled resets and pending-candidate changes remain visible. Distinct state or stability
+transitions have different payloads and therefore remain separate.
+
+State revision is metadata for the journal state as a whole, not the transition identity. In
+adaptive_journal_v2.py, _derive_events() emits CONFIRMATION_CHANGED whenever pending or stable_count changes;
+its payload records both from/to values. A repeated confirmation transition after a reset must have an intervening
+reset event, so adjacent identical transitions cannot conceal that reset. Other derived state transitions similarly
+carry changed before/after values, and their intermediate reversal is an intervening event. Revisions can also
+advance for evidence fingerprint, contrast, or algorithm state while no material outcome event is emitted; including
+revision in the key would prevent condensing otherwise identical transitions without adding transition detail.
+No counterexample was found in the actual event derivation schema for adjacent, exactly payload-identical events.
+This conclusion depends on the current _derive_events() contract and should be revisited if new event types omit
+their before/after state from payloads.
+
+The API query in app/web_queries.py returns events ordered by event_time DESC, event_id DESC. groupEvents() preserves
+that order; the first five groups are rendered. Full returned event objects, including event_id, state_revision,
+worker_id, timestamps and payload, remain available in the raw-event disclosure. No event record is removed from
+the API result or raw history.
+
+B2 STATUS: resolved
+
+The focused UI suite now covers confirmed HYPOTHETICAL_RAISE and HYPOTHETICAL_LOWER, missing candidate voltage and
+missing/partial confirmation fields, pending candidate under HOLD, confirmed versus unconfirmed stability,
+confirmation progress, and verified versus unverified current settings. Tests assert Back to Battery is displayed,
+recorded candidate voltage is shown without invention, only stability CONFIRMED is described as confirmed, and
+all proposal text remains explicitly hypothetical and non-actionable without implying permission to write settings.
+The entry shape matches online_output_learning.py: decision is the candidate code, threshold is the 'battery' key,
+proposed_voltage/candidate_voltage carry the candidate, stability is CONFIRMED on confirmation,
+actionability is NON_ACTIONABLE, and confirmation_progress carries confirmed/required counts.
+
+BLOCKING FINDINGS
+
+None found in the re-reviewed B1/B2 changes.
+
+NON-BLOCKING WARNINGS
+
+1. A Chrome application is present, but the independent Playwright package is unavailable and the existing Chrome
+   browser tab is the production controls page. No local development browser scenario was run from this review.
+   The coder's reported 32 headless Chrome views were not independently reproduced. User visual acceptance remains
+   outstanding; no screen-reader audit was run.
+2. The system Python 3.12.16 environment lacks FastAPI. Python web-suite imports failed or skipped as recorded
+   below. I did not install dependencies during this review. The coder reports a separate scratch virtualenv
+   using a Python 3.12.16 resolution of requirements.txt, but that environment and its results were not independently
+   reproduced. Python 3.12 with the project's exact pinned dependencies was not independently verified.
+3. PostgreSQL-gated Journal v2 integration coverage was skipped without JOURNAL_V2_LOCAL_POSTGRES=1.
+4. The exact-payload condensation rule assumes event payloads continue to encode every material state transition;
+   new event types must follow that schema or be added to NEVER_GROUPED.
+
+INDEPENDENT VALIDATION RESULTS
+
+Commands executed in this review:
+
+  node --check app/web/static/adaptive_decisions.js
+    PASS, exit 0.
+  node --test tests/test_adaptive_decisions_ui.cjs
+    PASS, 21 passed, 0 failed, 0 skipped. Includes the dedicated raise/lower and malformed/missing-field cases.
+  node --test tests/test_adaptive_journal_v2_ui.cjs
+    PASS, 12 passed, 0 failed, 0 skipped. Includes reset, candidate, battery-response, identical-payload grouping,
+    stability-only transitions, newest-five ordering, and full-record preservation.
+  node --test tests/test_decision_log_battery_voltage_ui.cjs
+    PASS, 37 passed, 0 failed, 0 skipped.
+  Focused Node total: 70 passed.
+
+  python3.12 -m unittest discover -s tests -p 'test_adaptive_journal_v2.py' -v
+    PASS, 16 tests run: 4 passed, 12 PostgreSQL-gated skipped.
+  python3.12 -m unittest discover -s tests -p 'test_online_output_learning.py' -q
+    FAIL, 125 tests run: 94 passed, 1 error, 30 skipped. The error was test_api_export_includes_quantitative_coverage
+    importing app.web_routes and failing with ModuleNotFoundError: No module named 'fastapi'.
+  python3.12 -m unittest discover -s tests -p 'test_adaptive_decision_routes.py' -v
+    Exit 0, 3 tests skipped because web dependencies are unavailable; no assertions ran.
+  python3.12 -m unittest discover -s tests -p 'test_adaptive_decision_pagination.py' -v
+    FAIL during import: ModuleNotFoundError: No module named 'fastapi'.
+  python3.12 -m unittest discover -s tests -p 'test_decision_log_battery_voltage.py' -v
+    FAIL during import: ModuleNotFoundError: No module named 'fastapi'.
+  python3.12 -m unittest discover -s tests -p 'test_web_navigation_and_static.py' -v
+    FAIL during import: ModuleNotFoundError: No module named 'fastapi'.
+  Python 3.12 with pinned dependencies: NOT independently tested; FastAPI was absent from the available interpreter.
+
+  PYTHONPYCACHEPREFIX=/private/tmp/dessmonitor-review-pycache python3.12 -m compileall -q .
+    PASS, exit 0.
+  scripts/check-repo-safety.sh
+    PASS, exit 0, 0 errors and 0 warnings.
+  scripts/check-project-memory.sh
+    PASS, exit 0, 51 PR directories accepted, 0 rejected, 0 errors. Structural validation only; it does not
+    establish that planning approval preceded implementation.
+  git diff --check
+    PASS, exit 0, clean.
+  node -e "try { console.log('playwright:', require.resolve('playwright')) } catch (_) { console.log('playwright unavailable') }";
+  command -v google-chrome || command -v chromium || command -v chromium-browser
+    Playwright unavailable and no command-line Chrome/Chromium executable found. Chrome app exists, but no
+    local interactive test was run; existing production controls tab was not used.
+
+SAFETY AND COMPATIBILITY REVIEW
+
+No API or database changes were found. Journal v1 remains distinct from the Journal v2 latest snapshot. The
+presentation continues to gate current threshold values on verified device read-back, marks hypothetical decisions
+non-actionable, keeps the DRY-RUN — NO HARDWARE WRITE marker, retains invalid/missing voltage distinctions, and
+preserves history pagination and v1-only JSON export behavior. No hardware or external service interaction was
+performed. The review made no application or test edits and ran no state-changing Git command; the working tree
+remains uncommitted.
+
+GOVERNANCE DEVIATIONS
+
+PLAN.txt and PLAN_REVIEW.txt state that they were created retrospectively by the implementation agent after coding.
+The original plan -> independent plan-review -> coder sequence was not satisfied. This independent precommit
+approval and the structural check-project-memory.sh pass do not retroactively satisfy that gate.
+
+FINAL RECOMMENDATION
+
+The two previously blocking findings are independently verified as resolved, and the presentation/safety behavior
+reviewed here is technically ready for the user's final visual acceptance. Keep the governance deviation explicit.
+Obtain user visual acceptance before treating the redesign as complete. No Git operation was performed.

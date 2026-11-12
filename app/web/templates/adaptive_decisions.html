@@ -27,133 +27,325 @@
 </nav>
 <script defer src="/static/global_nav.js"></script>
 <style>
-.decision-summary-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap:1rem; }
-.decision-summary-item { min-width:0; padding:1rem; border-left:3px solid #6b7f95; background:#f7f9fb; }
-.decision-summary-item h3 { margin:0 0 .4rem; font-size:.82rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
-.decision-summary-item p { margin:0; overflow-wrap:anywhere; }
-.decision-disclosure dd, .decision-disclosure p, #decision-export-scope { overflow-wrap:anywhere; }
-#decision-export-scope { display:block; max-width:42rem; }
-.decision-timeline { margin:0; padding-left:1.4rem; }
-.decision-timeline li + li { margin-top:1rem; }
-.decision-event-heading { display:flex; flex-wrap:wrap; gap:.35rem .8rem; align-items:baseline; }
-.decision-event-heading time { color:#596579; font-size:.9rem; }
-.decision-timeline details { margin-top:.35rem; }
-.decision-timeline p { overflow-wrap:anywhere; }
-.decision-timeline pre, .decision-record-details pre { white-space:pre-wrap; overflow-wrap:anywhere; }
-.decision-disclosure > summary { cursor:pointer; font-size:1.1rem; font-weight:700; }
-.decision-disclosure[open] > summary { margin-bottom:1rem; }
+/* Adaptive Decision Log — every rule is scoped to .adl so global dashboard styles are untouched. */
+.adl { color:var(--text); font-size:.95rem; }
+.adl h1, .adl h2, .adl h3 { color:var(--text); margin:0; }
+.adl strong { color:inherit; }
+.adl p { margin:0; }
+.adl a { color:var(--teal); }
+.adl code, .adl .adl-code { font-family:var(--mono); font-size:.8em; color:var(--text-dim); background:none; padding:0; overflow-wrap:anywhere; }
+.adl pre { margin:.5rem 0 0; padding:.75rem; max-height:26rem; overflow:auto; background:var(--bg); color:var(--text);
+  border:1px solid var(--border); border-radius:8px; font-family:var(--mono); font-size:.74rem; line-height:1.45;
+  white-space:pre-wrap; overflow-wrap:anywhere; }
+.adl a:focus-visible, .adl button:focus-visible, .adl summary:focus-visible, .adl [tabindex]:focus-visible {
+  outline:2px solid var(--teal); outline-offset:2px; border-radius:4px; }
+.adl-visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.adl-dim { color:var(--text-dim); }
+.adl-kicker, .adl-section-title { font-size:.68rem; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:var(--text-dim); }
+
+/* Header */
+.adl-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.6rem 1rem; margin-bottom:1rem; }
+.adl-title { font-family:var(--mono); font-size:1.2rem; font-weight:700; }
+.adl-subtitle { margin-top:.15rem; color:var(--text-dim); font-size:.8rem; }
+.adl-readonly { display:inline-flex; align-items:center; gap:.45rem; padding:.3rem .7rem; border:1px solid var(--border);
+  border-radius:999px; background:var(--surface); color:var(--text-dim); font-family:var(--mono); font-size:.74rem; }
+.adl-readonly::before { content:''; width:.5rem; height:.5rem; border-radius:50%; background:var(--teal); flex:none; }
+
+/* Primary decision panel */
+.adl-primary { --adl-tone:var(--border); position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(14rem,19rem);
+  margin-bottom:.9rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.adl-primary::before { content:''; position:absolute; inset:0 auto 0 0; width:4px; background:var(--adl-tone); }
+.adl-primary[data-tone="hold"] { --adl-tone:var(--teal); }
+.adl-primary[data-tone="warn"] { --adl-tone:var(--amber); }
+.adl-primary[data-tone="bad"] { --adl-tone:var(--red); }
+.adl-primary[data-tone="proposal"] { --adl-tone:var(--purple); }
+.adl-primary[data-tone="muted"] { --adl-tone:var(--text-dim); }
+.adl-primary-body { min-width:0; padding:1.2rem 1.5rem 1.25rem 1.75rem; }
+.adl-decision { margin:.3rem 0 .2rem; font-family:var(--mono); font-size:2.6rem; font-weight:700; line-height:1.1;
+  letter-spacing:.02em; color:var(--adl-tone); overflow-wrap:anywhere; }
+.adl-primary[data-tone="loading"] .adl-decision, .adl-primary[data-tone="muted"] .adl-decision { color:var(--text); font-size:1.9rem; }
+.adl-consequence { margin-bottom:.9rem; font-size:1.08rem; }
+.adl-reason { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.3rem .8rem; align-items:baseline; max-width:48rem;
+  padding:.7rem .9rem; background:var(--surface2); border-radius:8px; }
+.adl-reason p { line-height:1.5; }
+.adl-link { grid-column:2; justify-self:start; padding:0; border:0; background:none; color:var(--teal); font:inherit; font-size:.82rem; cursor:pointer; }
+.adl-link:hover { text-decoration:underline; }
+.adl-proposal { margin-top:.7rem; font-size:.88rem; color:var(--text-dim); }
+.adl-proposal strong { color:var(--purple); font-family:var(--mono); }
+.adl-primary-meta { display:flex; flex-direction:column; gap:.85rem; margin:0; padding:1.2rem 1.4rem;
+  border-left:1px solid var(--border); background:rgba(255,255,255,.015); }
+.adl-primary-meta dd { margin:.2rem 0 0; font-size:.95rem; overflow-wrap:anywhere; }
+.adl-primary-meta time { font-family:var(--mono); font-size:1.05rem; }
+.adl-primary-meta .adl-age { display:block; margin-top:.1rem; font-family:var(--sans); font-size:.76rem; color:var(--text-dim); }
+.adl-status { display:inline-flex; align-items:center; gap:.45rem; }
+.adl-status::before, .adl-attention::before, .adl-event-title::before { content:''; width:.55rem; height:.55rem; border-radius:50%;
+  background:var(--text-dim); flex:none; }
+[data-tone="ok"].adl-status::before, [data-tone="ok"].adl-attention::before, [data-tone="ok"] > .adl-event-body > .adl-event-title::before { background:var(--green); }
+[data-tone="warn"].adl-status::before, [data-tone="warn"].adl-attention::before, [data-tone="warn"] > .adl-event-body > .adl-event-title::before { background:var(--amber); }
+[data-tone="bad"].adl-status::before, [data-tone="bad"].adl-attention::before, [data-tone="bad"] > .adl-event-body > .adl-event-title::before { background:var(--red); }
+[data-tone="info"] > .adl-event-body > .adl-event-title::before { background:var(--teal); }
+[data-tone="proposal"] > .adl-event-body > .adl-event-title::before { background:var(--purple); }
+.adl-threshold[data-tone="muted"] { color:var(--text-dim); }
+.adl-attention { grid-column:1 / -1; display:flex; align-items:center; gap:.5rem .6rem; padding:.6rem 1.4rem .6rem 1.75rem;
+  border-top:1px solid var(--border); font-size:.86rem; color:var(--text-dim); }
+.adl-attention[data-tone="bad"] { background:var(--red-dim); color:var(--text); }
+.adl-attention[data-tone="warn"] { background:var(--amber-dim); color:var(--text); }
+.adl-attention > span { flex:1; min-width:0; }
+.adl-retry { flex:none; padding:.2rem .7rem; border:1px solid var(--border); border-radius:6px; background:var(--surface2);
+  color:var(--text); font:inherit; font-size:.8rem; cursor:pointer; }
+
+/* Secondary indicators */
+.adl-indicators { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin:0 0 .9rem; padding:0; list-style:none; }
+.adl-indicator { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:.7rem; align-items:baseline; min-width:0;
+  padding:.7rem .95rem; background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+.adl-ind-value { grid-row:span 2; font-family:var(--mono); font-size:1.45rem; font-weight:700; line-height:1.1; }
+.adl-indicator[data-tone="warn"] .adl-ind-value { color:var(--amber); }
+.adl-indicator[data-tone="ok"] .adl-ind-value { color:var(--green); }
+.adl-indicator[data-tone="muted"] .adl-ind-value { color:var(--text-dim); }
+.adl-ind-label { font-size:.86rem; }
+.adl-ind-note { grid-column:2; font-size:.75rem; color:var(--text-dim); overflow-wrap:anywhere; }
+
+/* Panels and timeline */
+.adl-panel { margin-bottom:.9rem; padding:.95rem 1.25rem 1rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+.adl-panel-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:.3rem 1rem; margin-bottom:.45rem; }
+.adl-panel-head .adl-dim { font-size:.78rem; }
+.adl-timeline, .adl-event-log, .adl-reasons { margin:0; padding:0; list-style:none; }
+.adl-event { display:grid; grid-template-columns:6.6rem minmax(0,1fr); gap:.8rem; padding:.55rem 0; border-top:1px solid rgba(48,54,61,.6); }
+.adl-event:first-child { border-top:0; }
+.adl-event > time, .adl-event-log time { padding-top:.1rem; font-family:var(--mono); font-size:.78rem; color:var(--text-dim); white-space:nowrap; }
+.adl-event-body { min-width:0; }
+.adl-event-title { display:inline-flex; align-items:center; gap:.5rem; font-weight:600; }
+.adl-event-count { margin-left:.45rem; padding:.05rem .45rem; border-radius:999px; background:var(--surface2); color:var(--text-dim);
+  font-family:var(--mono); font-size:.72rem; font-weight:600; }
+.adl-event-text { margin-top:.1rem; color:var(--text-dim); font-size:.86rem; overflow-wrap:anywhere; }
+.adl-empty { padding:.4rem 0; color:var(--text-dim); font-size:.88rem; }
+.adl-sub { margin-top:.6rem; border-top:1px solid var(--border); padding-top:.55rem; }
+.adl-sub > summary, .adl-more > summary, .adl-record > summary { cursor:pointer; color:var(--teal); font-size:.84rem; }
+.adl-event-log > li { padding:.35rem 0; border-top:1px solid rgba(48,54,61,.6); }
+.adl-event-log > li:first-child { border-top:0; }
+.adl-event-log summary { display:flex; flex-wrap:wrap; gap:.2rem .8rem; cursor:pointer; color:var(--text); font-size:.86rem; }
+.adl-event-log .adl-note { margin-top:.35rem; }
+.adl-note { color:var(--text-dim); font-size:.8rem; line-height:1.5; overflow-wrap:anywhere; }
+
+/* Disclosures */
+.adl-disclosure { margin-bottom:.75rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+.adl-disclosure > summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:.2rem .8rem; padding:.85rem 1.25rem; cursor:pointer;
+  list-style:none; font-weight:600; }
+.adl-disclosure > summary::-webkit-details-marker { display:none; }
+.adl-disclosure > summary::before { content:'\25B8'; display:inline-block; width:.8rem; color:var(--text-dim); transition:transform .15s; }
+.adl-disclosure[open] > summary::before { transform:rotate(90deg); }
+.adl-summary-hint { color:var(--text-dim); font-size:.8rem; font-weight:400; }
+.adl-disclosure-body { padding:1rem 1.25rem 1.25rem; border-top:1px solid var(--border); }
+.adl-disclosure-body > .adl-note { max-width:62rem; margin-bottom:.9rem; }
+.adl-groups { column-count:2; column-width:30rem; column-gap:.8rem; }
+.adl-group { break-inside:avoid; margin-bottom:.8rem; min-width:0; padding:.8rem 1rem .9rem; background:var(--surface2); border:1px solid var(--border); border-radius:10px; }
+.adl-group > h3 { margin-bottom:.55rem; font-size:.72rem; font-weight:600; letter-spacing:1.1px; text-transform:uppercase; color:var(--teal); }
+.adl-kv { display:grid; grid-template-columns:minmax(7.5rem,11.5rem) minmax(0,1fr); gap:.38rem .9rem; margin:0; font-size:.84rem; line-height:1.45; }
+.adl-kv > div { display:contents; }
+.adl-kv dt { color:var(--text-dim); }
+.adl-kv dd { min-width:0; margin:0; overflow-wrap:anywhere; }
+.adl-kv dd[data-tone="bad"] { font-weight:600; }
+.adl-kv dd[data-tone="bad"]::before { content:''; display:inline-block; width:.5rem; height:.5rem; margin-right:.4rem; border-radius:50%; background:var(--red); }
+.adl-kv dd[data-tone="warn"] { color:var(--amber); }
+.adl-kv dd[data-tone="ok"] { color:var(--green); }
+.adl-more { margin-top:.2rem; }
+.adl-reasons li { padding:.4rem 0; border-top:1px solid rgba(48,54,61,.6); font-size:.86rem; }
+.adl-reasons li:first-child { border-top:0; padding-top:0; }
+.adl-reasons code { display:block; margin-top:.1rem; }
+.adl-tag { display:inline-block; margin-left:.4rem; padding:.02rem .45rem; border-radius:999px; background:var(--teal-dim); color:var(--teal);
+  font-family:var(--mono); font-size:.68rem; font-weight:600; vertical-align:middle; }
+.adl-raw { margin-top:.8rem; }
+
+/* History */
+.adl-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.6rem 1rem; margin-bottom:.4rem; }
+.adl-range { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
+.adl-export { padding:.35rem .9rem; border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono);
+  font-size:.78rem; text-decoration:none; }
+.adl-export:hover { border-color:var(--teal); color:var(--teal); }
+.adl-history-section { margin-top:1.1rem; }
+.adl-history-section > h3 { margin-bottom:.35rem; }
+.adl-history-section > .adl-note { margin-bottom:.5rem; max-width:62rem; }
+.adl-table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:8px; }
+.adl-table-wrap .dm-table { margin:0; color:var(--text); }
+.adl-table-wrap .dm-table th { padding:.55rem .6rem; background:var(--surface2); }
+.adl-table-wrap .dm-table td { padding:.45rem .6rem; vertical-align:top; }
+.adl-history-decisions .dm-table { table-layout:fixed; }
+.adl-history-decisions th:nth-child(1) { width:8.5rem; }
+.adl-history-decisions th:nth-child(2) { width:10rem; }
+.adl-history-decisions th:nth-child(3) { width:22%; }
+.adl-history-decisions td { white-space:normal; overflow-wrap:anywhere; }
+.adl-history-decisions td:first-child { font-family:var(--mono); font-size:.8rem; color:var(--text-dim); }
+.adl-history-decisions td:nth-child(2) { font-family:var(--mono); font-weight:600; }
+.adl-history-wide .dm-table { min-width:72rem; }
+.adl-history-wide .dm-table td { overflow-wrap:anywhere; }
+.adl-status-line { margin-top:.5rem; color:var(--text-dim); font-size:.82rem; }
+.adl-load-more { margin-top:.5rem; padding:.35rem .9rem; border:1px solid var(--border); border-radius:6px; background:var(--surface2);
+  color:var(--text); font:inherit; font-size:.82rem; cursor:pointer; }
+.adl-load-more:disabled { opacity:.6; cursor:default; }
+
+@media (max-width: 860px) {
+  .adl-primary { grid-template-columns:minmax(0,1fr); }
+  .adl-primary-meta { flex-direction:row; flex-wrap:wrap; gap:.7rem 1.6rem; padding:.85rem 1.4rem .9rem 1.75rem;
+    border-left:0; border-top:1px solid var(--border); }
+  .adl-indicators { grid-template-columns:minmax(0,1fr); gap:.5rem; }
+}
+@media (max-width: 520px) {
+  .adl-primary-body { padding:1rem 1rem 1rem 1.25rem; }
+  .adl-primary-meta { padding:.8rem 1rem .85rem 1.25rem; }
+  .adl-attention { padding:.55rem 1rem .55rem 1.25rem; }
+  .adl-decision { font-size:2.1rem; }
+  .adl-reason { grid-template-columns:minmax(0,1fr); }
+  .adl-link { grid-column:1; }
+  .adl-panel { padding:.85rem 1rem; }
+  .adl-event { grid-template-columns:minmax(0,1fr); gap:.1rem; }
+  .adl-disclosure > summary { padding:.8rem 1rem; }
+  .adl-disclosure-body { padding:.9rem 1rem 1rem; }
+  .adl-kv { grid-template-columns:minmax(0,1fr); gap:0; }
+  .adl-kv dt { margin-top:.5rem; font-size:.76rem; }
+  .adl-kv dt:first-child { margin-top:0; }
+  .adl-history-decisions { overflow-x:visible; }
+  .adl-history-decisions thead { display:none; }
+  .adl-history-decisions table, .adl-history-decisions tbody, .adl-history-decisions tr, .adl-history-decisions td { display:block; width:auto; }
+  .adl-history-decisions tr { padding:.55rem .7rem; border-bottom:1px solid var(--border); }
+  .adl-history-decisions tr:last-child { border-bottom:0; }
+  .adl-history-decisions .dm-table td { padding:.1rem 0; border:0; }
+  .adl-history-decisions td:first-child, .adl-history-decisions td:nth-child(2) { display:inline-block; margin-right:.6rem; }
+}
 </style>
-<main class="dm-main">
-<h1 class="dm-analytics-title dm-mono">Adaptive Decision Log</h1>
-<p><strong>Dry run — no hardware writes.</strong> Proposals are hypothetical, and collection-time evidence is exploratory.</p>
-<section class="box" aria-labelledby="decision-summary-heading">
-<h2 id="decision-summary-heading" class="title is-5">Current status</h2>
-<div class="decision-summary-grid">
-<article class="decision-summary-item"><h3>Worker health</h3><p id="worker-summary-status">Loading…</p></article>
-<article class="decision-summary-item"><h3>Latest evaluation</h3><p id="worker-summary-evaluated-at">Loading…</p></article>
-<article class="decision-summary-item"><h3>Current decision</h3><p id="worker-current-decision">Loading…</p></article>
-<article class="decision-summary-item"><h3>Detected cycling</h3><p id="worker-summary-cycling">Loading…</p></article>
-<article class="decision-summary-item"><h3>Evidence quality</h3><p id="worker-summary-evidence">Loading…</p></article>
-<article class="decision-summary-item"><h3>Current threshold</h3><p id="worker-summary-current-threshold">Loading…</p></article>
-<article class="decision-summary-item"><h3>Why it is on hold</h3><p id="worker-summary-hold">Loading…</p></article>
+<main class="dm-main adl">
+<header class="adl-header">
+<div>
+<h1 class="adl-title">Adaptive Decision Log</h1>
+<p class="adl-subtitle">Adaptive battery threshold learning · monitored threshold: <span id="worker-monitored-threshold">Back to Battery</span></p>
 </div>
-</section>
-<section class="box" aria-labelledby="journal-events-heading">
-<h2 id="journal-events-heading" class="title is-5">Significant events</h2>
-<p>Material decision changes, newest first.</p>
-<ol id="journal-events-body" class="decision-timeline" aria-label="Significant decision events"></ol>
-</section>
-<details class="box decision-disclosure" id="technical-details">
-<summary>Technical details</summary>
-<section aria-labelledby="decision-worker-heading">
-<h2 id="decision-worker-heading" class="title is-5">Worker health and latest evaluation</h2>
-<dl>
-<dt>Worker</dt><dd id="worker-status">Loading…</dd>
-<dt>Last evaluation</dt><dd id="worker-last-evaluation">—</dd>
-<dt>Last successful evaluation</dt><dd id="worker-last-success">—</dd>
-<dt>Last error or blocking reason</dt><dd id="worker-reason">—</dd>
-<dt>Observation count / effective window</dt><dd id="worker-window">—</dd>
-<dt>Evidence level</dt><dd id="worker-evidence">—</dd>
-<dt>Current threshold settings</dt><dd id="worker-current">Unknown</dd>
-<dt>Historical reference, not current</dt><dd id="worker-baseline">—</dd>
-<dt>Monitored threshold</dt><dd id="worker-monitored-threshold">Back to Battery</dd>
-<dt>Hypothetical proposal</dt><dd id="worker-proposed">—</dd>
-<dt>Confirmation / remaining cooldown</dt><dd id="worker-stability">—</dd>
-<dt>Confidence / reasons</dt><dd id="worker-confidence">—</dd>
-</dl>
-</section>
-<section aria-labelledby="journal-v2-heading">
-<h2 id="journal-v2-heading" class="title is-5">Journal storage and significant events</h2>
-<dl>
-<dt>Journal mode</dt><dd id="journal-mode">—</dd>
-<dt>Current outcome repetition</dt><dd id="journal-repetition">—</dd>
-<dt>Workers</dt><dd id="journal-workers">—</dd>
-</dl>
-</section>
-<details id="journal-raw-events-disclosure">
-<summary>Raw significant event records</summary>
-<ol id="journal-raw-events"></ol>
-</details>
-<section aria-labelledby="decision-diagnostics-heading">
-<h2 id="decision-diagnostics-heading" class="title is-5">Why the latest evaluation holds</h2>
-<p>Times below are collection brackets, not device measurement times. EASUN-reported current is not total battery current; charging from other controllers is possible while EASUN reports zero. Battery throughput is a reported-channel proxy. Cycling confidence is a heuristic, not a calibrated probability.</p>
-<dl>
-<dt>Reported Line/Invert cycling</dt><dd id="worker-cycling">—</dd>
-<dt>Voltage comparison</dt><dd id="worker-voltage">—</dd>
-<dt>Charging-confounded difference</dt><dd id="worker-confounded">—</dd>
-<dt>Charging / discharging evidence</dt><dd id="worker-states">—</dd>
-<dt>Samples available / rejected</dt><dd id="worker-samples">—</dd>
-<dt>Threshold hypothesis</dt><dd id="worker-hypothesis">—</dd>
-<dt>Hold reasons</dt><dd id="worker-hold-reasons">—</dd>
-<dt>Fast context, last 20 minutes</dt><dd id="worker-fast-context">—</dd>
-<dt>Battery response / capacity</dt><dd id="worker-battery-response">—</dd>
-<dt>Multi-source charging context</dt><dd id="worker-charging-context">—</dd>
-<dt>Daily behavior review</dt><dd id="worker-daily-review">—</dd>
-<dt>Virtual threshold pairs</dt><dd id="worker-virtual-thresholds">—</dd>
-<dt>Adaptive hysteresis</dt><dd id="worker-adaptive-hysteresis">—</dd>
-<dt>Telemetry provenance</dt><dd id="worker-telemetry-provenance">—</dd>
-</dl>
-</section>
-</details>
-<div role="group" aria-label="Time range">
-<span>History range:</span>
-<button type="button" data-decision-days="1">24h</button>
-<button type="button" data-decision-days="2">48h</button>
-<button type="button" data-decision-days="7">7d</button>
-<a id="decision-export" href="/api/controls/decisions/export?days=1" download="adaptive-decisions.json">Export Journal v1 JSON</a>
-<small id="decision-export-scope">Exports retained Journal v1 evaluation records; Journal v2 state and events are not included.</small>
+<p class="adl-readonly" id="decision-readonly">DRY-RUN — NO HARDWARE WRITE · read-only</p>
+</header>
+
+<section class="adl-primary" id="decision-primary" data-tone="loading" aria-labelledby="decision-summary-heading">
+<div class="adl-primary-body">
+<h2 id="decision-summary-heading" class="adl-kicker">Current decision</h2>
+<p class="adl-decision" id="worker-current-decision">Loading…</p>
+<p class="adl-consequence" id="decision-consequence">Loading the latest evaluation…</p>
+<div class="adl-reason">
+<span class="adl-kicker">Reason</span>
+<p id="worker-summary-hold">—</p>
+<button type="button" class="adl-link" id="decision-more-reasons" hidden>Other factors</button>
 </div>
-<details class="box decision-disclosure" id="decision-history">
-<summary>History</summary>
-<p id="decision-history-source">Loading history source…</p>
-<section aria-labelledby="battery-observations-heading">
-<h2 id="battery-observations-heading" class="title is-5">Historical battery observations</h2>
-<p>Rows are stored collection records. Collection time is not verified device time. Identical payloads and repeated battery fields are marked; EASUN current does not include any unobserved charging source.</p>
-<p id="battery-grid-status" role="status">Loading observations…</p>
-<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Historical battery observations, scroll horizontally">
+<p class="adl-proposal" id="decision-proposal" hidden></p>
+</div>
+<dl class="adl-primary-meta">
+<div><dt class="adl-kicker">Last evaluated</dt><dd><time id="worker-summary-evaluated-at">—</time><span class="adl-age" id="decision-age"></span></dd></div>
+<div><dt class="adl-kicker">Worker</dt><dd><span class="adl-status" id="worker-summary-status">—</span></dd></div>
+<div><dt class="adl-kicker" id="current-threshold-label">Current threshold</dt><dd class="adl-threshold" id="worker-summary-current-threshold">—</dd></div>
+</dl>
+<p class="adl-attention" id="decision-attention" role="status" aria-live="polite"><span id="decision-attention-text">Loading…</span><button type="button" class="adl-retry" id="decision-retry" hidden>Retry</button></p>
+</section>
+
+<ul class="adl-indicators" aria-label="Evidence indicators">
+<li class="adl-indicator" id="indicator-mode-changes"><span class="adl-ind-value" id="indicator-mode-changes-value">—</span><span class="adl-ind-label" id="indicator-mode-changes-label">reported mode changes</span><span class="adl-ind-note" id="indicator-mode-changes-note">Reported by the inverter, not verified switching</span></li>
+<li class="adl-indicator" id="indicator-observations"><span class="adl-ind-value" id="indicator-observations-value">—</span><span class="adl-ind-label">unique observations</span><span class="adl-ind-note" id="indicator-observations-note">—</span></li>
+<li class="adl-indicator" id="indicator-evidence"><span class="adl-ind-value" id="indicator-evidence-value">—</span><span class="adl-ind-label">evidence quality</span><span class="adl-ind-note" id="indicator-evidence-note">—</span></li>
+</ul>
+
+<section class="adl-panel" aria-labelledby="journal-events-heading">
+<div class="adl-panel-head">
+<h2 id="journal-events-heading" class="adl-section-title">Recent activity</h2>
+<span class="adl-dim" id="journal-events-count"></span>
+</div>
+<ol id="journal-events-body" class="adl-timeline" aria-label="Recent significant decision events"></ol>
+<details class="adl-sub" id="journal-raw-events-disclosure" hidden>
+<summary>Full event history <span id="journal-raw-events-count"></span></summary>
+<p class="adl-note">Every returned Journal v2 event, newest first and uncondensed, with its original timestamp and payload.</p>
+<ol id="journal-raw-events" class="adl-event-log"></ol>
+</details>
+</section>
+
+<details class="adl-disclosure" id="technical-details">
+<summary>Technical details <span class="adl-summary-hint">Reasons · worker · evidence · cycling · voltage · hypotheses · journal</span></summary>
+<div class="adl-disclosure-body">
+<p class="adl-note">Times are collection brackets, not device measurement times. EASUN-reported current is not total battery current; charging from other controllers is possible while EASUN reports zero. Battery throughput is a reported-channel proxy. Cycling confidence is a heuristic, not a calibrated probability. Hover a time for its full local and UTC value.</p>
+<div class="adl-groups">
+<section class="adl-group" id="diag-reasons-group" aria-labelledby="diag-reasons-heading" tabindex="-1">
+<h3 id="diag-reasons-heading">Hold and blocking reasons</h3>
+<ul id="worker-hold-reasons" class="adl-reasons"></ul>
+</section>
+<section class="adl-group" aria-labelledby="decision-worker-heading">
+<h3 id="decision-worker-heading">Worker health</h3>
+<dl class="adl-kv" id="diag-worker"></dl>
+</section>
+<section class="adl-group" aria-labelledby="diag-evidence-heading">
+<h3 id="diag-evidence-heading">Evidence and telemetry quality</h3>
+<dl class="adl-kv" id="diag-evidence"></dl>
+</section>
+<section class="adl-group" aria-labelledby="diag-cycling-heading">
+<h3 id="diag-cycling-heading">Cycling analysis</h3>
+<dl class="adl-kv" id="diag-cycling"></dl>
+</section>
+<section class="adl-group" aria-labelledby="diag-voltage-heading">
+<h3 id="diag-voltage-heading">Battery voltage comparison</h3>
+<dl class="adl-kv" id="diag-voltage"></dl>
+</section>
+<section class="adl-group" aria-labelledby="diag-hypothesis-heading">
+<h3 id="diag-hypothesis-heading">Hypotheses and confirmations</h3>
+<dl class="adl-kv" id="diag-hypothesis"></dl>
+</section>
+<section class="adl-group" aria-labelledby="journal-v2-heading">
+<h3 id="journal-v2-heading">Journal storage and repetitions</h3>
+<dl class="adl-kv" id="diag-journal"></dl>
+</section>
+</div>
+<details class="adl-more adl-raw" id="latest-raw-disclosure">
+<summary>Latest evaluation — complete raw record (JSON)</summary>
+<pre id="latest-raw"></pre>
+</details>
+</div>
+</details>
+
+<details class="adl-disclosure" id="decision-history">
+<summary>History <span class="adl-summary-hint">Stored evaluations · battery observations · JSON export</span></summary>
+<div class="adl-disclosure-body">
+<div class="adl-toolbar">
+<div class="adl-range" role="group" aria-label="History range">
+<span class="adl-dim">Range</span>
+<button type="button" class="dm-range-btn active" aria-pressed="true" data-decision-days="1">24h</button>
+<button type="button" class="dm-range-btn" aria-pressed="false" data-decision-days="2">48h</button>
+<button type="button" class="dm-range-btn" aria-pressed="false" data-decision-days="7">7d</button>
+</div>
+<a id="decision-export" class="adl-export" href="/api/controls/decisions/export?days=1" download="adaptive-decisions.json">Export Journal v1 JSON</a>
+</div>
+<p class="adl-note" id="decision-export-scope">Exports retained Journal v1 evaluation records; Journal v2 state and events are not included.</p>
+<p class="adl-note" id="decision-history-source">Loading history source…</p>
+
+<section class="adl-history-section" aria-labelledby="virtual-decisions-heading">
+<h3 id="virtual-decisions-heading" class="adl-section-title">Stored evaluations</h3>
+<p class="adl-note">Recorded evaluations and virtual replays are separate evidence layers. Historical references are not current settings. All valid threshold pairs are exploratory comparisons with no selected winner; replay cannot establish what the inverter would have done.</p>
+<div class="adl-table-wrap adl-history-decisions" tabindex="0" role="region" aria-label="Stored evaluations">
 <table class="dm-table dm-table-compact"><thead><tr>
-<th>Evidence type</th><th>Collection time</th><th>Mode</th><th>Battery voltage</th><th>Reported SOC (unverified)</th><th>EASUN charge current</th><th>EASUN discharge current</th>
+<th>Evaluated</th><th>Decision</th><th>Evidence</th><th>Reason and full record</th>
+</tr></thead><tbody id="decision-body"></tbody></table></div>
+<p class="adl-status-line" id="decision-status" role="status">Loading…</p>
+<button class="adl-load-more" id="decision-load-more" type="button" hidden>Load more</button>
+</section>
+
+<section class="adl-history-section" aria-labelledby="battery-observations-heading">
+<h3 id="battery-observations-heading" class="adl-section-title">Battery observations</h3>
+<p class="adl-note">Rows are stored collection records. Collection time is not verified device time. Identical payloads and repeated battery fields are marked; EASUN current does not include any unobserved charging source.</p>
+<p class="adl-status-line" id="battery-grid-status" role="status">Open History to load battery observations.</p>
+<div class="adl-table-wrap adl-history-wide" tabindex="0" role="region" aria-label="Battery observations, scroll horizontally">
+<table class="dm-table dm-table-compact"><thead><tr>
+<th>Evidence type</th><th>Collected</th><th>Mode</th><th>Battery voltage</th><th>Reported SOC (unverified)</th><th>EASUN charge current</th><th>EASUN discharge current</th>
 <th>EASUN-visible PV</th><th>Output load</th><th>ΔV since previous valid</th><th>Interval</th>
 <th>External charging status</th><th>Provenance</th><th>Data quality</th>
 </tr></thead><tbody id="battery-observation-body"></tbody></table></div>
-<h3 class="title is-6">Battery behavior estimates</h3>
-<p>Derived estimates use changed reported battery fields and elapsed collection time. Ah/Wh values are EASUN-reported channel proxies, never total battery throughput.</p>
-<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Battery behavior estimates, scroll horizontally">
+<h3 class="adl-section-title adl-history-section">Battery behavior estimates</h3>
+<p class="adl-note">Derived estimates use changed reported battery fields and elapsed collection time. Ah/Wh values are EASUN-reported channel proxies, never total battery throughput.</p>
+<div class="adl-table-wrap adl-history-wide" tabindex="0" role="region" aria-label="Battery behavior estimates, scroll horizontally">
 <table class="dm-table dm-table-compact"><thead><tr>
-<th>Evidence type</th><th>Interval end (collection time)</th><th>Operating context</th><th>Voltage slope</th><th>Observed EASUN current</th><th>Reported SOC (unverified)</th><th>Load / PV change</th>
+<th>Evidence type</th><th>Interval end (collected)</th><th>Operating context</th><th>Voltage slope</th><th>Observed EASUN current</th><th>Reported SOC (unverified)</th><th>Load / PV change</th>
 <th>Voltage response</th><th>Charge/discharge interpretation</th><th>Capacity / response proxy</th><th>Confidence</th><th>Freshness</th><th>Limitation</th>
 </tr></thead><tbody id="battery-behavior-body"></tbody></table></div>
-<button id="battery-load-more" type="button" hidden>Load more observations</button>
+<button class="adl-load-more" id="battery-load-more" type="button" hidden>Load more observations</button>
 </section>
-<p id="decision-status" role="status">Loading…</p>
-<section aria-labelledby="virtual-decisions-heading">
-<h2 id="virtual-decisions-heading" class="title is-5">Historical decisions and virtual comparisons</h2>
-<p>Recorded evaluations and virtual replays are separate evidence layers. Historical references are not current settings. All valid threshold pairs are exploratory comparisons with no selected winner; replay cannot establish what the inverter would have done.</p>
-<div class="table-container dm-events-scroll" tabindex="0" role="region" aria-label="Adaptive decisions, scroll horizontally">
-<table class="dm-table dm-table-compact"><thead><tr>
-<th>Evaluation time</th><th>Decision</th><th>Evidence snapshot</th><th>Reason and full record</th>
-</tr></thead><tbody id="decision-body"></tbody></table></div>
-<button id="decision-load-more" type="button" hidden>Load more</button>
-</section>
+</div>
 </details>
 </main></body></html>

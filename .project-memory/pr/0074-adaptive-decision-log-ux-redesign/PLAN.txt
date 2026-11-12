@@ -1,0 +1,105 @@
+TASK
+Redesign the Adaptive Decision Log presentation after PR #73 failed real-world usability review.
+
+DOCUMENT STATUS
+RETROSPECTIVE. This plan was written on 2026-11-12 AFTER the implementation was completed in the working
+tree. The work was carried out directly from the user's task prompt ("Redesign Adaptive Decision Log — UX
+correction after PR #73"); no PLAN.txt existed and no plan review took place before implementation. This
+file records the scope that was actually implemented so the change can be reviewed against it. It is not
+evidence that the standard plan -> plan-review -> coder sequence was followed (AGENT_STANDARD.txt section 1).
+
+BRANCH AND BASE
+Working tree on master at 330ab811aa4dc9de4fb265aa0fe18eaebaf7877a (merge of PR #73). No branch, commit,
+push or pull request is part of this task; all Git operations belong to the operator.
+PR identifier: 0074-adaptive-decision-log-ux-redesign. 0074 is the next number after the latest canonical
+directory (0073-adaptive-decision-log-ui, GitHub PR #73); GitHub reported no pull request or issue #74 at
+the time of writing. If the eventual GitHub PR receives a different number, the operator may rename this
+directory before merge.
+
+PROBLEM
+PR #73 passed its functional tests but the page was visually unacceptable: white Bulma .box cards on the dark
+dashboard, seven equally weighted status tiles, a HOLD decision with no prominence, concatenated reason
+explanations, raw ISO timestamps, a verbose repetitive event list, and Technical details as an unstructured
+text dump. Browser audit of the PR #73 page reproduced white/light surfaces and text below 4.5:1 contrast
+(including the dry-run notice at about 1.5:1).
+
+ALLOWED FILES
+app/web/templates/adaptive_decisions.html
+app/web/static/adaptive_decisions.js
+tests/test_adaptive_decisions_ui.cjs
+tests/test_adaptive_journal_v2_ui.cjs
+tests/test_decision_log_battery_voltage_ui.cjs
+.project-memory/pr/0074-adaptive-decision-log-ux-redesign/PLAN.txt
+.project-memory/pr/0074-adaptive-decision-log-ux-redesign/reviews/PLAN_REVIEW.txt
+.project-memory/pr/0074-adaptive-decision-log-ux-redesign/CODER_REPORT.txt
+.project-memory/pr/0074-adaptive-decision-log-ux-redesign/reviews/PRECOMMIT_REVIEW.txt
+
+FORBIDDEN FILES AND OPERATIONS
+API routes and response contracts, app/web_host.py (including the static allowlist), database schema and
+migrations, Journal v1/v2 writers, learning, confirmation, evaluation, deduplication, heartbeat and battery
+model logic, worker scheduling, threshold calculations, device/inverter settings, hardware control paths,
+deployment configuration, .github/**, app/docker/**, safety gates, PR 0073 artifacts. No new production
+dependency. No production, database, device or external-service access. No git stash, add, commit, push,
+branch, checkout, switch, merge, rebase or pull request.
+
+IMPLEMENTATION SCOPE (as implemented)
+1. Theme. Remove Bulma .box/.title usage on this page. Page styles live in one inline <style> block in the
+   template (CSP allows inline styles; a separate stylesheet would require an app/web_host.py allowlist
+   change, which is out of scope). Every selector is scoped to .adl/.adl-* or [data-tone]; colours come from
+   dashboard.css tokens (--bg, --surface, --surface2, --border, --text, --text-dim, --teal, --amber, --green,
+   --red, plus existing --purple and *-dim tokens).
+2. Primary decision panel. One prominent panel: decision label (HOLD / BLOCKED / INSUFFICIENT DATA /
+   hypothetical proposal / No decision yet / Unavailable), one-line consequence, ONE primary reason, a link to
+   the remaining factors, hypothetical-candidate line when present (always non-actionable), last evaluated
+   time with relative age, worker status, current threshold only when verified by device read-back (otherwise
+   "Not verified"), and an attention line that separates real worker problems from limited evidence.
+   The read-only marker "DRY-RUN — NO HARDWARE WRITE" is shown in the header.
+3. Primary reason selection. A fixed presentation-only priority order (system/worker problems, data
+   freshness/validity, voltage-comparison blockers, limits/configuration, confirmation, unknown codes,
+   cycling, provenance caveats). It never changes the recorded codes; all codes stay listed in Technical
+   details with the main one marked.
+4. Secondary indicators: exactly three — reported mode changes (explicitly "not verified physical
+   switching"), unique observations, evidence quality.
+5. Timeline: at most five condensed entries by default from actual Journal v2 events (API order, newest
+   first). Minor CONFIRMATION_CHANGED / BATTERY_RESPONSE_CHANGED entries yield to meaningful events; adjacent
+   identical events are condensed with a count; a stability-only DECISION_CHANGED is labelled "Stability
+   changed", never a new decision. A "Full event history" disclosure keeps every original event, its full
+   timestamp and payload. Journal v1 states that its event timeline is unavailable.
+6. Timestamps: compact local time; full local time, IANA zone, UTC offset and the stored value in the title
+   attribute; unparseable values shown verbatim.
+7. Technical details (closed): grouped key/value lists — reasons, worker health, evidence and telemetry
+   quality, cycling analysis, battery voltage comparison, hypotheses and confirmations, journal storage and
+   repetitions — plus nested disclosures for long code lists and the complete raw latest-evaluation JSON.
+   All existing scientific and provenance caveats retained.
+8. History (closed): range buttons and export inside; decisions table with fixed columns, stacked rows on
+   narrow screens; battery tables scroll locally. Export endpoint, parameters and v1-only label unchanged.
+9. Error/empty states: explicit "Unavailable" panel with Retry; a failed refresh keeps the last data with a
+   "Refresh failed" notice; v2-without-evaluation never falls back to a v1 row.
+10. Preserve unchanged: API calls and limits, cursor pagination, generation/stale-response guards, pending
+    reset, retries, duplicate guards, deferred History rendering and deferred battery requests, battery
+    voltage validity rules, reason fallback for unknown codes.
+
+TEST PLAN
+Update the three focused Node UI suites to the new structure: layout order and closed disclosures, scoped
+dark styles with no light backgrounds, dominant reason selection, indicators, worker failure vs degraded
+evidence, stale/disabled states, unavailable/retry/refresh-failure states, grouped diagnostics with every
+caveat, timeline prioritisation/condensing/stability-only events/full history, v1/v2/null-latest
+compatibility, history deferral, pagination/retry, range reset with History closed, battery voltage contract.
+Run the Python suites that render or serve this page. Perform real-browser visual validation at desktop and
+mobile widths with representative v1/v2 payloads, empty and error states.
+
+VALIDATION
+node --check app/web/static/adaptive_decisions.js
+node --test tests/test_adaptive_decisions_ui.cjs
+node --test tests/test_adaptive_journal_v2_ui.cjs
+node --test tests/test_decision_log_battery_voltage_ui.cjs
+python -m unittest (page-related Python suites)
+python3 -m compileall -q .
+scripts/check-repo-safety.sh
+scripts/check-project-memory.sh
+git diff --check
+Browser audit: no horizontal page scroll, no light surfaces, text contrast >= 4.5:1, no overflow, no JS errors.
+
+NON-GOALS
+No API, data, migration, algorithm, learning-state, worker, inverter, relay or hardware change. No
+deployment change. No commit, push, pull request or merge.
