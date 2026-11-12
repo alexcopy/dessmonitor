@@ -1,0 +1,42 @@
+TASK
+
+Precommit review of PR 0073-adaptive-decision-log-ui.
+
+VERDICT
+
+approved
+
+REVIEW SCOPE
+
+Reviewed the final implementation diff, focused UI tests, CODER_REPORT.txt, approved PLAN.txt, and approved PLAN_REVIEW.txt against the user task and project-memory boundaries. The changed implementation files are limited to the approved adaptive decision template, presentation JavaScript, and three focused UI test files. The coder report and this review artifact are the expected project-memory outputs.
+
+FINDINGS
+
+The page presents a compact status summary before the timeline and collapsed technical/history sections. The summary reports worker state, evaluation time, current decision, cycling, evidence quality, and a translated HOLD explanation. Current threshold values require verified device read-back, and any proposal is labelled hypothetical and non-actionable.
+
+Known reason codes have short human-readable explanations, while unknown codes remain visible through a safe text fallback. Historical reason summaries are deduplicated and repeat rows refer to the earlier explanation. Full decision records remain available through row expansion.
+
+The timeline uses returned Journal v2 events, shows readable names and concise summaries, limits the visible list, and provides access to older events and original payloads. Journal v1 continues to say that its separate event timeline is unavailable. A null Journal v2 latest decision remains null in the UI and is not replaced by a historical v1 row.
+
+Technical details and History are native, collapsed disclosures. Historical decision rendering and the battery-observations request are deferred until History opens. Existing range selection, cursor pagination, retry, generation checks, and duplicate protections remain present. The export endpoint and payload are unchanged; its v1-only scope is explicit.
+
+No blocking findings. The narrow-width visual browser run is unavailable as documented; structural/CSS regression assertions cover wrapping and disclosure placement.
+
+BOUNDARY REVIEW
+
+No API, database, migration, Journal writer, learning, worker scheduling, hardware, inverter setting, deployment, or safety-gate files are changed. No write path or external service/device access was introduced. No commit, push, pull request, or merge was performed.
+
+VALIDATION REVIEW
+
+Independently reran and passed:
+node --check app/web/static/adaptive_decisions.js
+node --test tests/test_adaptive_decisions_ui.cjs — 11 passed
+node --test tests/test_adaptive_journal_v2_ui.cjs — 4 passed
+node --test tests/test_decision_log_battery_voltage_ui.cjs — 37 passed
+git diff --check
+
+Reviewed the coder report's recorded results: python3 -m compileall -q . passed; scripts/check-repo-safety.sh passed with 0 errors and 0 warnings. After the review artifact was present, independently ran scripts/check-project-memory.sh; it passed with 0 errors and 50 project-memory directories accepted. Playwright and Chromium/Chrome executables were unavailable; the focused suite includes structural/CSS assertions.
+
+REVIEWER
+
+Precommit review agent.

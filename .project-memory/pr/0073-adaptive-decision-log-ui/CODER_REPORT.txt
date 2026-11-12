@@ -1,0 +1,47 @@
+TASK COMPLETE
+
+Implemented the Adaptive Decision Log UI cleanup on branch codex/adaptive-decision-log-ui. The latest worker and Journal v2 decision summary appears first, reason codes use concise human-readable explanations, significant Journal v2 events appear in a short timeline, and verbose diagnostics and historical records are kept in collapsed Technical details and History sections. Historical decision rendering and battery-observation requests are deferred until History opens. The existing JSON export remains unchanged and is labelled as Journal v1-only.
+
+The implementation preserves the Journal v2 null-latest behavior, existing pagination and retry protections, invalid-voltage presentation, verified-readback threshold restriction, dry-run messaging, and read-only safety boundary. No API, database, worker, learning, device, inverter, or hardware-control code was changed.
+
+BLOCKERS
+
+None.
+
+WARNINGS
+
+Browser visual validation was unavailable: Node could not resolve Playwright, and no Chromium, Chromium Browser, or Google Chrome executable was present on PATH. The narrow-width regression is covered by a structural/CSS assertion in the focused UI tests.
+
+scripts/check-project-memory.sh passed after the precommit reviewer wrote the final required review artifact.
+
+FILES CHANGED
+
+app/web/templates/adaptive_decisions.html — compact overview, event timeline, closed Technical details and History disclosures, responsive layout, and export-scope wording.
+app/web/static/adaptive_decisions.js — readable reason translations and summary, concise event rendering, deduplicated historical explanations, and deferred history rendering/loading.
+tests/test_adaptive_decisions_ui.cjs — summary, disclosures, history deferral, export scope, and translated-reason assertions.
+tests/test_adaptive_journal_v2_ui.cjs — Journal v2 current-decision behavior and concise, expandable event timeline assertions.
+tests/test_decision_log_battery_voltage_ui.cjs — retained voltage presentation contract assertions.
+
+VALIDATION RUN
+
+PASS — node --check app/web/static/adaptive_decisions.js
+PASS — node --test tests/test_adaptive_decisions_ui.cjs (11 tests)
+PASS — node --test tests/test_adaptive_journal_v2_ui.cjs (4 tests)
+PASS — node --test tests/test_decision_log_battery_voltage_ui.cjs (37 tests)
+PASS — python3 -m compileall -q .
+PASS — scripts/check-repo-safety.sh (0 errors, 0 warnings)
+PASS — git diff --check
+UNAVAILABLE — Browser narrow-width visual check; Playwright and browser executables were not installed. Structural/CSS regression assertions passed within the focused UI suite.
+PASS — scripts/check-project-memory.sh (0 errors; all 50 project-memory directories accepted).
+
+DEVIATIONS FROM PLAN
+
+No implementation-scope deviations. The planned browser visual check used its documented fallback: structural/CSS assertions, because browser tooling is unavailable.
+
+BOUNDARY CONFIRMATIONS
+
+Only the approved UI template, UI JavaScript, focused UI tests, and this coder report were changed. No database migrations, API changes, Journal writers, learning logic, hardware writes, inverter setting changes, or safety-restriction changes were made. No files were staged or committed, and no push, pull request, merge, or external service/device interaction occurred.
+
+NEXT REQUIRED ACTION
+
+Implementation, precommit review, project-memory validation, and diff checks are complete. Leave the branch ready for user review without committing or merging.
