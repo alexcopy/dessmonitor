@@ -1,0 +1,307 @@
+TASK 0075 — Minimal temperature sensor scaling and freshness hotfix
+
+STATUS
+
+Planning artifact only. Implementation is gated on independent plan review.
+The current branch remains master. No Git mutation is permitted.
+
+ROOT CAUSE
+
+app/tuya/status_updater_async.py uses a magnitude threshold to decide whether
+numeric Tuya temperature values are tenths of a degree. This leaves raw values
+such as 60 and 91 as 60.0°C and 91.0°C. Existing repository checks establish
+tenths scaling for temp_current=237→23.7 and va_temperature=278→27.8, but do
+not establish a scale for temp, temperature, or temp_value.
+
+run.py _make_sensors_provider() currently copies a per-device shared_state value,
+assigns datetime.now(), and marks it fresh/valid. That timestamp is not an
+observation timestamp and misrepresents cached data.
+
+EXACT DECODER CONTRACT
+
+Add a small immutable TemperatureDecodeResult in
+app/devices/sensor_telemetry.py. It contains value (float or None), raw_value
+for internal diagnostics, source_property, scale, raw_type, and quality. The
+safe quality values are verified, unverified, and invalid. The decoder is the
+only place where scale is applied.
+
+Evaluate properties in this exact order:
+
+1. temp_current
+2. temp
+3. va_temperature
+4. temperature
+5. temp_value
+6. temp_humidity_way_1
+
+For every present candidate, retain the first unverified result and first
+invalid result, but continue looking for a later verified result. Return the
+first verified result; if none exists return the first unverified result, then
+the first invalid result.
+
+The exact property/type table is:
+
+- temp_current and va_temperature + exact built-in int (bool excluded): scale
+  tenths, raw_type=int, verified, value=raw/10. Thus 60→6.0, 91→9.1,
+  237→23.7, 278→27.8, 0→0.0, -5→-0.5, and -50→-5.0.
+- temp_current and va_temperature + finite built-in float: scale celsius,
+  raw_type=float, verified, preserve the value. Thus 10.5→10.5, 19.9→19.9,
+  -5.0→-5.0, and 60.0→60.0. This is an explicit type rule, never a magnitude
+  rule.
+- temp_humidity_way_1 + string matching exactly the existing t1 grammar
+  `\\bt1\\s*[=-]\\s*(-?\\d+(?:\\.\\d+)?)`: scale celsius, raw_type=string,
+  verified, preserve the extracted decimal. No division is applied.
+- temp, temperature, and temp_value + an exact built-in int (bool excluded):
+  scale unknown, raw_type=int, quality unverified, value=None, and
+  raw_value/source_property retained only for internal diagnostics.
+- temp, temperature, and temp_value + an exact finite built-in float: scale
+  unknown, raw_type=float, quality unverified, value=None, and
+  raw_value/source_property retained only for internal diagnostics. These
+  properties never produce a verified value.
+
+The invalid metadata mapping is exact for every recognized candidate property:
+
+- raw is None: source_property=property, scale=unknown, raw_type=missing,
+  raw_value=None, value=None, quality=invalid.
+- raw is bool: source_property=property, scale=unknown, raw_type=bool,
+  raw_value is not published, value=None, quality=invalid.
+- raw is an exact built-in int or float and is NaN/infinity: source_property=
+  property, scale=unknown, raw_type=non_finite, raw_value is not published,
+  value=None, quality=invalid.
+- raw is a built-in str for a numeric property: source_property=property,
+  scale=unknown, raw_type=malformed, raw_value=str, value=None,
+  quality=invalid. Numeric strings are not coerced.
+- raw is any other type, including numeric subclasses/Decimal: source_property=
+  property, scale=unknown, raw_type=unsupported, raw_value is not published,
+  value=None, quality=invalid.
+- temp_humidity_way_1 string not matching the exact t1 grammar: source_property
+  =temp_humidity_way_1, scale=unknown, raw_type=malformed, raw_value=str,
+  value=None, quality=invalid.
+- if no recognized candidate key is present: source_property=None,
+  scale=unknown, raw_type=missing, raw_value=None, value=None, quality=invalid.
+- if status contains only unrecognized keys: source_property=None,
+  scale=unknown, raw_type=unsupported, raw_value is not published, value=None,
+  quality=invalid.
+
+For diagnostics, raw_value is retained only for exact built-in scalar int/float/
+str/None cases and never crosses the web, ML, API, or dashboard boundary. No
+value is fabricated. Unsupported keys never become a verified result.
+
+No metadata exception is permitted in this task. No device configuration,
+property-specific metadata field, magnitude inference, or fallback scale may be
+added. This is the complete supported scale table.
+
+The decoder result is passed to the registry as an already-decoded observation.
+The registry must never inspect magnitude, property name, or raw value to scale.
+
+EXACT REGISTRY CONTRACT
+
+TelemetryRegistry.update_water_temperature() accepts a TemperatureDecodeResult
+named observation, validates only its finite normalized Celsius value and
+quality, and rounds it to one decimal place. It must not divide by ten. A
+direct registry test with 10.5, 19.9, 23.7, and 27.8 proves no second
+normalization.
+
+For quality=verified, store the normalized value, observed_at, source=tuya,
+source_property/scale diagnostics internally, and status=valid. For
+quality=unverified or invalid, do not replace the last valid value or its
+observed_at. If no prior valid value exists, store value=None and
+observed_at=None with status=unverified for unknown scale or status=invalid for
+malformed/non-finite/missing input. Invalid/unverified attempts never refresh
+observed_at.
+
+The state table below is normative for registry output and
+get_all_readings_dict():
+
+Case: descriptor only, no polling attempt
+  value=None; observed_at=None; freshness=unavailable; status=unavailable;
+  dashboard value=—; label=unavailable; class=neutral.
+
+Case: no prior valid value + unknown numeric property scale
+  value=None; observed_at=None; freshness=unavailable; status=unverified;
+  dashboard value=—; label=Unverified; class=degraded/amber.
+
+Case: no prior valid value + missing/malformed/non-finite input
+  value=None; observed_at=None; freshness=unavailable; status=invalid;
+  dashboard value=—; label=Check reading; class=error/red.
+
+Case: prior valid value + unknown scale attempt
+  retain prior value and observed_at; compute freshness from prior observed_at;
+  status=unverified; dashboard retains the numeric value only as a diagnostic
+  last-known value and shows Unverified with degraded/amber class.
+
+Case: prior valid value + invalid/missing attempt
+  retain prior value and observed_at; compute freshness from prior observed_at;
+  status=invalid; dashboard retains the numeric value only as a diagnostic
+  last-known value and shows Check reading with error/red class.
+
+Case: verified live value
+  value=rounded normalized Celsius; observed_at=measurement time;
+  freshness is fresh/stale/unavailable using the existing 180/360 second
+  thresholds; status is valid when fresh, stale when stale, unavailable when
+  unavailable; dashboard uses one decimal and °C, with green only for valid+
+  fresh.
+
+Case: accepted shared-state cache value
+  value=normalized cached value; observed_at=original accepted timestamp;
+  freshness is computed from that timestamp; status=cached regardless of age;
+  dashboard shows the numeric value and cached with degraded/amber class.
+
+Extend SensorStatus with UNVERIFIED and CACHED. Preserve existing freshness
+values fresh/stale/unavailable. get_all_readings() must preserve invalid,
+unverified, and cached quality statuses instead of converting them to green
+valid solely from freshness; valid live readings still decay to stale or
+unavailable from their original timestamp.
+
+EXACT SHARED-STATE PROVENANCE CONTRACT
+
+For each verified sensor_id, the updater writes this single object after the
+registry update succeeds:
+
+  shared_state[f"water_temp_observation_{sensor_id}"] = {
+      "sensor_id": sensor_id,
+      "value": normalized_float_rounded_to_one_decimal,
+      "observed_at": now_utc.astimezone(timezone.utc).isoformat(),
+      "source": "tuya",
+      "source_property": property_code,
+      "scale": "tenths" or "celsius",
+      "raw_type": "int" or "float" or "string",
+      "status": "valid",
+  }
+
+The existing generic water_temp and per-device numeric compatibility keys remain
+only for verified observations, because MLDataCollector and app/api.py consume
+them. Unknown/invalid observations do not write or overwrite those verified
+keys. The provenance object is the only source used by the dashboard fallback;
+legacy numeric keys without this object are not promoted to fresh telemetry.
+
+run.py must validate every field before accepting the object: dict shape;
+matching sensor_id; non-bool finite numeric value; observed_at parseable as a
+timezone-aware ISO timestamp and not later than the current UTC comparison
+instant; source exactly tuya; source_property exactly one of
+temp_current/va_temperature/temp_humidity_way_1; scale exactly tenths or
+celsius; raw_type exactly int/float/string; status exactly valid; and exact
+property/scale/raw_type combinations from the decoder table. The current UTC
+instant may be used only to reject future timestamps and compute age, never as
+the stored observed_at. If any check fails, reject the object and leave the
+registry result unchanged.
+
+Fallback precedence is exact: if the registry reading has status=valid and
+freshness=fresh, return it unchanged and do not consult cache. Otherwise,
+accept a validated provenance object when it has a timestamp greater than or
+equal to the registry observed_at, provided the registry status is valid,
+stale, or unavailable; equality is required for the normal in-process path
+because the registry and provenance object represent the same accepted
+observation. Reject an older timestamp or any cache when the registry status is
+invalid/unverified with a retained value. Accepted fallback output uses
+source=shared_state_cache, status=cached, the original timestamp, and computed
+freshness. The generic water_temp key must never be copied to another sensor.
+
+SAFETY AND CONSUMER TRACE
+
+The async updater writes verified normalized water_temp to shared_state;
+app/ml/ml_data_collector.py consumes it for ML history and has a legacy
+temp_current fallback. app/api.py displays water_temp in summaries. The legacy
+relay_tuya_controller.py and app/monitoring/device_status_logger.py independently
+divide temp_current by 10; they are diagnostic/compatibility paths and are not
+changed. app/devices/pond_pump_controller.py reads ambient_temp, not the typed
+sensor snapshot. The hotfix must prove that _update_sensor_telemetry does not
+write ambient_temp, pump/relay/inverter/charging code is untouched, verified
+ML water_temp remains unchanged in meaning, and unknown scale never enters
+verified water_temp shared_state. The existing ML temp_current fallback remains
+unchanged and receives a regression assertion for its established 0.1 behavior,
+including the intentionally preserved zero/truthiness behavior in app/api.py.
+
+DASHBOARD CONTRACT
+
+Do not modify the typed snapshot pipeline or app/web_control_state_provider.py;
+the existing snapshot already carries value, freshness, status, source, and
+communication_status. Use the existing safe fields only.
+
+In dashboard.js add exactly one deterministic water-temperature selector:
+choose the first sensor in API order with metric=water_temperature, finite value,
+and status in valid/cached/stale; if none exists, choose the first
+metric=water_temperature entry, including unavailable/unverified/invalid
+entries.
+Add one formatter returning value text, unit text, status label, and CSS class.
+Use that same formatter result for every sensor row and for the mini indicator.
+Validated Celsius values display with one decimal place and °C. Unverified and
+invalid values display no numeric Celsius value and labels Unverified or Check
+reading. Cached displays cached with an amber/degraded class; stale displays
+stale; unavailable displays unavailable. Only live verified fresh data may use
+the existing green success class. Cats Home remains unavailable when no
+verified reading exists. Keep the dark theme and avoid unrelated layout
+changes.
+
+IMPLEMENTATION FILES
+
+Runtime files:
+app/devices/sensor_telemetry.py
+app/tuya/status_updater_async.py
+app/service/telemetry_registry.py
+run.py
+app/web/static/dashboard.js
+app/web/static/dashboard.css
+
+Focused tests:
+tests/test_temperature_sensor_hotfix.py
+tests/test_temperature_sensor_hotfix_ui.cjs
+
+Project Memory artifacts:
+.project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/PLAN.txt
+.project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/reviews/PLAN_REVIEW.txt
+.project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/CODER_REPORT.txt
+.project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/reviews/PRECOMMIT_REVIEW.txt
+
+No other files are allowed. In particular, do not modify devices.yaml,
+config.json, ML modules, pond/pump/control modules, snapshot/provider modules,
+database files, deployment files, or historical Project Memory records.
+
+FOCUSED TESTS
+
+Cover the full decoder table and exact order; confirmed raw 60, 91, 237, and
+278; already-normalized 10.5 and 19.9; zero; -5, -50, and normalized negative
+floats; missing, bool, NaN, infinity, malformed, and unsupported properties;
+unknown-scale int/float raw_type metadata and absence from verified shared_state/ML values; no double
+normalization; every provenance validation failure; fresh versus cached versus
+stale timestamps; invalid and unknown attempts preserving the last valid
+observation; descriptor/unavailable versus invalid distinction; unavailable
+Cats Home; end-to-end Tuya input through registry and existing snapshot payload;
+and no ambient_temp/control behavior changes. The UI test must prove the
+Sensors row and mini indicator use identical formatted text and status for the
+selected sensor and that unavailable/unverified/invalid readings do not receive
+unconditional green styling.
+
+VALIDATION COMMANDS
+
+Run these exact commands where applicable and record exit codes/results:
+
+  python3.12 -m unittest tests.test_temperature_sensor_hotfix -v
+  node tests/test_temperature_sensor_hotfix_ui.cjs
+  scripts/check-canonical-sensor-snapshot-pipeline.sh
+  scripts/check-web-dashboard.sh
+  scripts/check-repo-safety.sh
+  scripts/check-project-memory.sh
+  python3.12 -m compileall -q app/devices/sensor_telemetry.py app/tuya/status_updater_async.py app/service/telemetry_registry.py run.py
+  git diff --check
+  git diff --name-only
+  git status --short
+  git status --short --untracked-files=all
+
+The union of tracked paths from git diff --name-only and untracked paths from
+git status --short --untracked-files=all (expanding the task directory to
+individual files) must be a subset of the exact implementation and artifact
+files above; the coder and precommit reviewer must perform this allowlist
+comparison explicitly. Attempt desktop and mobile browser validation if a
+local dashboard can start without hardware/network access. The existing
+dashboard script may be environment-limited when binding a local socket; report
+that limitation rather than claiming visual validation.
+
+HANDOFF GATES
+
+No coder agent may begin until reviews/PLAN_REVIEW.txt contains an independent
+approved verdict. The coder must write CODER_REPORT.txt and leave the worktree
+uncommitted. A separate precommit-review agent must inspect the final diff,
+rerun relevant checks, and write PRECOMMIT_REVIEW.txt with an approved or
+blocked verdict. No staging, commit, push, branch, stash, merge, reset, or
+Pull Request operation may be performed.

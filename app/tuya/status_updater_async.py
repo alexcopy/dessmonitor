@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from app.devices.sensor_telemetry import decode_water_temperature
 from app.utils.time_utils import smart_sleep
 from shared_state.shared_state import shared_state
 
@@ -922,10 +923,11 @@ class TuyaStatusUpdaterAsync:
         """Extract and update sensor telemetry from a status response.
 
         Uses a priority-ordered list of candidate telemetry properties:
-        temp_current, va_temperature, temperature, temp_value.
+        temp_current, temp, va_temperature, temperature, temp_value,
+        temp_humidity_way_1.
 
-        Normalizes exactly once using scale 0.1 (bounded Tuya compatibility).
-        Updates TelemetryRegistry and backward-compatible shared_state keys.
+        The decoder owns the complete scale table.  Only verified decoded
+        observations are published to verified shared_state compatibility keys.
         """
         if self._telemetry is None:
             return
@@ -944,31 +946,42 @@ class TuyaStatusUpdaterAsync:
                 communication_status=communication_status if dev.enabled else "disabled",
             )
 
-        normalized = self._extract_temperature_celsius(status_by_code)
-        if normalized is None:
-            # No telemetry property found — update communication status only
-            if self._telemetry.get_reading(sensor_id) is not None:
-                # Keep existing value, update freshness and comm status
-                pass
-            return
-
-        self._telemetry.update_water_temperature(
+        observation = decode_water_temperature(status_by_code)
+        accepted = self._telemetry.update_water_temperature(
             sensor_id=sensor_id,
             display_name=display_name,
             description=description,
-            raw_value=normalized,
+            observation=observation,
             observed_at=now_utc,
             source="tuya",
             communication_status=communication_status,
         )
 
+        if not accepted:
+            return
+
         # Backward-compatible shared_state keys for ML collector
         from shared_state.shared_state import shared_state
+        normalized_reading = self._telemetry.get_reading(sensor_id)
+        if normalized_reading is None or normalized_reading.value is None:
+            return
+        normalized = float(normalized_reading.value)
         shared_state["water_temp"] = normalized  # last-write (compat)
         # Per-device key so multiple sensors don't overwrite each other
         shared_state[f"water_temp_{dev.id}"] = normalized
         shared_state[f"water_temp_{sensor_id}"] = normalized
         shared_state[f"water_temp_{display_name}"] = normalized
+        observed_at_utc = now_utc.astimezone(timezone.utc)
+        shared_state[f"water_temp_observation_{sensor_id}"] = {
+            "sensor_id": sensor_id,
+            "value": normalized,
+            "observed_at": observed_at_utc.isoformat(),
+            "source": "tuya",
+            "source_property": observation.source_property,
+            "scale": observation.scale,
+            "raw_type": observation.raw_type,
+            "status": "valid",
+        }
 
         # Battery percentage for wireless sensors (TH06, etc.)
         bat_pct = status_by_code.get("battery_percentage")
@@ -1009,39 +1022,11 @@ class TuyaStatusUpdaterAsync:
 
     @staticmethod
     def _extract_temperature_celsius(status_by_code: dict[str, object]) -> float | None:
-        """Extract a Tuya temperature reading and return Celsius."""
-        candidate_properties = (
-            "temp_current",
-            "temp",
-            "va_temperature",
-            "temperature",
-            "temp_value",
-        )
-        for prop in candidate_properties:
-            raw_temp = status_by_code.get(prop)
-            if isinstance(raw_temp, bool):
-                continue
-            if isinstance(raw_temp, (int, float)):
-                if raw_temp == raw_temp and raw_temp not in (float("inf"), float("-inf")):
-                    value = float(raw_temp)
-                    if abs(value) >= 100.0:
-                        value = value * 0.1
-                    return round(value, 1)
-
-        raw_way = status_by_code.get("temp_humidity_way_1")
-        if raw_way is None:
+        """Compatibility helper backed exclusively by the typed decoder."""
+        observation = decode_water_temperature(status_by_code)
+        if observation.quality != "verified":
             return None
-        import re
-        match = re.search(r"\bt1\s*[=-]\s*(-?\d+(?:\.\d+)?)", str(raw_way))
-        if match is None:
-            return None
-        try:
-            value = float(match.group(1))
-        except ValueError:
-            return None
-        if value != value or value in (float("inf"), float("-inf")):
-            return None
-        return round(value, 1)
+        return round(float(observation.value), 1)
 
     def _schedule_sensor_individual_fallback(
         self,

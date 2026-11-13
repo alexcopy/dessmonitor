@@ -1,0 +1,125 @@
+TASK 0075 — FRESH INDEPENDENT PRECOMMIT REVIEW
+
+VERDICT: APPROVED
+
+EVIDENCE
+
+Required initial repository check was run first:
+
+  git rev-parse --verify HEAD; git branch --show-current; git status --short
+  HEAD dd13624e1cb6012bf77938f74be26a706faf6314
+  branch master
+  initial worktree: six intended runtime files modified; focused tests and the
+  task directory untracked.
+
+The full actual diff, approved runtime files, focused tests, PLAN.txt,
+PLAN_REVIEW.txt, and CODER_REPORT.txt were independently reviewed. The
+decoder has the exact six-property order and type/scale table, retains
+diagnostic raw metadata internally, and gives verified candidates precedence
+over earlier unverified or invalid candidates. The registry accepts decoded
+normalized observations without magnitude inference or a second division,
+preserves last-valid values and timestamps for invalid/unverified attempts, and
+retains quality statuses while live freshness decays. The updater publishes
+normalized compatibility values and provenance only after a verified
+observation, without writing ambient_temp. run.py validates provenance fields
+and property/scale/type combinations, rejects legacy numeric fallbacks, and
+supports the equal-or-newer timestamp cache path. The dashboard selector and
+formatter cover live, cached, stale, unavailable, unverified, and invalid
+states.
+
+BLOCKERS
+
+None. The previous blocker is fixed in dashboard.js:813-830: the empty-sensor
+branch sets both the em-dash text and dm-stat-mini-val neutral, clearing any
+prior green class. The follow-up UI regression at
+tests/test_temperature_sensor_hotfix_ui.cjs:109-119 proves a live-to-empty
+transition resets both mini text and class and rejects ok.
+
+WARNINGS
+
+The dashboard script cannot run its socket preflight in this sandbox, so no
+desktop/mobile browser visual run was possible. The stale value class is
+assigned by the formatter while CSS has no explicit .dm-sensor-val.stale or
+.dm-stat-mini-val.stale color rule; the stale status label remains visible and
+the implementation does not grant stale readings the green class. The focused
+tests do not exhaustively enumerate every provenance rejection, but the
+provider and validator logic were reviewed directly and the required checks
+pass.
+
+CHANGED-FILE ALLOWLIST RESULT
+
+Tracked changed paths are exactly:
+
+  app/devices/sensor_telemetry.py
+  app/service/telemetry_registry.py
+  app/tuya/status_updater_async.py
+  app/web/static/dashboard.css
+  app/web/static/dashboard.js
+  run.py
+
+The full git status --short --untracked-files=all union is exactly the six
+runtime files, the two focused tests, and the four task-0075 artifacts
+(PLAN.txt, reviews/PLAN_REVIEW.txt, CODER_REPORT.txt, and this review). This
+is within the exact implementation, focused-test, and task-artifact
+allowlist; no forbidden path was found. Only the approved
+reviews/PRECOMMIT_REVIEW.txt path was written by this review.
+
+VALIDATION RESULTS
+
+  python3.12 -m unittest tests.test_temperature_sensor_hotfix -v
+    exit 0; 7 tests passed.
+
+  node tests/test_temperature_sensor_hotfix_ui.cjs
+    exit 0; 3 tests passed, including the live-to-empty transition.
+
+  python3.12 -m compileall -q
+      app/devices/sensor_telemetry.py
+      app/tuya/status_updater_async.py
+      app/service/telemetry_registry.py
+      run.py
+    exit 0.
+
+  scripts/check-repo-safety.sh
+    exit 0; no forbidden tracked/untracked artifacts, zero errors, zero
+    warnings, and required .dockerignore coverage passed.
+
+  scripts/check-project-memory.sh
+    exit 0; all governance files and PR directories passed.
+
+  git diff --check
+    exit 0.
+
+  scripts/check-canonical-sensor-snapshot-pipeline.sh
+    exit 126 because the script is not executable in this environment.
+
+  /bin/zsh scripts/check-canonical-sensor-snapshot-pipeline.sh
+    exit 0; all 65 canonical sensor snapshot checks passed.
+
+  scripts/check-web-dashboard.sh
+    exit 1 before dashboard assertions because the environment denied binding
+    its local validation socket at 127.0.0.1 with PermissionError: [Errno 1]
+    Operation not permitted. This is an environment limitation, not a claimed
+    dashboard pass.
+
+ALLOWLIST AND SAFETY REVIEW
+
+The worktree remains uncommitted on master. No staging, commit, branch,
+reset, stash, merge, push, pull request, hardware/Tuya command, database or
+control operation was performed. The diff contains no ML-module, ambient
+temperature, pump/relay/inverter/charging, snapshot/provider, database,
+deployment, or configuration changes. Legacy ML water_temp fallback behavior
+remains unchanged. The changed updater path does not write ambient_temp, and
+unknown scale never enters verified water_temp shared_state.
+
+VISUAL VALIDATION STATUS
+
+No desktop or mobile browser visual validation was completed because the
+dashboard validator could not bind its local socket in this environment. This
+limitation is reported honestly; it is not a visual pass. The Node focused UI
+test passed and covers non-browser DOM rendering for live, cached, unavailable,
+unverified, invalid, and live-to-empty states.
+
+FINAL REVIEW RESULT
+
+The approved implementation and follow-up fix are ready to proceed. Leave the
+worktree uncommitted.

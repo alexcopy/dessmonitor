@@ -1,0 +1,60 @@
+VERDICT: APPROVED
+
+SCOPE AND EVIDENCE
+
+Reviewed:
+  .project-memory/AGENT_STANDARD.txt
+  .project-memory/ORCHESTRATOR_STANDARD.txt
+  .project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/PLAN.txt
+
+Repository preconditions actually run:
+  git rev-parse --verify HEAD
+    dd13624e1cb6012bf77938f74be26a706faf6314
+  git branch --show-current
+    master
+  git status --short
+    ?? .project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/
+
+BLOCKER RESOLUTION
+
+The previously reported blocker is fixed. The exact decoder table now requires
+finite built-in int values for temp, temperature, and temp_value to produce
+scale=unknown, raw_type=int, quality=unverified, and finite built-in float
+values to produce scale=unknown, raw_type=float, quality=unverified. The
+focused-test checklist explicitly requires assertions covering unknown-scale
+int/float raw_type metadata and their absence from verified shared_state/ML
+values.
+
+REVIEW FINDINGS
+
+No other blocker remains in the requested scope. PLAN.txt provides a complete,
+deterministic contract for:
+
+  - decoder property order, type discrimination, exact scale table, metadata,
+    candidate precedence, and diagnostic raw_value boundaries;
+  - registry normalization without a second division, quality preservation,
+    timestamp/freshness behavior, and the complete state table;
+  - shared-state provenance shape and exact validation, timestamp handling,
+    fallback precedence, equality handling, and rejection rules;
+  - dashboard selection, shared formatting for rows and mini indicator,
+    unavailable/unverified/invalid rendering, and green-class safety;
+  - consumer/safety boundaries, unchanged control paths, ML compatibility,
+    and the ambient_temp prohibition;
+  - the exact implementation/test/artifact allowlist and forbidden-file
+    constraints; and
+  - focused coverage plus the required validation commands, exit-code
+    reporting, allowlist comparison, and optional browser limitation report.
+
+The plan explicitly preserves the required uncommitted workflow and prohibits
+staging, commits, pushes, branches, resets, stashes, merges, and pull-request
+operations. Implementation remains gated on this independent approval.
+
+VALIDATION NOTE
+
+This is a plan review. Implementation tests and validation commands were not
+run because no implementation was requested or authorized at this stage.
+
+WORKTREE
+
+No Git mutation, staging, commit, branch, reset, stash, merge, push, or pull
+request operation was performed. Only this review artifact was written.

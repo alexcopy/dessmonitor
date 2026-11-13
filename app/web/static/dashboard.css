@@ -564,6 +564,10 @@ html, body { font-size: 15px; }
   color: var(--text);
   line-height: 1.2;
 }
+.dm-stat-mini-val.ok        { color: var(--green); }
+.dm-stat-mini-val.degraded  { color: var(--amber); }
+.dm-stat-mini-val.error     { color: var(--red); }
+.dm-stat-mini-val.neutral   { color: var(--text-dim); }
 
 /* ═══════════════════════════════════════════════════════════════
    JS-HIDDEN COMPAT BLOCK
@@ -714,6 +718,10 @@ html, body { font-size: 15px; }
   color: var(--teal);
   text-align: right;
 }
+.dm-sensor-val.ok       { color: var(--green); }
+.dm-sensor-val.degraded { color: var(--amber); }
+.dm-sensor-val.error    { color: var(--red); }
+.dm-sensor-val.neutral  { color: var(--text-dim); }
 .dm-sensor-unit { font-size: 0.8rem; font-weight: 400; color: var(--text-dim); }
 
 .dm-freshness {
@@ -725,6 +733,10 @@ html, body { font-size: 15px; }
 }
 .dm-freshness.fresh { background: var(--green-dim); color: var(--green); }
 .dm-freshness.stale { background: var(--red-dim);   color: var(--red); }
+.dm-freshness.ok       { background: var(--green-dim); color: var(--green); }
+.dm-freshness.degraded { background: var(--amber-dim); color: var(--amber); }
+.dm-freshness.error    { background: var(--red-dim); color: var(--red); }
+.dm-freshness.neutral  { background: rgba(139,148,158,0.1); color: var(--text-dim); }
 
 /* ═══════════════════════════════════════════════════════════════
    FOOTER BAR

@@ -733,6 +733,78 @@
      * -----------------------------------------------------------------------
      */
 
+    function isFiniteSensorValue(value) {
+        return typeof value === "number" && Number.isFinite(value);
+    }
+
+    function selectWaterTemperatureSensor(sensors) {
+        if (!Array.isArray(sensors)) { return null; }
+        var firstWaterTemperature = null;
+        var preferredStatuses = { valid: true, cached: true, stale: true };
+        for (var i = 0; i < sensors.length; i++) {
+            var sensor = sensors[i];
+            if (!sensor || typeof sensor !== "object" || sensor.metric !== "water_temperature") {
+                continue;
+            }
+            if (firstWaterTemperature === null) { firstWaterTemperature = sensor; }
+            if (isFiniteSensorValue(sensor.value) && preferredStatuses[sensor.status]) {
+                return sensor;
+            }
+        }
+        return firstWaterTemperature;
+    }
+
+    function formatSensorReading(sensor) {
+        var status = sensor && typeof sensor === "object" ? sensor.status : "";
+        var freshness = sensor && typeof sensor === "object" ? sensor.freshness : "";
+        var value = sensor && typeof sensor === "object" ? sensor.value : null;
+        var unit = sensor && typeof sensor === "object" ? (sensor.unit || "celsius") : "celsius";
+        var isNumeric = isFiniteSensorValue(value);
+        var valueText = "\u2014";
+        var unitText = "";
+        var statusLabel = "unavailable";
+        var cssClass = "neutral";
+
+        if (status === "unverified") {
+            statusLabel = "Unverified";
+            cssClass = "degraded";
+        } else if (status === "invalid") {
+            statusLabel = "Check reading";
+            cssClass = "error";
+        } else if (status === "cached") {
+            statusLabel = "cached";
+            cssClass = "degraded";
+        } else if (status === "stale" || freshness === "stale") {
+            statusLabel = "stale";
+            cssClass = "stale";
+        } else if (status === "valid" && freshness === "fresh") {
+            statusLabel = "fresh";
+            cssClass = "ok";
+        } else if (status === "valid") {
+            statusLabel = "unavailable";
+        }
+
+        if (isNumeric && status !== "unverified" && status !== "invalid" && status !== "unavailable") {
+            if (unit === "celsius") {
+                valueText = Number(value).toFixed(1);
+                unitText = "\u00B0C";
+            } else if (unit === "kwh") {
+                valueText = Math.round(Number(value)).toString();
+                unitText = "kWh";
+            } else {
+                valueText = String(value);
+                unitText = unit;
+            }
+        }
+
+        return {
+            valueText: valueText,
+            unitText: unitText,
+            statusLabel: statusLabel,
+            cssClass: cssClass
+        };
+    }
+
     function renderSensorsPanel(snapshot) {
         if (!dom.sensorsPanel) { return; }
         var sensors = snapshot.sensors;
@@ -751,20 +823,21 @@
             emptyDiv.appendChild(emptyBody);
             dom.sensorsPanel.appendChild(emptyDiv);
             /* Also update watertemp mini stat */
-            if (dom.miniWatertemp) { dom.miniWatertemp.textContent = "\u2014"; }
+            if (dom.miniWatertemp) {
+                dom.miniWatertemp.textContent = "\u2014";
+                dom.miniWatertemp.className = "dm-stat-mini-val neutral";
+            }
             return;
         }
 
+        var selectedWaterTemperature = selectWaterTemperatureSensor(sensors);
         for (var i = 0; i < sensors.length; i++) {
             var sensor = sensors[i];
             if (!sensor || typeof sensor !== "object") { continue; }
 
             var displayName = safeText(sensor.display_name);
             var rawDescription = sensor.description || "";
-            var rawValue = sensor.value;
-            var unit = sensor.unit || "celsius";
-            var freshness = sensor.freshness || "";
-            var status = sensor.status || "";
+            var formatted = formatSensorReading(sensor);
 
             var sensorDiv = document.createElement("div");
             sensorDiv.className = "dm-sensor";
@@ -775,6 +848,7 @@
             iconDiv.className = "dm-sensor-icon";
             var sMetric = sensor.metric || "";
             iconDiv.textContent = sMetric === "energy" ? "\u26A1" : "\uD83C\uDF21";
+            sensorDiv.appendChild(iconDiv);
 
             /* Body */
             var bodyDiv = document.createElement("div");
@@ -793,54 +867,32 @@
             /* Freshness/status row */
             var metaDiv = document.createElement("div");
             metaDiv.style.cssText = "margin-top:0.3rem; display:flex; gap:0.4rem; align-items:center;";
-            if (freshness) {
-                var freshSpan = document.createElement("span");
-                freshSpan.className = "dm-freshness " + (freshness === "fresh" ? "fresh" : "stale");
-                freshSpan.textContent = freshness;
-                metaDiv.appendChild(freshSpan);
-            }
-            if (status) {
-                var statusSpan = document.createElement("span");
-                statusSpan.className = "dm-freshness " + (status === "valid" ? "fresh" : "stale");
-                statusSpan.textContent = status;
-                metaDiv.appendChild(statusSpan);
-            }
+            var statusSpan = document.createElement("span");
+            statusSpan.className = "dm-freshness " + formatted.cssClass;
+            statusSpan.textContent = formatted.statusLabel;
+            metaDiv.appendChild(statusSpan);
             bodyDiv.appendChild(metaDiv);
             sensorDiv.appendChild(bodyDiv);
 
             /* Value */
             var valDiv = document.createElement("div");
-            valDiv.className = "dm-sensor-val";
-            if (rawValue === null || rawValue === undefined) {
-                valDiv.textContent = "\u2014";
-                valDiv.style.color = "var(--text-dim)";
-            } else {
-                if (unit === "kwh") {
-                    valDiv.textContent = Math.round(parseFloat(rawValue));
-                } else {
-                    valDiv.textContent = String(rawValue);
-                }
+            valDiv.className = "dm-sensor-val " + formatted.cssClass;
+            valDiv.textContent = formatted.valueText;
+            if (formatted.unitText) {
                 var unitSpan = document.createElement("span");
                 unitSpan.className = "dm-sensor-unit";
-                if (unit === "celsius") {
-                    unitSpan.textContent = "\u00B0C";
-                } else {
-                    unitSpan.textContent = unit === "kwh" ? " kWh" : " " + unit;
-                }
+                unitSpan.textContent = formatted.unitText;
                 valDiv.appendChild(unitSpan);
             }
             sensorDiv.appendChild(valDiv);
 
             dom.sensorsPanel.appendChild(sensorDiv);
+        }
 
-            /* Update watertemp mini stat if this is watertemp */
-            if (displayName.toLowerCase().indexOf("watertemp") !== -1 || displayName.toLowerCase().indexOf("water") !== -1) {
-                if (dom.miniWatertemp && rawValue !== null && rawValue !== undefined) {
-                    dom.miniWatertemp.textContent = rawValue + "\u00B0C";
-                } else if (dom.miniWatertemp) {
-                    dom.miniWatertemp.textContent = "\u2014";
-                }
-            }
+        if (dom.miniWatertemp) {
+            var miniFormatted = formatSensorReading(selectedWaterTemperature);
+            dom.miniWatertemp.textContent = miniFormatted.valueText + miniFormatted.unitText;
+            dom.miniWatertemp.className = "dm-stat-mini-val " + miniFormatted.cssClass;
         }
     }
 

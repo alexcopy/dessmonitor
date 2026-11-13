@@ -2,10 +2,11 @@
 from typing import Any
 import asyncio
 import logging
+import math
 import os
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo  # stdlib Python 3.9+, requires tzdata in Docker image
 from app.api import DessAPI
@@ -23,6 +24,7 @@ from app.service.battery_charge_controller import BatteryChargeController
 from app.service.device_state_persist import save_last_switched, restore_last_switched
 from app.service.startup_reset_coordinator import StartupResetCoordinator
 from app.service.telemetry_registry import TelemetryRegistry
+from app.devices.sensor_telemetry import compute_sensor_freshness
 from app.tuya.relay_tuya_controller import RelayTuyaController
 from app.tuya.status_updater_async import TuyaStatusUpdaterAsync
 from app.tuya.tuya_authorisation import TuyaAuthorisation
@@ -33,6 +35,124 @@ from app.web_runtime_integration import (
     stop_runtime_read_only_web_host,
 )
 from service.inverter_monitor import InverterMonitor
+
+
+_WATER_TEMP_CACHE_PROPERTIES = frozenset({
+    "temp_current",
+    "va_temperature",
+    "temp_humidity_way_1",
+})
+_WATER_TEMP_CACHE_SCALES = frozenset({"tenths", "celsius"})
+_WATER_TEMP_CACHE_RAW_TYPES = frozenset({"int", "float", "string"})
+
+
+def _parse_aware_iso_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_water_temp_provenance(
+    cache: object,
+    sensor_id: str,
+    now_utc: datetime | None = None,
+) -> tuple[dict[str, Any], datetime] | None:
+    """Validate the exact verified shared-state provenance contract."""
+    if type(cache) is not dict:
+        return None
+    if cache.get("sensor_id") != sensor_id:
+        return None
+
+    value = cache.get("value")
+    if type(value) not in {int, float} or isinstance(value, bool) or not math.isfinite(float(value)):
+        return None
+
+    observed_at = _parse_aware_iso_timestamp(cache.get("observed_at"))
+    comparison_now = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    if observed_at is None or observed_at > comparison_now:
+        return None
+    if cache.get("source") != "tuya":
+        return None
+    source_property = cache.get("source_property")
+    scale = cache.get("scale")
+    raw_type = cache.get("raw_type")
+    if source_property not in _WATER_TEMP_CACHE_PROPERTIES:
+        return None
+    if scale not in _WATER_TEMP_CACHE_SCALES or raw_type not in _WATER_TEMP_CACHE_RAW_TYPES:
+        return None
+    if cache.get("status") != "valid":
+        return None
+
+    expected_combo = {
+        "temp_current": {("tenths", "int"), ("celsius", "float")},
+        "va_temperature": {("tenths", "int"), ("celsius", "float")},
+        "temp_humidity_way_1": {("celsius", "string")},
+    }
+    if (scale, raw_type) not in expected_combo[source_property]:
+        return None
+    return dict(cache), observed_at
+
+
+def _make_sensors_provider(registry):
+    """Build the read-only sensor provider with provenance-gated fallback."""
+    from shared_state.shared_state import shared_state as _ss
+
+    def _provider():
+        readings = registry.get_all_readings_dict()
+        now_utc = datetime.now(timezone.utc)
+        result = []
+
+        for reading in readings:
+            if (
+                reading.get("status") == "valid"
+                and reading.get("freshness") == "fresh"
+            ):
+                result.append(reading)
+                continue
+
+            registry_status = reading.get("status")
+            if registry_status not in {"valid", "stale", "unavailable"}:
+                result.append(reading)
+                continue
+
+            sensor_id = reading.get("sensor_id", "")
+            validated = _validate_water_temp_provenance(
+                _ss.get(f"water_temp_observation_{sensor_id}"),
+                sensor_id,
+                now_utc=now_utc,
+            )
+            if validated is None:
+                result.append(reading)
+                continue
+
+            cache, observed_at = validated
+            registry_observed_at = _parse_aware_iso_timestamp(reading.get("observed_at"))
+            if registry_observed_at is not None and observed_at < registry_observed_at:
+                result.append(reading)
+                continue
+
+            cached_reading = {
+                **reading,
+                "value": float(cache["value"]),
+                "observed_at": cache["observed_at"],
+                "freshness": compute_sensor_freshness(observed_at, now_utc).value,
+                "status": "cached",
+                "source": "shared_state_cache",
+            }
+            result.append(cached_reading)
+
+        return result
+
+    return _provider
 
 
 def disable_stdout_logging() -> None:
@@ -216,61 +336,6 @@ async def main() -> None:
         tuya_ctrl=tuya_ctrl,
         status_updater=updater,
     )
-
-
-    def _make_sensors_provider(registry):
-        """Sensors provider with per-device shared_state fallback.
-
-        TelemetryRegistry gets data only when Tuya polling succeeds.
-        Falls back to shared_state per-device keys when registry stale.
-        Multiple sensors use water_temp_{name} keys to avoid collisions.
-        """
-        from datetime import datetime, timezone
-        from shared_state.shared_state import shared_state as _ss
-
-        def _provider():
-            readings = registry.get_all_readings_dict()
-            now = datetime.now(timezone.utc)
-            now_iso = now.isoformat()
-            result = []
-
-            for r in readings:
-                if r.get("freshness") == "fresh":
-                    result.append(r)
-                    continue
-
-                # Try only per-device keys. The generic water_temp key is a
-                # last-write compatibility value and must not be copied to
-                # every configured sensor on the dashboard.
-                name = r.get("display_name", "")
-                sensor_id = r.get("sensor_id", "")
-                device_id = sensor_id.removesuffix("_water_temp")
-                dev_temp = None
-                for key in (
-                    f"water_temp_{sensor_id}",
-                    f"water_temp_{device_id}",
-                    f"water_temp_{name}",
-                ):
-                    candidate = _ss.get(key)
-                    if candidate is not None:
-                        dev_temp = candidate
-                        break
-
-                if dev_temp is not None:
-                    result.append({
-                        **r,
-                        "value": float(dev_temp),
-                        "observed_at": now_iso,
-                        "freshness": "fresh",
-                        "status": "valid",
-                        "source": "shared_state",
-                    })
-                else:
-                    result.append(r)
-
-            return result
-
-        return _provider
 
     # Start web host before reset so dashboard shows progress
     try:

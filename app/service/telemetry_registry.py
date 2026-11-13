@@ -9,6 +9,7 @@ Rebuilt on process restart.  No persistence, no network, no hardware.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from typing import Any
 
 from app.devices.sensor_telemetry import (
@@ -16,6 +17,7 @@ from app.devices.sensor_telemetry import (
     SensorMetric,
     SensorFreshness,
     SensorStatus,
+    TemperatureDecodeResult,
     compute_sensor_freshness,
 )
 
@@ -72,58 +74,71 @@ class TelemetryRegistry:
         self,
         sensor_id: str,
         display_name: str,
-        raw_value: Any,
+        observation: TemperatureDecodeResult,
         description: str = "",
         observed_at: datetime | None = None,
         source: str = "tuya",
         communication_status: str = "active",
-    ) -> None:
-        """Update or create a water temperature reading.
+    ) -> bool:
+        """Update a reading from an already-decoded temperature observation.
 
-        Normalizes the raw value using the mapping's scale and offset.
-        Accepts: int, float.
-        Rejects: None, bool, str, NaN, infinity, impossible values.
+        The decoder owns all scale decisions.  The registry only accepts a
+        finite normalized Celsius value for a verified observation and rounds
+        it for display/storage.
         """
         now = observed_at if observed_at is not None else datetime.now(timezone.utc)
 
-        normalized = self._normalize_temperature(raw_value)
-        if normalized is None:
-            # Invalid or missing — preserve prior reading, do not refresh observed_at
-            existing = self._readings.get(sensor_id)
-            if existing is not None:
-                freshness = compute_sensor_freshness(existing.observed_at, now)
-                status = self._status_from_freshness(freshness)
-                self._readings[sensor_id] = SensorTelemetryReading(
-                    sensor_id=existing.sensor_id,
-                    display_name=existing.display_name,
-                    description=existing.description,
-                    metric=SensorMetric.WATER_TEMPERATURE,
-                    value=existing.value,
-                    unit="celsius",
-                    observed_at=existing.observed_at,
-                    source=existing.source,
-                    freshness=freshness,
-                    status=status,
-                    communication_status=communication_status,
-                )
-            return
+        existing = self._readings.get(sensor_id)
+        desc = description or (existing.description if existing else "")
+        if (
+            isinstance(observation, TemperatureDecodeResult)
+            and observation.quality == "verified"
+            and self._is_finite_normalized(observation.value)
+        ):
+            normalized = round(float(observation.value), 1)
+            freshness = SensorFreshness.FRESH
+            status = SensorStatus.VALID
+            accepted_source = source
+            accepted_observed_at = now
+            accepted_value = normalized
+            accepted_property = observation.source_property
+            accepted_scale = observation.scale
+            accepted_raw_type = observation.raw_type
+            accepted = True
+        else:
+            quality = (
+                observation.quality
+                if isinstance(observation, TemperatureDecodeResult)
+                and observation.quality in {"unverified", "invalid"}
+                else "invalid"
+            )
+            status = SensorStatus.UNVERIFIED if quality == "unverified" else SensorStatus.INVALID
+            freshness = compute_sensor_freshness(existing.observed_at if existing else None, now)
+            accepted_source = existing.source if existing else source
+            accepted_observed_at = existing.observed_at if existing else None
+            accepted_value = existing.value if existing else None
+            accepted_property = observation.source_property if isinstance(observation, TemperatureDecodeResult) else None
+            accepted_scale = observation.scale if isinstance(observation, TemperatureDecodeResult) else "unknown"
+            accepted_raw_type = observation.raw_type if isinstance(observation, TemperatureDecodeResult) else "unsupported"
+            accepted = False
 
-        freshness = SensorFreshness.FRESH
-        status = SensorStatus.VALID
-        desc = description or (self._readings.get(sensor_id).description if self._readings.get(sensor_id) else "")
         self._readings[sensor_id] = SensorTelemetryReading(
             sensor_id=sensor_id,
             display_name=display_name,
             description=desc,
             metric=SensorMetric.WATER_TEMPERATURE,
-            value=normalized,
+            value=accepted_value,
             unit="celsius",
-            observed_at=now,
-            source=source,
+            observed_at=accepted_observed_at,
+            source=accepted_source,
             freshness=freshness,
             status=status,
             communication_status=communication_status,
+            source_property=accepted_property,
+            scale=accepted_scale,
+            raw_type=accepted_raw_type,
         )
+        return accepted
 
     def update_energy_reading(
         self,
@@ -169,7 +184,11 @@ class TelemetryRegistry:
         result: list[SensorTelemetryReading] = []
         for reading in self._readings.values():
             freshness = compute_sensor_freshness(reading.observed_at, now)
-            status = self._status_from_freshness(freshness)
+            status = (
+                self._status_from_freshness(freshness)
+                if reading.status == SensorStatus.VALID
+                else reading.status
+            )
             result.append(SensorTelemetryReading(
                 sensor_id=reading.sensor_id,
                 display_name=reading.display_name,
@@ -182,6 +201,9 @@ class TelemetryRegistry:
                 freshness=freshness,
                 status=status,
                 communication_status=reading.communication_status,
+                source_property=reading.source_property,
+                scale=reading.scale,
+                raw_type=reading.raw_type,
             ))
         return result
 
@@ -210,33 +232,12 @@ class TelemetryRegistry:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _normalize_temperature(raw_value: Any) -> float | None:
-        """Normalize a raw temperature value to Celsius.
-
-        Accepts:
-        - int or float directly (already Celsius).
-        - int representing tenths of a degree (e.g., 225 -> 22.5).
-          Detected when the value is an int > 100 (likely tenths).
-
-        Rejects:
-        - None, bool, str, NaN, infinity, negative impossible values.
-        """
-        if raw_value is None:
-            return None
-        if isinstance(raw_value, bool):
-            return None
-        if isinstance(raw_value, str):
-            return None
-        if isinstance(raw_value, (int, float)):
-            if raw_value != raw_value:  # NaN check
-                return None
-            if raw_value == float("inf") or raw_value == float("-inf"):
-                return None
-            # If int > 100, likely tenths of a degree (e.g., 225 = 22.5 C)
-            if isinstance(raw_value, int) and raw_value > 100:
-                return round(float(raw_value) / 10.0, 1)
-            return round(float(raw_value), 1)
-        return None
+    def _is_finite_normalized(value: object | None) -> bool:
+        return (
+            type(value) in {int, float}
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        )
 
     @staticmethod
     def _status_from_freshness(freshness: SensorFreshness) -> SensorStatus:

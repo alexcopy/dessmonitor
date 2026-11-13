@@ -1,0 +1,123 @@
+TASK 0075 — CODER REPORT
+
+STATUS
+
+Implementation completed to the approved plan, with the worktree left
+uncommitted. No Git mutation, staging, branch change, stash, reset, commit,
+push, pull request, hardware write, Tuya command, database schema/data change,
+control-module edit, ML-module edit, snapshot/provider-module edit, or
+dashboard template edit was performed.
+
+BASELINE
+
+The required first command was run exactly before other repository actions:
+
+  git rev-parse --verify HEAD; git branch --show-current; git status --short
+
+Result:
+
+  HEAD   dd13624e1cb6012bf77938f74be26a706faf6314
+  branch master
+  initial status: ?? .project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/
+
+IMPLEMENTATION
+
+Changed runtime paths:
+
+  app/devices/sensor_telemetry.py
+  app/service/telemetry_registry.py
+  app/tuya/status_updater_async.py
+  run.py
+  app/web/static/dashboard.js
+  app/web/static/dashboard.css
+
+Added focused tests:
+
+  tests/test_temperature_sensor_hotfix.py
+  tests/test_temperature_sensor_hotfix_ui.cjs
+
+Added this report:
+
+  .project-memory/pr/0075-temperature-sensor-scaling-freshness-dashboard/CODER_REPORT.txt
+
+The decoder now owns the exact ordered scale/type table, candidate quality
+precedence, t1 grammar, finite/type handling, and diagnostic metadata. The
+registry accepts decoded observations, rounds normalized Celsius once, retains
+invalid/unverified quality, and preserves observation timestamps. The updater
+writes verified normalized compatibility keys and the validated provenance
+object only. run.py accepts only validated provenance cache objects and never
+promotes legacy numeric keys. The dashboard has one water-temperature selector
+and one formatter shared by sensor rows and the mini indicator; green is
+reserved for live verified fresh readings.
+
+VALIDATION COMMANDS AND RESULTS
+
+  python3.12 -m unittest tests.test_temperature_sensor_hotfix -v
+    exit 0; 7 tests passed.
+
+  node tests/test_temperature_sensor_hotfix_ui.cjs
+    exit 0; 2 tests passed.
+
+  scripts/check-canonical-sensor-snapshot-pipeline.sh
+    exit 126; the script is not executable in this environment (zsh reported
+    permission denied). No workaround was run after the stop request.
+
+  scripts/check-web-dashboard.sh
+    exit 1; the script's local socket preflight failed with
+    PermissionError: [Errno 1] Operation not permitted while binding
+    127.0.0.1. This is an environment limitation, not a dashboard assertion.
+
+  scripts/check-repo-safety.sh
+    exit 0; no forbidden tracked/untracked artifacts, required .dockerignore
+    patterns present, zero errors and zero warnings.
+
+  scripts/check-project-memory.sh
+    exit 0; all governance files and PR directories passed.
+
+  python3.12 -m compileall -q app/devices/sensor_telemetry.py app/tuya/status_updater_async.py app/service/telemetry_registry.py run.py
+    exit 0.
+
+  git diff --check
+    exit 0.
+
+  git diff --name-only
+    exit 0; output was exactly the six modified runtime files listed above.
+
+The final exact `git status --short` and
+`git status --short --untracked-files=all` commands were not rerun after the
+last focused validation because the user requested immediate stop. The last
+completed `git status --short` showed only the six intended modified runtime
+files, the two focused tests, and the pre-existing untracked task directory.
+
+ALLOWLIST AND SAFETY
+
+All authored paths are within the approved implementation/test/report
+allowlist. PLAN.txt and PLAN_REVIEW.txt were read but not modified. The task
+directory's pre-existing PLAN.txt and reviews/PLAN_REVIEW.txt remain present;
+the only new project-memory artifact is this CODER_REPORT.txt.
+
+No browser desktop/mobile validation was attempted after the dashboard script
+demonstrated that this environment cannot bind its local validation socket.
+The Node UI test provided the focused non-browser rendering check.
+
+DEVIATIONS
+
+The only validation deviations are the non-executable canonical-pipeline
+script and the sandbox socket-bind restriction described above. No test,
+hardware, network, database, control, ML, or snapshot behavior was bypassed.
+
+FOLLOW-UP PRECOMMIT BLOCKER FIX
+
+Fixed the approved-scope dashboard blocker in
+app/web/static/dashboard.js: the no-sensors early return now sets both the
+em-dash text and `dm-stat-mini-val neutral`, clearing any prior green class.
+Extended tests/test_temperature_sensor_hotfix_ui.cjs with a live-to-empty
+transition assertion proving the mini indicator becomes neutral and does not
+retain the `ok` class.
+
+Follow-up validation:
+
+  node tests/test_temperature_sensor_hotfix_ui.cjs
+    exit 0; 3 tests passed, including the live-to-empty transition.
+
+No other file was changed by the follow-up, and no Git mutation was performed.
