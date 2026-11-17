@@ -1,0 +1,72 @@
+TASK 0078 — INDEPENDENT PRECOMMIT REVIEW
+
+VERDICT: APPROVED
+
+HEAD AND BRANCH
+c80a6c74a8ef786220718d8691ba0be75380e7ae, master. Index empty.
+PLAN.txt and PLAN_REVIEW.txt are committed and unchanged. The initial prototype
+predated independent plan approval; that chronology is not retrospectively changed.
+
+REVIEWED FILES
+Task 0078 planning artifacts, coder report, prior review, complete untracked
+implementation and tests; governance standards, 0076 interlock, seasonal,
+adaptive and battery interval code, and related offline regression suites.
+
+BMS PROVENANCE EXPLOIT: CLOSED
+_reserve_evidence in app/control/winter_energy_intelligence.py:379-438 always
+returns reserve_verified=False. No caller-supplied source, scalar, flags or raw
+records can establish trusted production reserve. Independently reproduced the
+previous fixture with synthetic=False: confidence OBSERVED,
+independently_verified=False, state RECOVERY_OR_FAULT_HOLD, and reason
+RESERVE_TRUSTED_INTEGRATION_UNAVAILABLE. Invalid, stale, future, inconsistent or
+missing evidence remains diagnostic/unverified. Production BMS authentication
+is unavailable and no new trusted-source mechanism is required in this scope.
+
+INTERLOCK AUTHORITY: CLOSED
+Same-cycle evaluate_interlock recomputation uses the exact current telemetry
+object; the final eligibility path requires recomputed ADVISE and eligible state.
+The existing regressions cover HOLD/BLOCK, stale and future advice, mismatched
+snapshot and changed same-time voltage. The reserve gate currently makes positive
+eligibility unavailable even with favorable interlock inputs. Caller-provided
+telemetry and policy inputs are not independently authenticated by recomputation.
+
+DIAGNOSTIC QUALITY
+Winter/shoulder context, seasonal result, PV, charging observations, reserve
+missing/unverified reasons, and interlock state/reasons remain available. A
+separate evening-deficit early return retains the interlock's underlying
+POST_RECOVERY_RESERVE_UNPROVEN reason even though it does not add the derived
+POST_RECOVERY_EVIDENCE_DEADLOCK label. Interval data remains an observed-channel
+proxy. No authenticated positive reserve or active-control claim is made.
+
+ZERO HARDWARE WRITES
+The module composes pure policy and interval functions and is not wired to DESS,
+inverter, charger, Tuya, relay, pump, database or runtime writes. Existing
+nighttime and emergency charging code and deployment configuration are unchanged.
+
+REGRESSION TEST RESULTS
+PYTHONDONTWRITEBYTECODE=1 /private/tmp/dessmonitor-task0077-venv/bin/python3.12
+-m unittest discover -s tests -p PATTERN -q: winter 29 passed; interlock 42 passed;
+seasonal 7 passed; adaptive 70 passed; battery intervals 12 passed; battery
+blockers 29 run, 24 passed, 5 skipped (PostgreSQL-gated). Compileall for the two
+task files passed with pycache in /private/tmp. scripts/check-repo-safety.sh and
+scripts/check-project-memory.sh passed; git diff --check and git diff --cached
+--check passed. No production system or database was accessed.
+
+FILE ALLOWLIST
+Only untracked Task 0078 coder report, this review, winter module and winter test
+were present; no staged, tracked, task 0076 or unrelated changes were observed.
+
+BLOCKERS
+None for the approved, deliberately fail-closed shadow-only implementation.
+
+WARNINGS
+All external reserve evidence is currently unverified and no positive battery-use
+eligibility is available. A separately approved trusted integration is needed
+before that limitation can change. Five PostgreSQL-gated tests were skipped; no
+live hardware or BMS authentication was tested. Shadow approval is not approval
+for physical control, deployment or a change to charging behavior.
+
+COMMIT READINESS
+Ready for the operator's separate shadow-only implementation commit, subject to
+the normal repository workflow. No implementation files, tests or locked planning
+artifacts were changed by this review; no staging, commit or push was performed.

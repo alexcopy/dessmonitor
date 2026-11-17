@@ -1,0 +1,117 @@
+TASK 0078 — CODER REPORT
+
+STATUS
+
+Targeted corrective implementation completed in the approved allowlist. The
+changes remain unstaged and uncommitted. A fresh independent precommit review
+is required; this report does not self-approve the work.
+
+EXACT CORRECTIONS
+
+1. BATTERY_USE_ELIGIBLE now requires a Task 0076 decision recomputed in the
+   same pure calculation from the exact current OutputTelemetry object and the
+   current evaluation time. A supplied InterlockDecision is diagnostic only
+   unless InterlockEvaluationInputs prove that exact snapshot association.
+   Snapshot identity mismatch, missing binding, evaluator failure, stale or
+   future reported advice, HOLD, BLOCK, recovery-complete, fault and churn
+   paths all fail closed. Reported decisions and rejection reasons remain in
+   WinterEvidence and the decision reasons.
+
+2. Independent reserve observations are now structurally checked for source
+   identity, provenance, battery identity, units, underlying timestamped
+   ReserveObservation records, claimed reserve support,
+   measurement/consistency, freshness, safety-limit metadata and explicit
+   synthetic-fixture labelling. That validation is diagnostic only: because no
+   trusted BMS/shunt integration exists, every externally supplied reserve is
+   forced to independently_verified=False and cannot satisfy current reserve
+   eligibility. Legacy verified flags, source labels, scalar reserve values,
+   interval status, voltage rebound and charging observations cannot establish
+   authentication. Valid-looking, synthetic, stale, future, contradictory,
+   unsupported-unit, mismatched-claim and otherwise incomplete evidence all
+   remain unavailable for current battery use while retaining diagnostics.
+
+3. The existing interval calculator remains the sole validator for reported
+   battery intervals. Complete interval output remains an observed-channel
+   proxy and never becomes BMS/shunt reserve proof. No freshness threshold,
+   voltage threshold, charger threshold or hardware integration was added.
+
+NEW REGRESSION TESTS
+
+- Three-day-old and future ADVISE decisions fail closed.
+- Fresh advice for a different snapshot and same-timestamp different telemetry
+  fail closed; exact-snapshot inputs exercise same-cycle Task 0076 recomputation.
+- Missing interlock evaluation timestamp, HOLD/BLOCK/recovery/fault/churn
+  states and invalid current telemetry remain ineligible.
+- Forged legacy reserve flags/labels/scalars are rejected.
+- Explicit synthetic reserve, stale reserve, future reserve and contradictory
+  underlying observations are rejected with diagnostics.
+- A valid-looking fixture explicitly marked synthetic=False remains observed
+  but unverified and cannot authorize battery use.
+- Caller COMPLETE without observations remains UNVERIFIED; validated interval
+  rows remain an observed proxy.
+- Shadow-only and no-command invariants plus diagnostic evidence remain intact.
+
+REPRODUCTION RESULTS FOR BOTH ORIGINAL BLOCKERS
+
+Using the isolated Python 3.12 environment, both targeted reproductions passed:
+
+  test_stale_interlock_advice_is_not_current_authority ... ok
+  test_valid_looking_non_synthetic_fixture_is_still_unverified ... ok
+  Ran 2 tests in 0.006s — OK
+
+The stale advice case no longer authorizes current battery use. The exact
+synthetic=False case preserves structurally valid source/scalar diagnostics,
+reports RESERVE_TRUSTED_INTEGRATION_UNAVAILABLE, remains
+independently_verified=False and cannot authorize battery use.
+
+VALIDATION RESULTS
+
+Commands used the existing isolated interpreter
+/private/tmp/dessmonitor-task0077-venv/bin/python3.12 unless stated otherwise.
+
+- winter suite: 29 passed.
+- Task 0076 interlock suite: 42 passed.
+- seasonal strategy suite: 7 passed.
+- adaptive output policy suite: 70 passed.
+- battery interval consistency suite: 12 passed.
+- battery blocker regressions: 29 run, 24 passed, 5 skipped because the
+  disposable PostgreSQL tests were not enabled.
+- compileall for the two implementation/test Python files: passed.
+- scripts/check-repo-safety.sh: passed, 0 errors and 0 warnings.
+- scripts/check-project-memory.sh: passed, 54 directories and 0 rejected.
+- git diff --check: passed.
+- git diff --cached --check: passed.
+- Git index check: empty.
+
+REMAINING LIMITATIONS
+
+No live BMS, shunt, inverter, weather, database or production validator was
+available or accessed. Therefore no production-authenticated positive reserve
+fixture is claimed, and no fully supported positive winter eligibility scenario
+is claimed. Synthetic fixtures are explicitly labelled and cannot establish
+production verification. EASUN interval evidence remains a reported-channel
+proxy. A future integration must populate the contract from an independently
+validated BMS/shunt adapter before any positive eligibility can be considered.
+
+MODIFIED-FILE INVENTORY
+
+- app/control/winter_energy_intelligence.py
+- tests/test_winter_energy_intelligence.py
+- .project-memory/pr/0078-winter-energy-decision-integration/CODER_REPORT.txt
+
+The pre-existing untracked reviews/PRECOMMIT_REVIEW.txt was read and left
+unchanged. PLAN.txt and reviews/PLAN_REVIEW.txt remained unchanged. No other
+files were modified.
+
+BOUNDARY CONFIRMATIONS
+
+- Zero DESS, BMS, inverter, relay, Tuya, charger, database or production access.
+- Zero hardware commands, writes, runtime wiring, configuration or deployment.
+- No Task 0076, charging automation or nighttime charging changes.
+- No Git add, commit, push, reset, restore or stash.
+- Changes are unstaged and uncommitted.
+
+NEXT REQUIRED ACTION
+
+Request fresh independent Task 0078 precommit review. Do not self-approve,
+stage, commit, push, deploy or enable active control.
