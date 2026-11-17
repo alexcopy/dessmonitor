@@ -1,0 +1,142 @@
+TASK 0076 PLAN REVIEW
+
+VERDICT
+
+APPROVED — ADVISORY SCOPE ONLY.
+
+The plan is complete, minimal, and internally consistent for a pure,
+side-effect-free shadow evaluator. It preserves the existing
+BatteryChargeController safety boundary, uses the supplied 615-record/
+13-transition export without fabricating missing evidence, and explicitly
+separates advisory eligibility from physical inverter-control approval.
+
+BLOCKERS
+
+None for the approved advisory scope.
+
+Physical inverter output-source control remains blocked and unapproved. A
+future implementation must not expand this plan to send output-priority,
+charger, relay, Tuya, or other hardware commands.
+
+FINDINGS
+
+1. Evidence handling is correct. The plan treats the 615 export records and
+   13 observed mode changes as the principal regression input, preserves nulls
+   and gaps, labels the 08:24 record explicitly, and does not convert
+   collection-time observations into physical switching timestamps. Missing
+   current, priority, device-time, curtailment, external-controller, and
+   deployed-configuration information remains unknown.
+
+2. The plan correctly separates charger readback from output eligibility.
+   Validated charger readback may establish recovery state or completion, but
+   completion can only end charger recovery. It cannot produce
+   BATTERY_RETURN_ELIGIBLE. Working mode and raw output-priority observations
+   are explicitly not command acknowledgements.
+
+3. BatteryChargeController safety is preserved. The plan forbids changes to
+   the controller and its thresholds, gives emergency recovery precedence,
+   does not use grid-charge current or voltage rebound as solar/reserve proof,
+   and forbids the evaluator from issuing charger-source commands.
+
+4. The state machine is adequate for the requested interlock. In particular,
+   GRID_OUTPUT_HOLD follows recovery completion when independent evidence is
+   insufficient, while SOLAR_RETURN_CANDIDATE and BATTERY_RETURN_ELIGIBLE
+   require progressively stronger evidence. CHURN_LOCKOUT and FAULT_HOLD are
+   fail-closed and do not suppress emergency charging or protection.
+
+5. Restart and lockout requirements are covered. The plan requires durable or
+   reconstructable trial, cooldown, and transition state, preserves lockout
+   across restart, discards expired proposals without changing the baseline,
+   and fails closed when reconciliation is unavailable. It correctly avoids
+   authorizing schema or migration work in this task.
+
+6. The implementation boundary is minimal. A pure evaluator under app/control
+   and focused tests are the only runtime scope. No BatteryChargeController,
+   InverterMonitor, API, actuator, Tuya controller, configuration, database,
+   dashboard, deployment, or task-0075 file may be changed. The evaluator is
+   not wired to a command writer.
+
+7. The plan clearly distinguishes observation labels from causal claims. The
+   export's Line/Invert changes can be replayed and classified, but cannot be
+   attributed to application commands without correlated command evidence.
+
+NON-BLOCKING CLARIFICATIONS FOR IMPLEMENTATION
+
+1. The implementation should document the adapter boundary explicitly: the
+   evaluator receives charger-policy state, charger readback, telemetry
+   provenance, and restart state as inputs; it must not obtain them by calling
+   runtime command or device APIs.
+
+2. The implementation should define deterministic precedence when multiple
+   conditions apply, at minimum: FAULT_HOLD and emergency recovery before
+   voluntary eligibility, then CHURN_LOCKOUT, then GRID_OUTPUT_HOLD and solar
+   candidacy. This is already implied by the plan and should be made explicit
+   in reason-code tests.
+
+3. The implementation should make the distinction between an observed
+   BATTERY_TRIAL and an application-authorized trial unambiguous in output
+   fields. The plan requires this distinction; the decision representation
+   should expose it rather than relying only on prose.
+
+4. The restart tests should cover both reconstructable recent observations and
+   unavailable restart state. The expected result in the latter case must be
+   FAULT_HOLD or GRID_OUTPUT_HOLD, never a fresh eligibility recommendation.
+
+SCOPE APPROVAL
+
+Approved for Phase 1 and the bounded Phase 2 shadow replay described in the
+plan, subject to the plan's validation checklist. Approval covers only:
+
+- deterministic, side-effect-free interlock evaluation;
+- stable state and reason-code output;
+- labelled replay of the supplied export and labelled synthetic cases;
+- focused isolated tests and diagnostic shadow results;
+- no runtime command-writer integration.
+
+The 13 November export is accepted as the plan's stated regression evidence
+basis. This review does not independently re-read or augment that export, and
+the implementation must not claim more than the plan's VERIFIED_FROM_EXPORT,
+UNKNOWN_FROM_EXPORT, and SIMULATED_SCENARIO labels permit.
+
+PHYSICAL-CONTROL APPROVAL STATUS
+
+NOT APPROVED.
+
+The plan correctly requires a separate hardware-specific plan and explicit
+operator approval before any physical inverter output-source control. Required
+future evidence includes verified field/API mapping, read-before-write and
+readback behavior, device and BMS limits, arbitration, manual override, rate
+limiting, rollback, and a demonstrated safe fallback. No advisory decision,
+observed mode, charger readback, or replay result authorizes such control.
+
+VALIDATION
+
+The plan's validation requirements are accepted. Future implementation review
+must confirm isolated focused tests, compilation and smoke checks, git diff
+--check, the task-0076 changed-file allowlist, complete unknown/missing-field
+reporting, unused hardware-write spies, unchanged BatteryChargeController
+behavior, and no task-0075 path changes.
+
+This review specifically confirms that the requested review was performed from
+PLAN.txt, AGENT_STANDARD.txt, and ORCHESTRATOR_STANDARD.txt only. No runtime
+code, task-0075 file, production system, database, device, or secret-bearing
+file was accessed for this review.
+
+WORKTREE/GIT CONFIRMATION
+
+Required preconditions run:
+
+git rev-parse --verify HEAD
+  79104555d7694759d41a40c97196ccc579f50f11
+
+git branch --show-current
+  master
+
+git status --short
+  ?? .project-memory/pr/0076-grid-charge-output-source-interlock/
+
+The task directory was already untracked when the review began. No commit,
+branch, push, pull request, staging operation, or Git-state mutation was
+performed. The requested review artifact is the only file written by this
+review action; PLAN.txt and all runtime and task-0075 files were left
+unchanged.

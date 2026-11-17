@@ -1,0 +1,389 @@
+CODER REPORT — 0076-grid-charge-output-source-interlock
+
+This is the coder's report only. It does not approve the implementation. An independent
+precommit-review agent must review the uncommitted changes before any operator commit.
+
+TASK COMPLETE
+
+Implemented the approved advisory/shadow-only scope (Phase 1 and the bounded Phase 2 replay
+function): a pure, deterministic interlock evaluator and focused tests. Nothing is wired to a
+runtime command writer, shared state, database or device. The central invariant
+GRID_RECOVERY_COMPLETE != BATTERY_RETURN_ELIGIBLE is enforced in code and by tests.
+
+STARTING STATE
+
+git rev-parse --verify HEAD  -> 79104555d7694759d41a40c97196ccc579f50f11
+git branch --show-current   -> master
+git status --short          -> ?? .project-memory/pr/0076-grid-charge-output-source-interlock/
+Canonical PLAN.txt and independent reviews/PLAN_REVIEW.txt (APPROVED — ADVISORY SCOPE ONLY;
+physical control NOT APPROVED) were present and read in full, together with AGENT_STANDARD.txt
+and ORCHESTRATOR_STANDARD.txt. Task 0075 had no uncommitted changes (committed in 7910455); none
+of its files were opened for writing.
+
+BLOCKERS
+
+1. The 13 November 2026 export (615 records, 13 observed mode changes) is NOT available in this
+   working environment. It is not in the repository, and searches of the repository, ~/Downloads,
+   ~/Desktop, ~/Documents and /private/tmp found no matching file. The real-incident replay required
+   by PLAN.txt ("Replay all 615 export records ...") was therefore NOT performed, and no result in
+   this task is labelled VERIFIED_FROM_EXPORT from real data. The replay function is implemented and
+   tested with labelled synthetic records; running it on the export is an open item (see NEXT
+   REQUIRED ACTION). No export values were fabricated.
+
+WARNINGS
+
+1. The 08:24 values (Invert Mode, 24.0 V, 20 W PV, 1,284 W demand) were transcribed from PLAN.txt
+   into a test labelled SIMULATED_SCENARIO. They are not presented as export evidence.
+2. Test baselines use exit 24.5 V, enter 25.5 V, max 29.0 V and a 60 A discharge limit as test inputs
+   only (documented in the test module). The evaluator ships no voltage or current thresholds of its
+   own; unknown limits mean no reserve evidence and no eligibility.
+3. Pre-existing, unrelated failure: tests/test_shadow_output_monitor.py
+   test_weather_source_preserves_exact_sun_times_and_clears_missing_data errors with
+   "AttributeError: module 'aiohttp' has no attribute 'ClientSession'" under both the system
+   python3.12 and the Python 3.12 requirements venv. The test replaces aiohttp with an empty stub
+   module; the file is unmodified at HEAD and this task changes no tracked file. Not fixed (outside
+   scope).
+4. app.api (DessAPI) cannot be imported by the system python3.12 (ModuleNotFoundError: logfmter), so
+   under that interpreter the DESS write methods could not be spied; the same tests were run in a
+   Python 3.12 virtualenv where DessAPI imports and is spied (see VALIDATION RUN).
+
+IMPLEMENTED FUNCTIONALITY
+
+app/control/grid_output_interlock.py (new):
+- evaluate_interlock(snapshot, baseline, recent_history, durable_state, *, evaluated_at,
+  proposal=None) -> InterlockDecision. No clock reads, no I/O, no device/charger/relay/Tuya imports.
+- Reuses the existing pure shadow evaluator app/control/adaptive_output_policy.py
+  (evaluate_output_policy, OutputTelemetry, OutputPolicyBaseline, Evidence) for telemetry
+  freshness, history coverage, solar classification, demand vs PV, failed-trial and churn
+  lockout detection and Line-Mode rebound detection, plus its private segmentation/sag helpers so
+  both evaluators classify modes and sag identically. No competing output-control framework.
+- Inputs: OutputTelemetry; ChargerObservation (mode, observed_at, provenance DEVICE_READBACK /
+  LAST_COMMAND_CACHE / UNKNOWN); ChargePolicyStatus (read-only copy of the charge controller's
+  published state); PvContext (curtailment, external controller: ABSENT/PRESENT/UNKNOWN; timezone
+  verified); raw output priority (observation only); Tuya managed-load total (diagnostic only,
+  never used as demand); DurableInterlockState (PERSISTED / RECONSTRUCTED / UNAVAILABLE); optional
+  expiring ShadowProposal (reported only; never changes the baseline). NULL is unknown, never zero.
+- Eight states: GRID_RECOVERY_ACTIVE, GRID_RECOVERY_COMPLETE, GRID_OUTPUT_HOLD,
+  SOLAR_RETURN_CANDIDATE, BATTERY_RETURN_ELIGIBLE, BATTERY_TRIAL, CHURN_LOCKOUT, FAULT_HOLD.
+  Actions: HOLD / ADVISE / BLOCK; ADVISE only for BATTERY_RETURN_ELIGIBLE (enforced in the
+  decision constructor).
+- Explicit precedence (module docstring and tests): GRID_RECOVERY_ACTIVE (emergency first) >
+  FAULT_HOLD > CHURN_LOCKOUT > GRID_RECOVERY_COMPLETE > BATTERY_TRIAL > Line-Mode hold / candidate /
+  eligibility. Lower-precedence reasons are still reported, and an active lockout is always carried
+  into updated_state even when a fault or recovery state wins.
+- Recovery completion requires the policy's own idle/release status (fresh) AND a fresh device
+  readback of solar_only. Missing, stale, cached-command or ambiguous charger values never end a
+  believed recovery and block optimism (CHARGER_STATE_UNVERIFIED).
+- Eligibility requires: Line Mode; base evaluator decision CONSIDER (fresh data, coverage, mains
+  dwell, verified current safety, known limits, productive stable solar, fresh forecast); fresh
+  solar_only readback; fresh charge policy; known PV context and verified timezone; no lockout; and
+  independent reserve evidence — a completed comparable loaded Invert Mode period of at least
+  min_battery_dwell_seconds with no fast sag, voltage at or above the approved exit guard and
+  discharge current within the approved limit, ending AFTER any later grid recovery or lockout
+  expiry. Grid charge current and Line-Mode voltage rebound are never reserve evidence; reported SOC
+  is never evaluated.
+- Failed trials: a short Invert period with fast sag or exit-guard breach is FAILED_BATTERY_TRIAL ->
+  CHURN_LOCKOUT (trial_phase FAILED). Repeated short Line/Invert runs -> CHURN_LOCKOUT via the
+  existing transition-rate rule. After a lockout expires, new reserve evidence and mains dwell must
+  postdate the expiry (POST_LOCKOUT_EVIDENCE_PENDING).
+- Restart: a persisted future lockout is honoured even when the triggering history is absent
+  (LOCKOUT_PRESERVED_ACROSS_RESTART); UNAVAILABLE state -> FAULT_HOLD; RECONSTRUCTED state uses the
+  supplied history and never yields eligibility when coverage is insufficient. Lockouts are never
+  reset by a restart. updated_state is returned for a future adapter to persist (source
+  EVALUATOR_OUTPUT); no storage is wired and no schema exists.
+- Output separates advisory state from observation: observed_working_mode, observed_charger_mode,
+  charger_provenance, output_priority_raw, transition_origin = unknown_external_or_device,
+  application_authorized_trial = False, advisory_only = True, command_issued = False (constructor
+  rejects any other value).
+- Reason codes include all required distinctions: GRID_RECOVERY_ACTIVE / EMERGENCY_RECOVERY_PRECEDENCE
+  / GRID_CHARGE_NOT_SOLAR / GRID_RECOVERY_COMPLETE_NOT_ELIGIBILITY (grid recovery), WEAK_SOLAR_SUPPORT,
+  LOAD_EXCEEDS_PV / HIGH_MEASURED_LOAD, VOLTAGE_REBOUND_NOT_RECOVERY, CHARGING_SOURCE_UNVERIFIED /
+  CHARGER_STATE_UNVERIFIED, INCOMPLETE_TELEMETRY / STALE_TELEMETRY / FUTURE_TIMESTAMP /
+  CONTRADICTORY_TELEMETRY, FAILED_BATTERY_TRIAL, CHURN_LOCKOUT, BATTERY_RETURN_ELIGIBLE, plus
+  PV_CONTEXT_UNKNOWN, RESERVE_EVIDENCE_MISSING, DURABLE_STATE_UNAVAILABLE and others.
+- replay_records(records, *, baseline, source): replays /api/charts/inverter-shaped records
+  (time, pv_power_w, battery_voltage, output_power_w, working_mode) in order without filling nulls
+  or gaps; per-record label VERIFIED_FROM_EXPORT / UNKNOWN_FROM_EXPORT / SIMULATED_SCENARIO and
+  missing fields; counts observed mode changes from working_mode only (independently of any charger
+  request) and reports changes across unknown modes separately; lists fields the export does not
+  contain (currents, charger, policy, output priority, sun times, device timestamp, curtailment,
+  external controller, command history). With those unknown, export results fail closed.
+
+EXACT FILES CHANGED
+
+Added (untracked):
+  app/control/grid_output_interlock.py      (749 lines)
+  tests/test_grid_output_interlock.py       (474 lines)
+  .project-memory/pr/0076-grid-charge-output-source-interlock/CODER_REPORT.txt (this file)
+Modified tracked files: none (git diff is empty).
+Not modified: PLAN.txt, reviews/PLAN_REVIEW.txt, all task-0075 files, BatteryChargeController
+(app/service/battery_charge_controller.py, SHA-256 aeca7a30…808a, last changed in 68d6cc6),
+InverterMonitor, DessAPI, output actuator, Tuya controllers, configuration, migrations, schemas,
+dashboards, deployment files.
+
+TESTS (tests/test_grid_output_interlock.py, 33 tests, all SIMULATED_SCENARIO)
+
+Plan test item -> tests:
+  nighttime grid recovery / 07:00 window end -> test_overnight_topup_and_0700_window_end
+  recovery completion with weak PV; central invariant ->
+    test_recovery_completion_is_reported_but_never_creates_eligibility
+  voltage rise from grid charging -> test_overnight_topup_and_0700_window_end (GRID_CHARGE_NOT_SOLAR),
+    test_charge_current_with_weak_pv_and_unverified_charger_is_not_solar
+  Line-Mode rebound -> test_line_mode_voltage_rebound_is_not_recovery
+  stable solar-return candidate / eligibility ->
+    test_stable_solar_return_with_independent_reserve_evidence_is_advisory_eligible,
+    test_missing_reserve_evidence_leaves_only_a_candidate
+  high output load vs weak PV; 2,000 W measured vs 30 W Tuya ->
+    test_weak_pv_against_high_demand_holds,
+    test_measured_inverter_demand_is_used_not_the_tuya_managed_total
+  charger readback valid / mismatch / missing / stale / cached / ambiguous -> ChargerReadback (4 tests)
+  missing / NULL / future / stale / gap / contradictory / unknown mode -> TelemetryFaults (2 tests)
+  repeated Line/Invert transitions, failed trial, observed trial label -> TrialsLockoutAndRestart
+  lockout and restart (persisted, unavailable, reconstructed, insufficient, expired) ->
+    TrialsLockoutAndRestart (5 tests)
+  emergency precedence; fault-before-lockout precedence -> PrecedenceAndInvariants
+  SOC never authorises; PV context / timezone unknown blocks optimism -> SolarDemandAndVoltage
+  plan-documented 08:24 observation; replay order/nulls/labels/mode counts -> Replay (2 tests)
+  no output-source or other hardware commands -> NoHardwareWrites:
+    static AST import allowlist (stdlib + adaptive_output_policy only) and banned-name check;
+    subprocess import probe: importing the evaluator loads no app.api / app.tuya / app.service /
+      shared_state / output-actuator / device-initializer module;
+    runtime spies with AssertionError side effects on DessAPI.ctrl_device and set_charger_source,
+      RelayTuyaController switch methods, every public EASUNOutputActuator method and
+      FakeDessTransport.write_setting while every scenario and replay test runs: zero calls.
+  no unintended change to the charging controller -> evaluator never imports it (probe above);
+    git shows the controller file unchanged.
+
+VALIDATION RUN (2026-11-13, commands actually run)
+
+PYTHONPYCACHEPREFIX=<scratchpad>/pycache python3.12 -m unittest tests.test_grid_output_interlock
+  -> Ran 33 tests, OK (Python 3.12.16, system interpreter; DessAPI spy skipped: app.api not
+     importable there)
+Python 3.12.16 scratch virtualenv with `pip install -r requirements.txt` (outside the repository;
+asyncpg 0.30.0 pinned, fastapi/jinja2 range-pinned and resolved to current releases), with
+PYTHONDONTWRITEBYTECODE=1 ... -m unittest discover -s tests -p <module>.py:
+  test_grid_output_interlock  -> OK (33 tests; DessAPI, RelayTuyaController, EASUNOutputActuator and
+                                 FakeDessTransport all importable and spied)
+  test_adaptive_output_policy -> OK (reused evaluator unchanged)
+  test_shadow_output_monitor  -> FAILED (errors=1), pre-existing aiohttp stub error (WARNINGS 3);
+                                 same result under system python3.12
+python3 -m compileall -q .      (PYTHONPYCACHEPREFIX in scratchpad) -> exit 0
+python3.12 -m compileall -q .   (PYTHONPYCACHEPREFIX in scratchpad) -> exit 0
+scripts/check-repo-safety.sh    -> PASSED, 0 errors, 0 warnings
+scripts/check-project-memory.sh -> PASSED, 0 rejected, 0 errors before this report (0076 PLANNING
+                                   COMPLETE) and again after it was written (0076 CODER COMPLETE).
+                                   Structural check only; it does not verify review independence.
+git diff --check                -> clean (no tracked changes); new files checked separately for
+                                   trailing whitespace: none
+No dedicated BatteryChargeController test module exists in tests/; its behaviour is unchanged
+because its file is unchanged and the evaluator does not import or call it.
+
+EVIDENCE OF ZERO NEW HARDWARE-WRITE PATHS
+
+- The only new runtime file imports dataclasses, datetime, enum, math, typing and
+  app.control.adaptive_output_policy (itself pure). Asserted by test.
+- It contains no reference to ctrl_device, set_charger_source, switch_on/off, write_setting,
+  shared_state or asyncpg. Asserted by test.
+- Importing it loads no device, charger, relay, Tuya, actuator, service or shared-state module.
+  Asserted by subprocess test.
+- Spied write methods were never called across all scenarios and the replay. Asserted by test.
+- Nothing imports the new module (it is not wired into any runtime path).
+
+SAFETY INVARIANTS
+
+- GRID_RECOVERY_COMPLETE never produces BATTERY_RETURN_ELIGIBLE; reserve evidence must postdate the
+  most recent recovery.
+- Every decision is advisory_only=True, command_issued=False, application_authorized_trial=False;
+  ADVISE is constructible only for BATTERY_RETURN_ELIGIBLE.
+- Emergency charging/recovery is reported with precedence and never delayed or altered; charger
+  policy, thresholds and BatteryChargeController are untouched.
+- Unknown, stale, future, contradictory or incomplete data fail closed (FAULT_HOLD or
+  GRID_OUTPUT_HOLD), never to eligibility. Stale or unknown charger state is never proof grid
+  charging stopped.
+- Grid charge current, Line-Mode voltage rebound and reported SOC are never solar or reserve evidence.
+- Measured inverter output demand is used; Tuya managed totals are diagnostic only.
+- Lockouts survive restart and are never shortened by it.
+- Advisory state is kept separate from the observed inverter mode; observed transitions have origin
+  unknown_external_or_device.
+- No pump, relay, pond life-support, temperature-sensor, inverter-configuration or deployment
+  behaviour is touched.
+
+REMAINING LIMITATIONS
+
+1. Real 13 November replay not performed (BLOCKERS 1).
+2. Phase 0 (read-only audit of actual hardware capability, deployed policy, BMS limits, PV
+   controller identity, output-demand coverage) was not performed in this coding task; consequently
+   no approved discharge limit, exit/enter guard or PV-context facts exist for production, and with
+   real inputs the evaluator will report FAULT_HOLD / GRID_OUTPUT_HOLD until they are supplied.
+3. Not wired to the shadow monitor, decision records or telemetry: PLAN.txt allows only the pure
+   evaluator and tests in this implementation, so integration is deferred to a reviewed follow-up.
+4. Recovery completion is detected from durable state + current inputs; it depends on a future
+   adapter persisting updated_state between evaluations.
+5. Reserve evidence relies on a completed loaded Invert period the inverter entered on its own;
+   after a grid recovery, eligibility is unavailable until such a period is observed. This is the
+   intended conservative behaviour, but it means ADVISE may be rare.
+6. The evaluator reuses private helpers of adaptive_output_policy (underscore names); a change there
+   would affect both evaluators (intended for consistency, but coupling the reviewer should note).
+
+DEVIATIONS FROM APPROVED PLAN
+
+- Required real-incident replay not executed (export unavailable); replaced by a replay function
+  and labelled synthetic tests. This is a gap, not a substitution of evidence.
+- None in scope: no file outside the approved allowlist was created or modified; no hardware,
+  database, configuration or Git state was changed.
+
+BOUNDARY CONFIRMATIONS
+
+No staging, commit, push, branch, stash, merge or pull request. No production, database, device or
+external-service access. Temporary files (pycache, virtualenv) are in the session scratchpad only.
+
+NEXT REQUIRED ACTION
+
+1. Independent precommit review of the uncommitted changes (do not treat this report as approval).
+2. Operator to provide the 13 November export so replay_records() can be run on all 615 records and
+   the PLAN.txt replay assertions checked against real data.
+3. Operator commit only after review. Physical inverter output control remains NOT APPROVED.
+
+FOLLOW-UP CORRECTIONS — INDEPENDENT REVIEW FINDINGS
+
+The four blocking findings from the independent precommit review were corrected in the same
+shadow-only scope:
+
+1. Reserve evidence now evaluates only the newest completed Invert segment. A newer segment that
+   is too short, below the exit guard, over the approved discharge limit, incomparable in load, or
+   shows fast sag invalidates reserve evidence rather than allowing an older segment to be selected.
+
+2. Unknown recovery continuity now fails closed. A missing recovery-in-progress value, an
+   unpersisted evaluator-output state, or unreconstructable restart state cannot publish reserve
+   evidence or authorize eligibility. A fresh idle policy/readback pair does not manufacture a
+   recovery completion timestamp.
+
+3. Replay provenance is explicit. The default source is UNVERIFIED_PROVENANCE. Synthetic,
+   imported-unverified, unverified, and independently validated labels are distinct, and only an
+   explicit VERIFIED_FROM_EXPORT or INDEPENDENTLY_VALIDATED source can produce a positive provenance
+   label for a complete row. No production fields or verification status are fabricated.
+
+4. Charge-policy metadata is validated before eligibility. Missing or non-boolean emergency state,
+   missing/unrecognised desired charger mode, and contradictory emergency/state combinations block
+   advice. Grid-assisted charging plus voltage rebound remains recovery/non-solar evidence and never
+   becomes solar reserve evidence.
+
+FOLLOW-UP TESTS
+
+The focused suite now contains 38 tests, including:
+
+- newer failed Invert evidence invalidating older reserve evidence;
+- unknown recovery history after restart failing closed without reserve evidence;
+- default, imported-unverified and independently validated replay provenance;
+- contradictory, missing and unrecognised charge-policy metadata;
+- voltage rebound during grid-assisted charging;
+- all existing advisory, emergency, lockout, restart and no-hardware-write cases.
+
+FOLLOW-UP VALIDATION RUN — 2026-11-17
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m unittest discover -s tests -p 'test_grid_output_interlock.py' -v
+  -> Ran 38 tests, OK
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m compileall -q app/control/grid_output_interlock.py tests/test_grid_output_interlock.py
+  -> exit 0
+
+scripts/check-repo-safety.sh
+  -> PASSED, 0 errors, 0 warnings
+
+scripts/check-project-memory.sh
+  -> PASSED, 53 PR directories, 0 rejected, 0 errors
+
+git diff --check
+  -> clean
+
+git diff --cached --name-only
+  -> no output; no files staged
+
+git status --short --untracked-files=all
+  -> only the six existing task-0076 files are untracked; no .agents/ file,
+     task-0075 file, runtime configuration or unrelated file is present
+
+BOUNDARY CONFIRMATION AFTER FOLLOW-UP
+
+Only app/control/grid_output_interlock.py, tests/test_grid_output_interlock.py and this coder
+report were modified. No BatteryChargeController or other production runtime code was changed.
+No hardware, database, DESS, Docker, Kubernetes, credential or network access was performed.
+No Git add, commit, push, stash, branch or permission escalation was performed.
+
+NEXT REQUIRED ACTION AFTER FOLLOW-UP
+
+Request a fresh independent precommit review. Do not self-approve or commit from this coder step.
+The real 13 November export remains unavailable, and physical inverter output-source control remains
+outside scope and unapproved.
+
+FINAL FOLLOW-UP — REMAINING PRECOMMIT BLOCKERS
+
+The two remaining implementation blockers were corrected without expanding the
+shadow-only scope:
+
+1. Replay measurement validation now separates source provenance from measurement
+   validity. Required timestamps, numeric measurements and working mode are checked
+   for presence, type, finiteness, physical sign constraints, recognised mode values
+   and chronological consistency before a row can retain VERIFIED_FROM_EXPORT or
+   INDEPENDENTLY_VALIDATED. Invalid and incomplete rows are conservatively labelled
+   UNKNOWN_FROM_EXPORT for trusted-source replays, while their original provenance,
+   measurement validity and invalid fields remain explicit. Synthetic and
+   unverified source labels are never promoted.
+
+2. ChargePolicyStatus now carries explicit ChargePolicyProvenance and verified fields.
+   Missing provenance defaults to UNKNOWN/unverified. Freshness, valid-looking fields
+   and a matching charger readback are insufficient without explicit verified
+   provenance; unverified policy metadata cannot authorize battery return. Policy
+   recovery activation also requires the verified metadata contract.
+
+NEW REGRESSION TESTS
+
+The focused suite now contains 42 tests, including malformed/nonpositive voltage,
+NaN PV, unknown working mode, and fresh-but-unverified charging-policy metadata.
+Existing tests continue to cover contradictory metadata, grid-charge voltage rebound,
+unknown restart continuity, failed-trial precedence, provenance defaults and the
+advisory/no-hardware-write invariants.
+
+FINAL VALIDATION RUN — 2026-11-17
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m unittest discover -s tests -p 'test_grid_output_interlock.py' -v
+  -> Ran 42 tests, OK
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m compileall -q app/control/grid_output_interlock.py tests/test_grid_output_interlock.py
+  -> exit 0
+
+scripts/check-repo-safety.sh
+  -> PASSED, 0 errors, 0 warnings
+
+scripts/check-project-memory.sh
+  -> PASSED, 53 PR directories, 0 rejected, 0 errors
+
+git diff --check and git diff --cached --check
+  -> clean
+
+git status --short --untracked-files=all
+  -> only the six existing task-0076 files are untracked; the index is empty
+
+REAL 615-RECORD REPLAY
+
+The required export `/private/tmp/dessmonitor-task0076-real-export-615.json` was
+checked and is absent. Therefore its expected SHA-256
+3774e82deae5971e50c8d352cc8917e4bf5209f35a523ce0f72489c478d9a410, JSON validity,
+615-record count, five-field schema, 13 collection-order mode changes and the
+no-battery-return replay assertion could not be executed. No substitute data was
+used, and the historical export was not modified. This remains an acceptance
+blocker, not a passed replay result.
+
+BOUNDARY CONFIRMATION
+
+Only the approved implementation, focused tests and this coder report were changed.
+No BatteryChargeController, task 0075 artifact, runtime wiring, configuration,
+deployment, device, DESS, database or hardware path was touched. No hardware or
+charger command path exists in the implementation. No Git add, commit, push, reset,
+restore, stash, branch change or permission escalation was performed.
+
+NEXT REQUIRED ACTION
+
+Provide the exact operator-recovered export at the required path and request a fresh
+independent precommit review. Do not self-approve or commit from this coder step.
+Physical inverter output-source control remains outside scope and unapproved.

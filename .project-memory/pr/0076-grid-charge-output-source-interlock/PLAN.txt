@@ -1,0 +1,245 @@
+TASK 0076 — Grid Charge / Output Source Interlock
+
+STATUS
+
+Planning artifact only. No runtime implementation, hardware control, configuration change, database mutation, commit, push, branch, or pull request is authorized by this plan.
+
+PRECONDITION OBSERVED
+
+git rev-parse --verify HEAD
+  79104555d7694759d41a40c97196ccc579f50f11
+git branch --show-current
+  master
+git status --short
+  clean
+
+OBJECTIVE
+
+Define the smallest independently reviewable implementation of an advisory-only coordination interlock between independent grid-assisted battery recovery and inverter output-source eligibility.
+
+The conceptual invariant is:
+
+  GRID_RECOVERY_COMPLETE does not imply BATTERY_RETURN_ELIGIBLE.
+
+The implementation produces deterministic shadow recommendations and reason codes only. It sends no output-priority commands, charger-source commands, relay/Tuya commands, or other hardware commands.
+
+EVIDENCE BASIS AND LIMITS
+
+The accepted 13 November 2026 export contains 615 records and 13 observed mode changes from /api/charts/inverter?hours=12. It includes an observed battery-mode record at 08:24 with battery voltage 24.0 V, inverter-visible PV 20 W, and output demand 1,284 W. These are collection-time observations, not confirmed physical switching timestamps.
+
+The export is the principal regression dataset where fields exist. Missing current, priority, command, device timestamp, curtailment, external-controller, and deployed-configuration information must remain unknown. Do not fabricate values or claim command causality.
+
+CURRENT ARCHITECTURE
+
+1. BatteryChargeController owns charger-source policy. It can request Solar+Mains or Solar Only and assert the verified 2 A charging-current field; it does not control output source priority.
+2. Checked-in charge defaults are emergency charging below 24.0 V, release above 24.5 V, seasonal 02:00–07:00, target 26.0 V, and solar takeover at 50 W. These defaults are not evidence of deployed settings.
+3. InverterMonitor copies working mode, battery voltage, currents, PV, output, charger priority, raw output priority, mains status, and source timestamp into shared state. It does not correlate physical mode changes with application commands.
+4. Output priority is read-only in the application. The EASUN output actuator accepts only a fake transport, and the catalogue mapping is read-only. No production output-source writer is verified.
+5. inverter_metrics.time is a collection timestamp, not a verified device or receipt timestamp. Historical transitions are first-observed brackets.
+6. Existing charge-policy safety behavior remains independent and unchanged. Task 0075 files and artifacts are outside this task.
+
+SCOPE BOUNDARY
+
+The plan artifacts are the only files created during planning.
+
+After approval, implementation may add only a pure evaluator/input-output model under app/control/ and focused task-0076 tests. Any additional file requires plan-review amendment.
+
+The first implementation must not modify BatteryChargeController, InverterMonitor, DessAPI, the output actuator, Tuya controllers, production configuration, migrations, database schemas, dashboards, deployment manifests, or task-0075 files. It must not wire the evaluator to any command writer.
+
+PURE EVALUATOR CONTRACT
+
+Implement a deterministic, side-effect-free interface equivalent to:
+
+  evaluate_interlock(snapshot, baseline, recent_history, durable_state) -> decision
+
+The input must represent:
+
+- observation values, source provenance, receipt/collection time, and freshness;
+- charger state and readback provenance;
+- working mode and raw output-priority observation, without treating either as command acknowledgement;
+- battery voltage, charge current, discharge current, PV power, active/apparent output demand, and utility availability;
+- controller/curtailment metadata when available;
+- minute-precision sunrise/sunset and verified installation timezone when available;
+- recent comparable-mode history and restart-safe trial/lockout state;
+- immutable operator baseline and any bounded, expiring shadow proposal.
+
+NULL is unknown, not zero. Invalid, stale, future, contradictory, and absent data remain distinguishable. Unknown or stale charger state must not be treated as proof that grid charging stopped.
+
+The returned decision contains:
+
+- HOLD, ADVISE, or BLOCK;
+- exactly one interlock state;
+- stable reason codes;
+- bounded evidence and provenance;
+- observed mode and charger state;
+- lockout/cooldown status and expiry;
+- origin/causality classification;
+- an explicit no-command-issued marker.
+
+INTERLOCK STATES
+
+GRID_RECOVERY_ACTIVE
+  Recovery charging is explicitly active by validated charger-source observation, or
+  the existing charge policy reports active recovery with fresh supporting data.
+  Preserve the existing charger policy; do not authorize output changes.
+
+GRID_RECOVERY_COMPLETE
+  The charger policy's own release/termination evidence is satisfied and charger
+  readback is fresh enough to distinguish completion from an unknown mismatch.
+  Ending recovery does not permit battery output.
+
+GRID_OUTPUT_HOLD
+  Recovery ended, charger state is uncertain, solar is weak, or the inverter is
+  observed on Line Mode. Hold output eligibility until independent evidence exists.
+
+SOLAR_RETURN_CANDIDATE
+  Fresh measured PV, output-demand context, productive solar relative to demand,
+  valid daylight context, no active grid charging, and no known fault/lockout exist.
+  Unknown curtailment or external-controller status blocks or downgrades optimism.
+
+BATTERY_RETURN_ELIGIBLE
+  A stable candidate window, independent reserve evidence under comparable demand,
+  acceptable current/voltage behavior, valid limits, and dwell/cooldown rules pass.
+  This is advisory eligibility, never command authorization.
+
+BATTERY_TRIAL
+  A future approved/observed trial is being evaluated. In this scope it is an
+  observation label, never evidence that this application commanded the inverter.
+  A short loaded collapse becomes a failed trial and starts lockout.
+
+CHURN_LOCKOUT
+  A failed short trial, repeated short Line/Invert runs, or transition-rate limit
+  occurred. Block voluntary battery-return advice until durable/reconstructable
+  expiry and stronger evidence. Never delay emergency protection or charging.
+
+FAULT_HOLD
+  Required telemetry, timestamp provenance, charger readback, hardware capability,
+  reconciliation, or competing-control state is invalid or unresolved.
+
+The evaluator must not collapse these states into existing charger-controller
+states and must not infer a physical inverter state from an advisory state.
+
+EVIDENCE RULES
+
+1. Grid-charge current is not solar evidence.
+2. Line-Mode voltage rebound is not proof of battery energy recovery.
+3. Reported SOC is diagnostic/corroborative only; it cannot authorize eligibility.
+4. Use measured inverter output demand, not the sum of Tuya-managed loads.
+5. Distinguish inverter-visible PV from potential PV hidden by curtailment, MPPT
+   limits, disabled/external controllers, or unknown topology. Unknown status blocks
+   optimistic advice.
+6. Reserve evidence uses validated voltage/current behavior in comparable loaded
+   Invert Mode observations and approved BMS/inverter limits. Do not invent
+   25.5/26.0/27–29 V hardware thresholds.
+7. Physical transitions and application decisions/requests are separate streams.
+   Without a correlated command use origin=unknown_external_or_device. A
+   recommendation is never an execution.
+
+RESTART AND STATE
+
+Accept a read-only-compatible durable or reconstructable source for recent failed
+trials, cooldowns, and transition counts. It must preserve lockout across restart,
+discard expired proposals without changing baseline, reconstruct from observations
+when possible, fail closed to FAULT_HOLD or GRID_OUTPUT_HOLD when not possible, and
+never reset cooldown merely because the process restarted.
+
+No schema or migration is authorized. Project Memory is documentation, not runtime
+state storage. The evaluator may define a future state interface without wiring
+storage.
+
+REAL INCIDENT REPLAY
+
+Replay all 615 export records and 13 observed mode changes, preserving order,
+gaps, nulls, and the 08:24 record. Each result is labelled
+VERIFIED_FROM_EXPORT, UNKNOWN_FROM_EXPORT, or SIMULATED_SCENARIO.
+
+Required assertions:
+
+- The 08:24 observation is not a successful battery-return result: 20 W PV is
+  weak against 1,284 W demand and missing reserve evidence remains blocking.
+- Mode changes are counted independently from charger requests.
+- Recovery completion never directly produces BATTERY_RETURN_ELIGIBLE.
+- Low PV, high demand, voltage rebound, stale/missing data, unknown charger state,
+  and curtailment uncertainty never create optimistic advice.
+- Repeated short trials produce CHURN_LOCKOUT.
+- Restart retains or reconstructs lockout and cooldown.
+- Emergency recovery has precedence over voluntary output eligibility.
+- Charge-policy outputs and thresholds are unchanged by the evaluator.
+
+Synthetic tests cover only states absent from the export and are labelled synthetic;
+they are not presented as real 13 November evidence.
+
+TEST PLAN
+
+Focused pure tests cover:
+
+- overnight charging and 07:00 end-of-window behavior;
+- recovery completion followed by GRID_OUTPUT_HOLD;
+- validated charger readback, mismatch, missing, stale, and restart;
+- voltage rebound during Line Mode;
+- weak PV, high measured load, and PV-demand deficit;
+- productive PV with independent reserve evidence;
+- missing/NULL/future/stale timestamps and contradictions;
+- repeated switching, failed trial, cooldown, and lockout expiry;
+- emergency charging precedence;
+- 2,000 W measured inverter demand versus 30 W managed Tuya total;
+- zero calls to DESS, Tuya, relay, charger, output, or other hardware APIs.
+
+Use in-memory or isolated test resources. Do not alter shared databases or production
+files.
+
+PHASES
+
+Phase 0: read-only audit of actual hardware capability, deployed policy,
+timestamp/freshness provenance, battery/BMS limits, PV controller identity, and
+whether inverter output demand covers the relevant circuits.
+
+Phase 1: pure evaluator and focused tests, unconnected to runtime command writers,
+with output writes hard-disabled.
+
+Phase 2: bounded replay and transparent diagnostic telemetry using the real export
+and labelled synthetic cases. Quantify churn classification, unknown coverage,
+false holds, and prevented short-trial recommendations.
+
+Phase 3: any managed-load intervention requires a separate scope and review; it is
+not part of the first task-0076 implementation.
+
+Phase 4: physical inverter output control is NOT APPROVED. It requires a separate
+hardware-specific plan, documented API/field mapping, read-before-write/readback,
+BMS/vendor limits, arbitration, manual override, rate limiting, rollback, and
+explicit operator approval.
+
+VALIDATION CHECKLIST
+
+Before plan review:
+
+- required reads completed;
+- export limitations documented;
+- task 0075 files untouched;
+- no runtime or production files changed;
+- no hardware writes performed;
+- changed-file scope is limited to the two task-0076 planning artifacts.
+
+Before any future implementation review:
+
+- isolated focused tests, compilation, smoke checks, and git diff --check pass;
+- changed-file allowlist contains only approved task-0076 files;
+- replay reports every unknown/missing field without fabrication;
+- hardware-write spies remain unused;
+- BatteryChargeController behavior is unchanged;
+- no task-0075 path is changed.
+
+DECISIONS OUTSIDE THIS PLAN
+
+This plan can influence only shadow recommendations, diagnostic states, reason
+codes, replay summaries, and future review gates. It cannot prevent an inverter
+from autonomously switching between Line and Invert when no verified output-source
+control exists. It cannot change charger priority, emergency thresholds, battery
+safety limits, relays, pumps, life-support controls, or inverter configuration.
+
+APPROVAL GATE
+
+Do not start coding until an independent plan review approves this advisory scope.
+The review must explicitly state whether the advisory implementation is approved
+and separately state that physical inverter control remains unapproved.
+

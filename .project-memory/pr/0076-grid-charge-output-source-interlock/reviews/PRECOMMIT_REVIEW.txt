@@ -1,0 +1,118 @@
+TASK 0076 — FRESH INDEPENDENT PRECOMMIT REVIEW
+
+VERDICT: APPROVED
+HEAD: c27c315b768980288ca1a137fbba773959b027d1
+BRANCH: master
+GIT INDEX STATUS: empty; no staged files.
+
+REVIEWED FILES
+Task 0076 plan, plan review, coder report and prior precommit review; complete
+untracked interlock implementation and focused tests; relevant adaptive policy,
+shadow monitor, charger controller and repository governance standards.
+
+PREVIOUS BLOCKERS — CURRENT RESULTS
+1. Newest failed Invert segment: the implementation selects the newest completed
+   Invert segment before testing its quality and does not fall back to an older
+   one. Sorting and duplicate-time/data-quality gates are inherited from the base
+   evaluator. Focused newer-failure test passes; dedicated equal-timestamp and
+   segmented-gap regressions for this interlock were not independently added.
+2. Restart/recovery: unknown recovery and unpersisted evaluator output fail
+   closed; completion requires persisted previous recovery and fresh idle/readback.
+   Restart and reconstruction regressions pass. Persistence is not wired.
+3. Replay provenance and measurement validation are now separate. Malformed
+   non-null values are conservatively classified and cannot retain a positive
+   verified-export label.
+4. Charging metadata now has explicit provenance and verification fields. Fresh
+   but unverified policy input is distinguished from verified metadata and blocks
+   eligibility.
+
+REGRESSION TEST RESULTS
+Focused unittest suite: 42 passed, zero skipped. Compilation passed. Repository
+safety and project-memory gates passed. git diff --check and git diff --cached
+--check passed. The focused newer-segment, unknown-recovery, default-provenance,
+malformed-measurement and contradictory-policy tests target the previously
+described defect paths.
+
+SAFETY INVARIANTS
+The implementation is a pure advisory evaluator and is not wired to hardware or
+charger writes. Charger controller is unchanged. Recovery completion is distinct
+from eligibility, emergency recovery takes precedence, and churn/cooldown and
+unknown inputs are covered by focused tests. These do not establish real-world
+telemetry provenance or authorize physical output control.
+
+CHANGED-FILE ALLOWLIST
+Six untracked files: task 0076 PLAN.txt, CODER_REPORT.txt, reviews/PLAN_REVIEW.txt,
+reviews/PRECOMMIT_REVIEW.txt, app/control/grid_output_interlock.py and
+tests/test_grid_output_interlock.py. No staged files, task 0075/0077 changes,
+charging-controller changes or .agents files in Git status.
+
+HISTORICAL EXPORT VERIFICATION
+
+File /private/tmp/dessmonitor-task0076-real-export-615.json matched the required
+SHA-256 3774e82deae5971e50c8d352cc8917e4bf5209f35a523ce0f72489c478d9a410.
+The JSON top level contains data with exactly 615 records. Every record has
+exactly the five fields time, pv_power_w, battery_voltage, output_power_w and
+working_mode. Timestamps are timezone-aware, strictly increasing and chronological.
+Only Line Mode and Invert Mode occur, with 13 adjacent observed mode changes.
+
+The changes occurred at collection-order indexes 449, 459, 474, 484, 488, 498,
+504, 509, 513, 518, 524, 538 and 557. These are observations, not confirmed
+physical switching times or hardware commands.
+
+Index 608 has output_power_w explicitly set to null while retaining all five keys.
+It was not filled or converted into a device timestamp. The replay classified it
+as UNKNOWN_FROM_EXPORT with measurement_validity INCOMPLETE and missing_fields
+('output_power_w',).
+
+HISTORICAL REPLAY
+
+The existing replay_records() implementation was executed with the supplied data
+list and source=VERIFIED_FROM_EXPORT. No charger status, BMS/SOC, currents, device
+timestamps, output priority, curtailment, external-controller state or command
+history was added.
+
+Replay result: records=615, evaluated=615, observed_mode_changes=13,
+mode_changes_across_unknown=0, advise_count=0, states={'FAULT_HOLD': 615}.
+Labels were VERIFIED_FROM_EXPORT=614 and UNKNOWN_FROM_EXPORT=1. Measurement
+validity was VALID=614, INCOMPLETE=1 and INVALID=0. Index 608 returned
+FAULT_HOLD/BLOCK. No BATTERY_RETURN_ELIGIBLE result occurred.
+
+LATEST FIX REVIEW
+
+ChargePolicyStatus now requires explicit non-UNKNOWN ChargePolicyProvenance and
+verified=True before policy metadata can support eligibility; missing provenance
+defaults to UNKNOWN/unverified. Replay measurement validity is separate from source
+provenance and checks timestamp, numeric type/finiteness, physical sign, recognised
+working mode and chronology. The fresh-unverified policy, malformed voltage, NaN
+PV and unknown-mode regressions pass. Earlier failed-trial, unknown-restart,
+voltage-rebound, contradictory-metadata and synthetic-provenance regressions also
+pass.
+
+VALIDATION RESULTS
+
+Focused unittest suite: 42 passed. Compilation passed. scripts/check-repo-safety.sh
+passed with 0 errors and 0 warnings. scripts/check-project-memory.sh passed with
+53 PR directories, 0 rejected and 0 errors. git diff --check and
+git diff --cached --check passed. The Git index remains empty.
+
+HARDWARE-WRITE SAFETY
+
+The implementation has no DESS, device, charger, relay, Tuya or database command
+path. Source scanning found no ctrlDevice, setter, switch, write_setting or asyncpg
+path. Focused no-hardware-write tests pass. Decisions enforce advisory_only,
+command_issued false and application_authorized_trial false. Observed modes remain
+attributed to unknown_external_or_device.
+
+LIMITATIONS AND COMMIT READINESS
+
+The replay establishes collection-order evidence only, not exact physical
+transition times, command causality, deployed thresholds, charger state, BMS
+reserve, battery currents, utility availability, output-priority readback or PV
+curtailment/external-controller state. The missing output demand at index 608
+prevents demand comparison for that observation; conservative FAULT_HOLD is the
+correct result.
+
+APPROVED for one operator-controlled commit of the reviewed Task 0076 shadow-only
+implementation and tests. This does not approve active Utility First switching,
+charger control, production deployment or hardware testing. No staging, commit,
+push, branch change, DESS access or hardware operation was performed.
