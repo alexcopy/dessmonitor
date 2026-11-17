@@ -1,0 +1,77 @@
+VERDICT: APPROVED
+
+REVIEWED PLAN
+Task 0078 corrective PLAN.txt, compared with the current untracked prototype,
+tests, the previous independent findings, and the Task 0076 safety contract.
+Approval is for the forward-looking corrective plan only; it is not approval of
+the existing prototype, implementation, physical control, or deployment.
+
+WORKFLOW ASSESSMENT
+The plan explicitly records that the prototype preceded independent approval.
+That work remains unapproved; this review is not backdated or retrospective
+authorization. The plan requires independent plan review, targeted correction,
+coder report, independent precommit review and operator-controlled commit, and
+recognizes the repository's planning-commit requirement. No Git action is
+authorized by this review.
+
+INTERLOCK AUTHORITY
+BATTERY_USE_ELIGIBLE requires the actual interlock ADVISE action and
+BATTERY_RETURN_ELIGIBLE state, shadow-only and no command or authorized trial,
+plus the seasonal and evidence gates. HOLD, BLOCK and candidate states cannot
+be promoted by a BMS/shunt input. This addresses the observed prototype bypass.
+
+PROVENANCE AND FRESHNESS
+The plan separates source, validity, independent verification, timestamp and
+freshness. It preserves negative age as future, rejects missing and naive times,
+uses existing telemetry/forecast bounds and a validated reserve-age bound, and
+keeps stale values visible without treating them as verified-current.
+
+INTERVAL VALIDATION
+A supplied COMPLETE string alone is unverified. Actual interval observations
+must use the existing interval calculator; even a complete EASUN-channel result
+is a proxy and cannot establish independently verified BMS/shunt reserve.
+
+DEADLOCK HANDLING
+Post-recovery missing-reserve diagnostics remain visible; independent reserve is
+supporting evidence and cannot override Task 0076. A supervised trial requires
+separate operator approval and is not initiated by this scope.
+
+REGRESSION TEST COVERAGE
+The required tests cover held/blocked/candidate interlocks, stale and future
+forecast/reserve data, missing timestamps, unverified COMPLETE, synthetic
+evidence, preserved diagnostics, nighttime/emergency and lockout behavior,
+research-only voltages, and no hardware commands. Verify actual evidence and
+test execution in the subsequent independent precommit review.
+
+FILE ALLOWLIST
+Future implementation: app/control/winter_energy_intelligence.py,
+tests/test_winter_energy_intelligence.py and task 0078 CODER_REPORT.txt;
+reviewers own the two task review artifacts. No charging, interlock, seasonal,
+adaptive, interval, runtime wiring, database, configuration or deployment edits
+without a separately approved amendment.
+
+VALIDATION RESULTS
+git rev-parse --verify HEAD: 72e591d1e392c3f11a1241030355dea5b6648d13;
+git branch --show-current: master. git status --short --untracked-files=all
+before this review showed only the plan and two prototype files. git diff
+--cached --name-only was empty. scripts/check-project-memory.sh passed with
+54 directories and zero rejected; scripts/check-repo-safety.sh passed with zero
+errors or warnings. git diff --check and git diff --cached --check passed.
+No implementation tests were run in this planning review; these checks do not
+validate the current untracked prototype or authorize hardware action.
+
+BLOCKERS
+None for the corrective plan. Existing prototype defects remain open until
+implementation and independent precommit review.
+
+WARNINGS
+Project Memory gate validates artifact structure rather than implementation
+safety. Caller-provided verification must be backed by documented underlying
+evidence; string labels and synthetic data must not be treated as production
+verification. The prototype remains uncommitted and unapproved.
+
+IMPLEMENTATION READINESS
+Corrective scope approved prospectively, subject to the repository planning
+commit gate and operator-controlled workflow. The coder may proceed only after
+that gate; independent precommit review remains required. No production or
+hardware access, staging, commit or push occurred during this review.

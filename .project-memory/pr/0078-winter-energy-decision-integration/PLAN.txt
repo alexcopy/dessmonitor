@@ -1,0 +1,304 @@
+TASK 0078 — CORRECTIVE WINTER ENERGY DECISION INTEGRATION PLAN
+
+STATUS
+
+Forward-looking corrective plan only. No implementation, hardware control,
+configuration change, database mutation, commit, push, branch operation or
+production access is authorized by this plan.
+
+The existing untracked files
+app/control/winter_energy_intelligence.py and
+tests/test_winter_energy_intelligence.py are an unapproved prototype. They were
+created before the Task 0078 plan and independent plan review were recorded.
+That sequence is not being backdated, and the prototype must not be described as
+historically approved. The operator-supplied CHANGES REQUIRED findings are the
+current corrective-review input; no local Task 0078 review artifact existed at
+planning time.
+
+PRECONDITION OBSERVED
+
+git rev-parse --verify HEAD
+  72e591d1e392c3f11a1241030355dea5b6648d13
+
+git branch --show-current
+  master
+
+git status --short --untracked-files=all
+  ?? app/control/winter_energy_intelligence.py
+  ?? tests/test_winter_energy_intelligence.py
+
+git diff --cached --name-only
+  no output; the Git index is empty.
+
+No existing uncommitted file is to be deleted, staged, committed, stashed or
+reset. The two prototype files may be edited only by the future coder, only
+after plan approval, and only within the corrective implementation allowlist
+defined below.
+
+REQUIRED WORKFLOW AND GOVERNANCE
+
+The compliant forward sequence is:
+
+1. This corrective PLAN.txt is independently reviewed.
+2. A plan-review agent writes the Task 0078 reviews/PLAN_REVIEW.txt and either
+   approves the corrective scope or returns further findings.
+3. After plan approval, a coder makes only the targeted implementation and test
+   corrections allowed below and writes CODER_REPORT.txt.
+4. An independent precommit-review agent reviews the resulting files, validation,
+   safety invariants and uncommitted inventory.
+5. Only after an APPROVED precommit review may the operator perform the single
+   direct-to-master commit.
+
+The existing prototype is retained for review and is not an approval artifact.
+No plan or plan review is backdated. If repository governance requires a planning
+commit before implementation, the operator must create that commit only after the
+independent plan review approves this file; the coder must not bypass the gate.
+
+READ-ONLY ARCHITECTURE FINDINGS
+
+The existing components provide the intended boundaries:
+
+- seasonal_output_strategy.evaluate_seasonal_strategy() already gates forecast,
+  approved limits, reserve age and bounded seasonal proposals;
+- grid_output_interlock.evaluate_interlock() owns recovery, charger readback,
+  failed-trial, restart, cooldown, reserve evidence and advisory eligibility;
+- adaptive_output_policy remains the underlying telemetry/solar/demand policy;
+- app.battery_intervals.calculate_battery_intervals() rejects missing, invalid,
+  conflicting, cached, duplicate and over-gap reported-current intervals;
+- EnergyInputs and WinterContext are caller-supplied evidence containers, not
+  proof that the caller independently verified the device or battery.
+
+The corrective implementation must remain a composition/explanation layer. It
+must not become a second controller, duplicate interval arithmetic, modify the
+seasonal evaluator, weaken the Task 0076 interlock, or add runtime wiring.
+
+CURRENT PROTOTYPE BEHAVIOR AND DEFECTS
+
+1. The prototype has independent_reserve_alternative logic that can return
+   BATTERY_USE_ELIGIBLE when the supplied interlock is
+   SOLAR_RETURN_CANDIDATE with a HOLD decision. A BMS/shunt provenance string is
+   treated as enough to bypass the missing post-recovery Invert evidence. This
+   violates the Task 0076 authority boundary.
+
+2. reserve_verified checks battery_energy_verified, usable_battery_wh and a
+   source-name allowlist, but does not require a valid, current, non-future
+   reserve observation. A caller-supplied boolean and source string are not
+   independent measurement verification.
+
+3. forecast_confident checks confidence and a non-null provenance string but does
+   not itself enforce forecast age, future timestamps or validity-window semantics.
+   A three-day-old forecast can therefore be described as VERIFIED by the winter
+   evidence layer even though the existing seasonal evaluator would hold.
+
+4. _age() clamps negative ages to zero. Future-dated observations can therefore
+   look current in WinterEvidence. Missing or invalid timestamps are not a valid
+   basis for current eligibility.
+
+5. reported_interval_status == COMPLETE is presented as VERIFIED interval
+   evidence even when the caller supplies only that status without the underlying
+   observations. COMPLETE from app.battery_intervals describes contiguous
+   EASUN-reported-channel integration; it does not prove total battery current,
+   BMS reserve, capacity or source identity.
+
+6. Diagnostics are present, but the evidence contract does not consistently keep
+   source provenance, measurement validity and freshness as independent fields.
+   A stale or future value must remain visible as stale/future/unverified rather
+   than being promoted by a confidence label.
+
+7. The prototype contains useful shadow states, research voltage labels and
+   deadlock reasons, but the corrective plan must preserve those diagnostics while
+   making them unable to authorize a physical or advisory battery return unless
+   Task 0076 itself has granted advisory eligibility.
+
+CORRECTIVE DESIGN
+
+1. INTERLOCK AUTHORITY INVARIANT
+
+The only path to WinterState.BATTERY_USE_ELIGIBLE is:
+
+  interlock is present
+  AND interlock.state == InterlockState.BATTERY_RETURN_ELIGIBLE
+  AND interlock.decision == InterlockAction.ADVISE
+  AND interlock.advisory_only is True
+  AND interlock.command_issued is False
+  AND interlock.application_authorized_trial is False
+  AND the seasonal strategy and independent evidence gates pass.
+
+An interlock HOLD, BLOCK, missing decision, GRID_OUTPUT_HOLD,
+SOLAR_RETURN_CANDIDATE, GRID_RECOVERY_COMPLETE, FAULT_HOLD or CHURN_LOCKOUT
+must never produce BATTERY_USE_ELIGIBLE, regardless of BMS/shunt evidence.
+The implementation must remove or neutralize the current bypass path.
+
+Independent BMS/shunt evidence may be reported as
+INDEPENDENT_RESERVE_AVAILABLE_INTERLOCK_PENDING and may reduce a diagnostic
+missing-requirement list, but it cannot override Task 0076. A post-recovery
+deadlock therefore remains SOLAR_RETURN_CANDIDATE or RECOVERY_OR_FAULT_HOLD,
+with an explicit deadlock reason, until the interlock independently grants
+eligibility. A supervised trial remains a future operator-approved process, not
+an implicit authorization.
+
+2. SEPARATE EVIDENCE DIMENSIONS
+
+Refactor the winter evidence representation so each item preserves, independently:
+
+- source_provenance: for example EASUN_REPORTED, WEATHER_FORECAST, BMS, SHUNT,
+  BMS_SHUNT, APP_BATTERY_INTERVALS or UNKNOWN;
+- measurement_validity: VALID, INCOMPLETE, INVALID or UNVERIFIED;
+- freshness: CURRENT, STALE, FUTURE or UNKNOWN;
+- observed_at and signed age_seconds, retaining negative age as FUTURE rather
+  than clamping it to zero;
+- confidence/explanation derived from those fields, never used to override them.
+
+The evidence item must retain a valid diagnostic value and its failure status even
+when the decision is blocked. Missing timestamps remain UNKNOWN and cannot produce
+CURRENT or VERIFIED evidence.
+
+3. FORECAST AND MEASUREMENT FRESHNESS
+
+Use existing approved configuration rather than new hardware thresholds:
+
+- forecast freshness and validity must use
+  OutputPolicyBaseline.forecast_max_age_seconds plus the existing forecast issue
+  and valid-through checks already enforced by seasonal_output_strategy;
+- measured telemetry freshness must use
+  OutputPolicyBaseline.telemetry_max_age_seconds;
+- reserve freshness must use the supplied EnergyInputs.max_energy_age_seconds
+  only after it is finite, positive, and the reserve observation timestamp is
+  aware, not future-dated and no older than that bound.
+
+A three-day-old forecast must be labelled STALE/UNVERIFIED and must not be
+  forecast-current evidence. Future-dated forecast, PV, or reserve observations
+  must be labelled FUTURE/UNVERIFIED and block current eligibility. No new
+  battery-voltage, BMS, capacity, current or seasonal threshold may be invented.
+
+4. RESERVE AND INTERVAL VALIDATION
+
+The caller must provide validated underlying reserve observations, not only
+reserve_verified=True, reserve_provenance='BMS_SHUNT', or an interval status.
+The implementation must require, at minimum, an independently identified BMS or
+shunt evidence source, a valid non-future observation timestamp, an approved age
+bound, finite usable reserve, and a measurement-validity result that is not
+INCOMPLETE, INVALID or UNVERIFIED.
+
+When EASUN-reported throughput is supplied, the adapter must use
+app.battery_intervals.calculate_battery_intervals() on the underlying ordered
+observations. Missing current/voltage, invalid voltage, conflicting currents,
+cached repeats, duplicate timestamps and gaps remain barriers. A caller-supplied
+COMPLETE string without the underlying validated result must remain
+UNVERIFIED. Even a genuine COMPLETE EASUN interval result is a DC reported-channel
+proxy, not independently verified total battery reserve or capacity.
+
+The winter layer may expose interval coverage, rejected barriers and proxy
+throughput as diagnostics. It must not convert those diagnostics into BMS/shunt
+verification or use PV/output power to invent battery energy.
+
+5. DEADLOCK REPORTING
+
+When Utility First/recovery history leaves no comparable loaded Invert evidence,
+preserve a stable diagnostic reason such as
+POST_RECOVERY_EVIDENCE_DEADLOCK. The result must identify the missing alternative:
+validated Task 0076 reserve evidence, independently validated BMS/shunt reserve,
+or a separately supervised operator trial. The layer must not bypass Task 0076,
+start a trial, alter output priority, alter charger priority, or claim that
+continuous Utility First operation proves battery reserve.
+
+6. RESEARCH VOLTAGE LABELS
+
+Keep 25.5 V, 26.5 V, 27.0 V, 27.5 V and 25.0–25.4 V as explicitly labelled
+research observations only. They are not guards, commands, SOC estimates,
+capacity estimates or eligibility criteria. A fast voltage rise remains a
+reported observation and cannot prove solar support, low capacity or usable
+reserve.
+
+IMPLEMENTATION BOUNDARY AFTER PLAN APPROVAL
+
+Runtime implementation allowlist:
+
+- app/control/winter_energy_intelligence.py
+- tests/test_winter_energy_intelligence.py
+- .project-memory/pr/0078-winter-energy-decision-integration/CODER_REPORT.txt
+
+Review artifact allowlist:
+
+- .project-memory/pr/0078-winter-energy-decision-integration/reviews/PLAN_REVIEW.txt
+- .project-memory/pr/0078-winter-energy-decision-integration/reviews/PRECOMMIT_REVIEW.txt
+
+The current PLAN.txt and future PLAN_REVIEW.txt are locked after plan approval.
+The coder must not modify app/control/grid_output_interlock.py,
+app/control/seasonal_output_strategy.py, app/control/adaptive_output_policy.py,
+app/battery_intervals.py, BatteryChargeController, Task 0076 artifacts, Task
+0075 artifacts, configuration, deployment or runtime wiring without a new
+approved plan amendment.
+
+REQUIRED REGRESSION TESTS
+
+Add deterministic tests proving:
+
+1. SOLAR_RETURN_CANDIDATE plus InterlockAction.HOLD remains not eligible even
+   with independently identified BMS/shunt reserve. The result preserves the
+   reserve evidence and reports interlock pending/deadlock diagnostics.
+
+2. InterlockAction.BLOCK, FAULT_HOLD, CHURN_LOCKOUT, GRID_RECOVERY_COMPLETE and
+   a missing interlock all remain not eligible, regardless of reserve evidence.
+
+3. A three-day-old forecast is STALE/UNVERIFIED using the existing approved age
+   bound, not VERIFIED/CURRENT.
+
+4. Stale and future-dated reserve observations fail current eligibility while
+   retaining their measured value, provenance and freshness failure in diagnostics.
+
+5. Caller-supplied COMPLETE without underlying interval observations is
+   UNVERIFIED. A validated interval result remains an EASUN-channel proxy and
+   cannot create independent BMS/shunt reserve provenance.
+
+6. Missing, naive, malformed and future timestamps fail closed without a negative
+   age being converted to zero/current.
+
+7. Valid diagnostics remain present when eligibility is blocked: output demand,
+   PV, voltage, reported currents, interval barriers, reserve source and missing
+   requirements are not discarded.
+
+8. Emergency recovery, nighttime charging, charger thresholds, scheduled
+   recovery, solar takeover, Task 0076 lockouts and restart behavior remain
+   unchanged through the composed decision layer.
+
+9. No output-source, charger-source, DESS, Tuya, relay or production command is
+   issued or represented as authorized. Use static import checks and command spies
+   where the existing tests support them.
+
+10. Research voltage observations at 25.5/26.5/27.0/27.5 V and 25.0–25.4 V
+    never independently change an ineligible interlock into an eligible result.
+
+VALIDATION AND ACCEPTANCE CRITERIA
+
+After implementation, the coder must run the focused winter, seasonal, adaptive,
+Task 0076 interlock and battery-interval tests, compilation, repository safety,
+Project Memory, git diff --check, complete worktree inventory and empty-index
+checks. Any PostgreSQL-dependent tests must be reported as skipped or passed with
+their actual reason; no production database may be used.
+
+Acceptance requires:
+
+- all targeted regressions pass;
+- no existing Task 0076, seasonal, adaptive or interval safety regression fails;
+- only the approved implementation/test/report files are changed;
+- no HOLD or BLOCK path can produce BATTERY_USE_ELIGIBLE;
+- forecast/reserve freshness, validity and provenance remain distinct;
+- COMPLETE interval status cannot establish independent verification;
+- post-recovery deadlock remains visible and no autonomous trial is started;
+- all decisions remain shadow-only with command_issued=False;
+- no DESS, hardware, production, charging or configuration access occurs; and
+- independent plan review and independent precommit review both approve before
+  the operator-controlled commit.
+
+NON-GOALS
+
+No new ML engine, battery-capacity estimator, SOC estimator, runtime integration,
+active Utility First switching, DESS discovery, charger-policy change, nighttime
+charging change, emergency-protection change, schema/migration, deployment change,
+hardware test, supervised trial execution or production setting change.
+
+NEXT REQUIRED ACTION
+
+Request independent plan review of this corrective PLAN.txt. Do not implement,
+stage, commit, push, backdate approval or treat the existing prototype as approved.
