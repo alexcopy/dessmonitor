@@ -1,0 +1,415 @@
+TASK
+    0079 — Adaptive EASUN Telemetry & Winter Runtime Diagnostics
+
+AGENT
+    orchestrator
+
+MODE
+    implementation workflow with mandatory independent review gates
+
+BRANCH
+    master
+
+PR
+    0079 (local project-memory directory is not present yet; the identifier is
+    available for this task)
+
+PRECONDITION
+    - Repository standards, ADR-0001, ADR-0003 and proposed ADR-0004 have
+      been read.
+    - HEAD is d850adcac5fba9acd326799b55c2cd776902cbd9 on master.
+    - Task 0078 is committed at d850adc (feat: add fail-closed winter energy
+      intelligence).
+    - The only pre-existing worktree change is the untracked operator-provided
+      file .project-memory/ADR/ADR-0004-adaptive-inverter-telemetry-and-winter-shadow.md.
+      It is read-only context and must not be modified, staged or removed.
+    - No implementation will begin until this plan has an independent
+      PLAN_REVIEW.txt approval and that approved plan has been committed as a
+      separate planning commit.
+
+CONTEXT
+    DESS polling already occurs in service/inverter_monitor.py and publishes
+    the latest successful DeviceData into shared state. The existing
+    app/ml/timescale_data_collector.py samples that state on a collection
+    schedule and already has charging, low-voltage and switching-detail paths.
+    Task 0078 is a committed, shadow-only winter evaluator. The runtime web
+    host is read-only and currently carries inverter data through
+    app/web_runtime_integration.py into the /control/state model.
+
+    The implementation must use the successful response already obtained by
+    the DESS poll loop. It must not add a DESS request, change poll_sec, send a
+    DESS/Tuya/device command, or alter charger, pump, inverter priority or
+    nighttime charging behavior.
+
+REQUIRED READS
+    - .project-memory/AGENT_STANDARD.txt
+    - .project-memory/ORCHESTRATOR_STANDARD.txt
+    - .project-memory/ADR/ADR-0001-agent-workflow.md
+    - .project-memory/ADR/ADR-0003-runtime-safety-before-ml-control.md
+    - .project-memory/ADR/ADR-0004-adaptive-inverter-telemetry-and-winter-shadow.md
+    - app/control/winter_energy_intelligence.py
+    - app/control/shadow_output_monitor.py
+    - app/ml/timescale_data_collector.py
+    - app/web_runtime_integration.py
+    - app/control/runtime_snapshot_adapter.py
+
+GOAL
+    On each existing successful DESS response, provide bounded, read-only
+    telemetry change detection and runtime diagnostics. Persist checkpoint
+    snapshots at the approved adaptive intervals and persist only meaningful
+    event changes between checkpoints. Expose freshness and provenance
+    honestly, and expose Task 0078's winter decision separately without
+    granting any new physical control capability.
+
+ALLOWED FILES
+    Project-memory artifacts:
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/PLAN.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/reviews/PLAN_REVIEW.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/reviews/PRECOMMIT_REVIEW.txt
+
+    Runtime and telemetry implementation:
+    - app/control/adaptive_telemetry.py (new): bounded response fingerprinting,
+      repeat/change classification, diagnostic-only noise filtering, adaptive
+      checkpoint selection, provenance counters and a bounded hand-off queue.
+    - app/control/winter_runtime_diagnostics.py (new): read-only adapter that
+      consumes the current observation and calls the committed Task 0078
+      evaluator for a serializable diagnostic result. It must not change
+      app/control/winter_energy_intelligence.py.
+    - service/inverter_monitor.py: invoke the bounded observation hand-off
+      after each successful response while preserving the existing poll
+      frequency and existing shadow-monitor call.
+    - app/ml/timescale_data_collector.py: consume the bounded hand-off with a
+      single writer path, write event metadata using existing tables, and
+      apply 5-minute daytime/transition, 15-minute stable grid-night and
+      conservative 5-minute unknown-context checkpoint rules. Preserve the
+      existing enhanced charging/emergency detail behavior.
+    - run.py: construct the observer/diagnostic providers without adding
+      requests, wire them into the existing monitor and read-only web host,
+      and keep startup failure/degraded paths non-blocking.
+
+    Read-only runtime model and web integration:
+    - app/control/control_state_snapshot.py: carry a separately named,
+      JSON-safe winter diagnostics block without mixing it into the old
+      online-threshold learner or the inverter write/control model.
+    - app/control/runtime_snapshot_adapter.py: accept winter diagnostics only
+      from the explicit typed provider argument, preserve its display-only
+      status/freshness/reasons, and ignore caller-supplied reserve/
+      authentication claims in generic runtime mappings.
+    - app/control/web_ui_read_contract.py: document the additional read-only
+      winter diagnostic field and its no-execution/no-write semantics.
+    - app/web_runtime_integration.py: accept a winter diagnostics provider and
+      forward it as a separate provider argument; do not put caller-provided
+      winter fields into the generic runtime mapping.
+    - app/web_host.py: forward the separate provider through the existing
+      authenticated /control/state host without adding a write route.
+    - app/web_control_state_provider.py: accept the separate provider result
+      alongside the generic runtime mapping and pass only that result to the
+      read-only snapshot adapter.
+    - app/web_queries.py: add only the read-only query needed to display
+      bounded telemetry change/mode-event history from existing tables, with
+      fixed SQL and existing parameterization.
+    - app/web_routes.py: add the authenticated GET
+      /api/inverter/events route for the bounded event history; no POST, PUT,
+      command or mutation route.
+    - app/web/templates/index.html: add a separate live winter diagnostics
+      panel showing decision, solar opportunity, charging context, reserve
+      evidence quality, interlock result, reasons and freshness.
+    - app/web/static/dashboard.js: render that panel with textContent-only
+      handling, explicit unavailable/unverified labels and no controls.
+    - app/web/templates/analytics.html: add the bounded telemetry-event and
+      provenance section.
+    - app/web/static/analytics.js: load/render that read-only event/provenance
+      section with the existing polling cadence and no extra DESS requests.
+    - app/web/static/dashboard.css: style the new read-only diagnostic and
+      telemetry sections.
+
+    Tests:
+    - tests/test_adaptive_telemetry.py (new): recorder classification,
+      quantization/noise filtering, bounded queue and provenance counters.
+    - tests/test_winter_runtime_diagnostics.py (new): read-only adapter,
+      diagnostic serialization, unavailable reserve and post-recovery
+      deadlock reporting.
+    - tests/test_timescale_data_collector.py (new): checkpoint/event writer,
+      day/night/unknown schedules, charging/emergency detail and bounded
+      persistence behavior.
+    - tests/test_shadow_output_monitor.py: preserve existing monitor behavior
+      and verify an observer sees successful responses without delaying or
+      replacing the shadow monitor.
+    - tests/test_web_runtime_integration.py (new): provider wiring, separate
+      winter field and read-only runtime model behavior.
+    - tests/test_web_query_architecture.py: fixed-query event route and
+      response contract coverage.
+    - tests/test_adaptive_journal_v2.py: prove that telemetry checkpoints do
+      not create one Journal v2 decision event per snapshot; do not change
+      journal schema or cooldown semantics.
+    - tests/test_task0079_ui.cjs (new): safe rendering of winter status,
+      reasons and freshness without HTML injection or write controls.
+
+    Existing Task 0078 implementation files are explicitly not in this
+    allowlist: app/control/winter_energy_intelligence.py and its committed
+    tests/report. Any modification to them requires a new, separately
+    approved scope decision.
+
+FORBIDDEN FILES AND ACTIONS
+    - No modification to app/control/winter_energy_intelligence.py,
+      tests/test_winter_energy_intelligence.py,
+      .project-memory/pr/0078-winter-energy-decision-integration/CODER_REPORT.txt,
+      or .project-memory/pr/0078-winter-energy-decision-integration/reviews/PRECOMMIT_REVIEW.txt.
+    - No modification to app/control/web_ui_read_endpoint.py; its existing
+      generic read-only endpoint remains unchanged.
+    - No migration or schema file. Reuse existing inverter_metrics and
+      power_mode_events tables; put bounded provenance/change metadata in the
+      existing metadata JSONB field where appropriate. A required schema
+      change is a blocker requiring separate migration approval.
+    - No ADR modification, including the untracked proposed ADR-0004.
+    - No files outside the allowlist, no broad directory access, no production
+      deployment, no database migration execution, no staging, no
+      implementation commit and no push.
+    - No inverter output-priority write, DESS control command, Tuya change,
+      pump change, charging-threshold change or nighttime charging change.
+    - No new trusted-source flag, certificate, token, caller-controlled
+      verification override or other verification mechanism.
+
+ARCHITECTURE
+    1. Observation hand-off
+       InverterMonitor keeps its current poll interval and fetch path. After a
+       successful response it captures receipt_at and passes the response plus
+       receipt time to a bounded in-memory recorder, even when the existing
+       shadow monitor is disabled. The callback performs only bounded local
+       bookkeeping and queue insertion; it never waits for a database, web
+       request, network request or hardware action. Callback failures are
+       isolated so monitoring and charger protection continue.
+
+    2. Classification and provenance
+       The recorder fingerprints the normalized payload. The first payload is
+       a collected observation; an identical payload is a repeated/cached
+       response; a changed payload is a changed response. Exact Line Mode ↔
+       Invert Mode changes are event records immediately on the next available
+       response. PV, battery voltage, battery currents, output and load use a
+       tested diagnostic-only discretization/noise filter. Filter constants
+       must be named and documented as persistence filters, never as policy,
+       reserve or charger thresholds.
+
+       The recorder stores response receipt time and database collection time
+       separately. In this task there is no trusted device-time contract:
+       DESS timestamp/gts, DeviceData.device_observed_at, response receipt
+       time and database collection time are all unverified for independent
+       measurement purposes. None can increment the independently-established
+       observation counter or be displayed as independently established.
+       Cached repeats do not increment verified independent observations.
+       Diagnostics expose request/response, repeat, changed-payload,
+       checkpoint, independently-established-device-time and queue-drop
+       counters; the device-time counter is necessarily zero under the current
+       integration. A caller-supplied device_observed_at regression test must
+       prove it remains unverified. The plan does not create a future trusted
+       source placeholder or caller-controlled override.
+
+    3. Persistence and schedules
+       A single bounded writer drains event/change records and writes existing
+       Timescale tables. Event metadata uses exactly these event_kind values:
+       mode_transition, significant_payload_change and checkpoint. Mode
+       transitions and significant filtered changes are written between
+       checkpoints; periodic snapshots are not Journal v2 decisions. The
+       read query returns at most 100 rows with event_kind, from_mode,
+       to_mode, changed_fields, quantized diagnostic values, receipt_at,
+       collected_at, timestamp_quality and payload_fingerprint; it never
+       presents a generic telemetry change as an ordinary mode transition.
+       Its fixed SQL filters before rendering with
+       metadata->>'event_kind' IN ('mode_transition',
+       'significant_payload_change', 'checkpoint'), excludes legacy rows with
+       no event_kind rather than guessing their meaning, orders by the
+       existing unique power_mode_events.time DESC, and applies LIMIT 100 in
+       SQL. No arbitrary metadata is returned as a mode event.
+
+       Checkpoints are 300 seconds during daylight/solar context and when
+       solar context is unknown, stale or unverified. The authoritative input
+       is shared_state["output_shadow_sun_times"], populated by the existing
+       OpenWeather update as the exact tuple (weather_time, sunrise, sunset)
+       of timezone-aware UTC datetime values. It is valid only when all three
+       values are aware datetimes, weather_time <= evaluated_at, and
+       evaluated_at - weather_time <= the existing read-only
+       OutputPolicyBaseline.forecast_max_age_seconds bound. A 900-second
+       checkpoint is allowed only with that validated tuple, when the current
+       instant is outside sunrise..sunset, and when the current observed mode
+       is stable grid-powered operation. Missing, stale, naive, malformed or
+       timezone-unverified context always uses 300 seconds. The collector's
+       sunrise_hour/sunset_hour defaults are not authoritative and cannot
+       select the 900-second branch. Existing enhanced charging, low-voltage,
+       emergency and SWITCHING detail intervals take precedence over the
+       normal 300/900-second checkpoint maximum and are never lengthened by
+       this schedule. No additional DESS request is introduced, and the
+       writer cannot block the monitor.
+
+       Event metadata is bounded: event kind, previous/current mode,
+       changed-field names, quantized values needed for diagnosis, payload
+       fingerprint, receipt/collection times and timestamp-quality labels.
+       Do not store full raw response payloads. A full bounded queue/drop
+       counter is visible in diagnostics so loss is explicit rather than
+       silently represented as fresh data.
+
+    4. Journal v2
+       Keep app/control/adaptive_journal_v2.py and its schema unchanged.
+       Checkpoint writes do not call the decision-event path. Existing
+       deduplication, confirmation, safety blockers and cooldown remain the
+       sole Journal v2 behavior. Tests must demonstrate bounded growth and no
+       periodic-snapshot event flood.
+
+    5. Winter runtime diagnostics
+       run.py owns one WinterRuntimeDiagnostics instance and invokes it from
+       the successful DESS observation path using the current DeviceData,
+       receipt time, current shadow history and the existing validated
+       sun-times context. The exact read-only path is:
+       run.py -> start_runtime_read_only_web_host(winter_diagnostics_provider)
+       -> app/web_host.py -> app/web_control_state_provider.py ->
+       app/control/runtime_snapshot_adapter.py. The winter provider result is
+       passed as a separate typed argument at each step, never as a field in
+       the generic caller-provided runtime mapping. The adapter stores it only
+       as a display-only winter block; it is not a control proposal,
+       eligibility input or trusted-source mechanism.
+
+       The snapshot adapter does not deserialize a caller-provided winter
+       decision, reserve scalar, synthetic/verified flag, source string or
+       inspectable reserve records from a generic runtime mapping; those
+       fields are ignored and cannot be authoritative. The runtime-to-UI test
+       must invoke this complete provider/adapter path while also injecting
+       those fields into the generic mapping and asserting they are absent
+       from reserve evidence and cannot produce BATTERY_USE_ELIGIBLE. A
+       Timescale writer outage must make persistence status unavailable/
+       degraded while leaving receipt-based observation freshness explicit; it
+       must not make the provider claim fresh persisted evidence.
+
+       The adapter calls the committed Task 0078 evaluator with the exact
+       current OutputTelemetry object it constructs for this response. If an
+       interlock evaluation is supplied, it constructs InterlockSnapshot and
+       InterlockEvaluationInputs from that same object and lets Task 0078
+       recompute the existing Task 0076 interlock. A mismatched or
+       caller-reported interlock is not accepted as a decision input. No
+       current DESS/BMS/shunt data supplies trusted reserve; no path may set
+       independently_verified=True. The adapter therefore fails closed for
+       current battery-use eligibility: no runtime result may be
+       BATTERY_USE_ELIGIBLE until a separately approved trusted integration
+       exists. It still serializes useful solar, charging, interlock,
+       HOLD/BLOCK reasons, evidence quality and post-recovery deadlock
+       information. It does not promote HOLD/BLOCK to control behavior and
+       does not change Task 0076's current-snapshot recomputation.
+
+    6. Web presentation
+       Add a separate winter block to the existing authenticated read-only
+       state. It must show decision, solar opportunity, charging context,
+       reserve evidence quality, interlock decision, explicit reasons and
+       data freshness. Telemetry history remains separate from the old online
+       threshold learner. UI code uses existing authenticated GET polling,
+       textContent-safe rendering and no action elements. Runtime-provider or
+       database failures render unavailable/degraded diagnostics rather than
+       stale data as current.
+
+TEST CASES
+    - Existing DESS poll frequency is unchanged; observer callback runs once
+      per successful response and cannot issue a second request.
+    - Line Mode -> Invert Mode -> Line Mode produces two observed transition
+      events before the next periodic checkpoint.
+    - Two meaningful payload changes between scheduled snapshots both persist
+      as bounded events; neither waits for a checkpoint.
+    - Identical cached DESS responses count as repeats, do not create change
+      events or verified measurements, and do not inflate the database.
+    - Changed payload with unknown/unverified device time records receipt and
+      collection times, marks measurement time unavailable/unverified, and
+      never claims a new device measurement.
+    - Caller-supplied DeviceData.device_observed_at is explicitly ignored for
+      independent verification and leaves the verified-observation counter at
+      zero.
+    - Values inside each diagnostic noise bin do not persist events; values
+      crossing a bin do. Mode changes are exact and are never filtered away.
+    - Fresh timezone-aware sun-times from the existing weather provider select
+      daylight versus stable grid night. Tests use the exact
+      (weather_time, sunrise, sunset) tuple from
+      shared_state["output_shadow_sun_times"] and the existing
+      forecast_max_age_seconds bound; absent, stale, timezone-naive,
+      malformed or otherwise unverified context cannot select 900 seconds and
+      uses 300.
+    - Daylight and transition checkpoints are 300 seconds; stable grid night
+      is 900 seconds only under the validated context above.
+    - Existing charging, emergency/low-voltage and SWITCHING detail intervals
+      retain precedence and are not lengthened by the new schedule.
+    - DESS outage/error does not save the last successful response as fresh or
+      create a transition; monitoring and charger-protection tasks continue.
+    - Bounded queue overflow is observable and does not block the monitor.
+    - Journal v2 remains deduplicated, preserves confirmation/blocker/cooldown
+      state, and does not add one decision event per checkpoint.
+    - Runtime winter diagnostics remain read-only and report reserve quality
+      as unavailable/unverified. A synthetic fixture with synthetic=False,
+      valid-looking scalar reserve and inspectable records still cannot yield
+      BATTERY_USE_ELIGIBLE or authorize battery use.
+    - A caller-reported/mismatched interlock cannot authorize battery use; the
+      runtime path binds any recomputation to the exact current telemetry
+      snapshot and preserves the committed Task 0076 behavior. The focused
+      test asserts inputs.snapshot.telemetry is snapshot for the valid case,
+      then uses a different snapshot and asserts
+      INTERLOCK_SNAPSHOT_MISMATCH plus a non-eligible result even when a
+      caller-reported interlock says eligible.
+    - Current interlock/deadlock reasons and post-recovery HOLD/BLOCK output
+      remain visible in the runtime diagnostic payload.
+    - Web runtime provider exposes separate winter diagnostics, fixed query
+      routes remain parameterized, and UI rendering is text-only with no
+      control/write affordance.
+
+DATA-VOLUME EXPECTATIONS
+    - No increase in DESS request volume.
+    - Checkpoint rows are approximately 288/day at the maximum 5-minute
+      schedule, approximately 96/day during stable 15-minute grid nights,
+      with the actual count reduced by the existing mode/context schedule.
+    - Event rows are proportional to exact mode transitions and filtered
+      significant changes, not poll count. Repeated payloads create no rows.
+    - Journal v2 row growth is unchanged by checkpoints.
+    - The in-memory hand-off is bounded; the implementation must expose queue
+      drops and counters rather than grow without limit. Event metadata must
+      be bounded and must not contain raw payload copies.
+
+VALIDATION AND CHECKS
+    After PLAN_REVIEW approval and the separate planning commit, implement
+    only this allowlist. Then run the focused Python tests, the existing
+    Journal/UI tests, the repository's configured lint/type/static checks,
+    and the repository project-memory validation scripts. Record exact
+    commands, pass/fail results and any environment-limited checks in
+    CODER_REPORT.txt. Run a final diff/status/allowlist audit and request an
+    independent PRECOMMIT_REVIEW.txt before any implementation commit.
+
+ROLLBACK AND DEPLOYMENT RISKS
+    - Rollback is a code-only revert of the separate implementation commit;
+      no migration rollback is needed because this plan adds no schema.
+    - If the new observer, writer, provider or UI path raises, it must degrade
+      to missing diagnostics/event persistence while the existing DESS monitor,
+      charger protection and read-only web host continue.
+    - A queue drop or Timescale outage can reduce telemetry completeness; it
+      must be reported as degraded and must never be interpreted as fresh or
+      verified evidence.
+    - A stale or unavailable sun context uses the conservative 300-second
+      checkpoint, not the 900-second night interval.
+    - Unverified BMS/shunt data remains a hard blocker for battery-use
+      eligibility. The plan cannot produce a positive battery-use result and
+      adds no path to obtain one.
+    - No production deployment or database migration is part of this task.
+      Any deployment requires separate approval after independent precommit
+      review and observation of the read-only behavior.
+
+NON-GOALS
+    - No battery reserve authentication/integration.
+    - No new trusted-source mechanism.
+    - No inverter, DESS, Tuya, pump, charger or charging-threshold control.
+    - No change to Task 0076 or Task 0078 evaluator logic.
+    - No production rollout, migration, staging, implementation commit or
+      push in this workflow.
+
+OUTPUT FORMAT
+    Before implementation: obtain independent approval in
+    .project-memory/pr/0079-adaptive-telemetry-winter-runtime/reviews/PLAN_REVIEW.txt
+    and commit the approved plan separately.
+
+    After implementation: write
+    .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    with exact changed files, tests, checks, limitations and commit readiness;
+    then obtain independent approval in
+    .project-memory/pr/0079-adaptive-telemetry-winter-runtime/reviews/PRECOMMIT_REVIEW.txt.
+    Leave implementation changes unstaged and uncommitted unless the user
+    separately authorizes a commit after those gates.

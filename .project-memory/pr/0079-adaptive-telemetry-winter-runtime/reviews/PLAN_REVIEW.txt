@@ -1,0 +1,90 @@
+PLAN REVIEW COMPLETE
+
+VERDICT: APPROVED
+
+TITLE
+PR 0079 — Adaptive EASUN Telemetry & Winter Runtime Diagnostics
+
+INDEPENDENT REVIEW BASIS
+- Read the current PLAN.txt in full.
+- Read .project-memory/AGENT_STANDARD.txt and
+  .project-memory/ORCHESTRATOR_STANDARD.txt.
+- Read ADR-0001, ADR-0003 and proposed ADR-0004.
+- Performed a fresh repository-state, allowlist and Task 0078 immutability
+  audit.
+
+REPOSITORY STATE
+- HEAD is d850adcac5fba9acd326799b55c2cd776902cbd9 on master.
+- Task 0078 remains committed at d850adc and its implementation, tests and
+  reports are outside the Task 0079 allowlist.
+- No tracked worktree diff or staged change was observed. The untracked
+  operator-provided proposed ADR-0004 and the untracked Task 0079 project-
+  memory directory remain present; neither is an implementation change.
+- No implementation, staging, commit, push, migration or deployment was
+  performed by this review.
+
+BLOCKER RESOLUTION
+
+1. Runtime provider ownership and UI path — RESOLVED
+   PLAN.txt has a non-conditional allowlist for the full read-only path and
+   explicitly specifies:
+   run.py -> app/web_runtime_integration.py -> app/web_host.py ->
+   app/web_control_state_provider.py -> app/control/runtime_snapshot_adapter.py.
+   The winter diagnostics provider is a separate typed provider argument at
+   every boundary, is kept out of the generic runtime mapping, and is stored
+   only as a display-only block. Generic caller fields including synthetic,
+   verified, source, scalar reserve and inspectable records are explicitly
+   ignored. The required end-to-end runtime provider/adapter test injects
+   synthetic=False and asserts unavailable/unverified reserve and no
+   BATTERY_USE_ELIGIBLE result. The plan also requires a Timescale writer
+   outage to report persistence unavailable/degraded while preserving only
+   explicit receipt-based freshness, never fresh persisted evidence.
+
+2. Solar scheduling authority and freshness — RESOLVED
+   Scheduling is bound to the exact
+   shared_state["output_shadow_sun_times"] tuple
+   (weather_time, sunrise, sunset). The plan requires all values to be
+   timezone-aware UTC datetimes, weather_time not later than evaluation time,
+   and age within the existing read-only
+   OutputPolicyBaseline.forecast_max_age_seconds bound. Missing, malformed,
+   stale, naive or timezone-unverified values always select 300 seconds; the
+   existing sunrise_hour/sunset_hour defaults cannot select the 900-second
+   branch. The listed tests cover the exact tuple, valid day/night behavior,
+   stale/naive/missing context and the conservative fallback.
+
+3. Task 0076 current-snapshot identity — RESOLVED
+   The plan preserves the committed evaluator and requires recomputation from
+   the exact current OutputTelemetry object. Its focused test must assert
+   inputs.snapshot.telemetry is snapshot for the valid case, then use a
+   different snapshot and assert INTERLOCK_SNAPSHOT_MISMATCH, a non-eligible
+   result and no authorization even when a caller-reported interlock claims
+   eligibility. Task 0078 implementation files and committed tests remain
+   forbidden to modify.
+
+4. Event query boundedness and classification — RESOLVED
+   The plan fixes event_kind to exactly mode_transition,
+   significant_payload_change and checkpoint; excludes legacy rows without
+   event_kind; orders by the existing unique power_mode_events.time DESC; and
+   applies SQL LIMIT 100 before rendering. It also requires generic telemetry
+   changes not to be presented as ordinary mode transitions and covers the
+   fixed query/result contract in tests.
+
+SCOPE AND SAFETY DECISION
+- The allowlist is explicit and non-conditional, including only the named
+  telemetry/runtime/UI files, corresponding tests and Task 0079 artifacts.
+- No Task 0078 evaluator code, Task 0078 tests or Task 0078 reports are in
+  scope. No migration or schema file is allowed.
+- The plan preserves existing DESS polling, charging/emergency detail,
+  current-snapshot interlock recomputation and fail-closed unverified reserve
+  behavior. It adds no trusted-source mechanism or physical control path.
+- The plan contains the required data-volume expectations, bounded queue and
+  metadata behavior, rollback, outage/degraded-state handling and deployment
+  risks.
+
+GATE DECISION
+The four previously reported blockers are fully addressed in the current
+PLAN.txt. The plan is approved for the separate planning commit only. This
+approval authorizes neither implementation nor staging, production
+deployment, database migration, implementation commit nor push. After the
+approved planning commit, implementation must remain within the exact
+allowlist and must obtain the independent PRECOMMIT_REVIEW gate.
