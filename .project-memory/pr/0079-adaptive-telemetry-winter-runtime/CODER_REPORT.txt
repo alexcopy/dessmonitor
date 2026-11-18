@@ -1,0 +1,926 @@
+TASK
+    0079 — Adaptive EASUN Telemetry & Live Winter Diagnostics
+
+AGENT
+    coder
+
+MODE
+    implementation (unstaged, uncommitted)
+
+PRECONDITION RESULTS
+    git rev-parse --verify HEAD      8d5129e062d0f2234f35ef5f76a6f6705d28292e
+    git branch --show-current        master
+    git diff --cached --name-only    (empty)
+    Planning commit present:         f36b903 "docs: approve task 0079 adaptive telemetry
+                                     runtime plan" adds PLAN.txt and
+                                     reviews/PLAN_REVIEW.txt (VERDICT: APPROVED).
+                                     8d5129e then adds ADR-0004.
+    Starting worktree:               an earlier, unreviewed partial implementation was
+                                     already present as uncommitted changes (9 modified
+                                     files plus untracked adaptive_telemetry.py and
+                                     winter_runtime_diagnostics.py). It was audited and
+                                     reworked, not trusted. Defects found and fixed:
+                                     - run.py did not compile (bare walrus inside a dict
+                                       literal);
+                                     - the recorder read non-existent DeviceData fields
+                                       (pv_power_w, output_power_w, ...), so PV, current
+                                       and load changes could never be detected;
+                                     - the hand-off used deque(maxlen=...), which silently
+                                       evicts the oldest event while it is being written,
+                                       after which acknowledge() removed unwritten events;
+                                     - winter evaluation ran lazily on every web request
+                                       instead of on the DESS observation path, and a
+                                       failure re-displayed the previous decision as
+                                       current;
+                                     - the checkpoint interval used the collector's
+                                       clock-heuristic mode, not the observed DESS mode;
+                                     - web query/route, UI, all tests and this report
+                                       were missing.
+
+CORRECTIVE PASS 3 — BACKOFF OVERFLOW + FRESHNESS GATE [28] (2026-11-18)
+    Scope: final surgical correction requested by the operator. No redesign or
+    expansion of Task 0079. HEAD 8d5129e062d0f2234f35ef5f76a6f6705d28292e,
+    master, index empty, PLAN.txt / PLAN_REVIEW.txt unchanged.
+
+    Files changed in this pass:
+      app/ml/timescale_data_collector.py          (allowlisted)
+      tests/test_timescale_data_collector.py      (allowlisted)
+      scripts/check-inverter-operator-freshness.sh (item [28] only; authorised
+                                                    by item 4 of this task)
+      .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    Not changed: charging, hardware control, DESS polling, winter algorithms
+    (0078), interlock/shadow (0076), run.py, any other check script.
+
+  1. EXPONENTIAL BACKOFF OVERFLOW (FIXED)
+    Defect: _FaultBackoff.failure() computed
+    LOOP_RETRY_INITIAL_SECONDS * 2 ** (consecutive - 1). At consecutive failure
+    1025 the int 2 ** 1024 cannot be converted to float -> OverflowError
+    (reproduced). That raise happens inside the loop's fault handler, escapes the
+    guarded calls, ends the worker and (per pass 2's unexpected-exit rule)
+    detaches the writer and drops the queue: after ~85 h of continuous failure
+    at the 300 s cap.
+    Fix: exponent = min(consecutive - 1, LOOP_RETRY_EXPONENT_CAP) with
+    LOOP_RETRY_EXPONENT_CAP = 30 before exponentiation; delay =
+    min(5 * 2 ** exponent, 300). Policy unchanged: 5, 10, 20, 40, 80, 160, 300,
+    300 ... s. The streak counters remain plain Python ints (no overflow).
+    Tests (tests/test_timescale_data_collector.py):
+      FaultBackoffTests.test_delay_for_large_failure_counts_never_overflows
+        failure counts 1 -> 5 s, 7 -> 300 s, 1025 -> 300 s, 1,000,000 -> 300 s;
+        no OverflowError; retry_at = now + delay.
+      FaultBackoffTests.test_streak_of_a_million_failures_keeps_the_policy_sequence
+      LoopFaultIsolationTests.test_long_failure_streak_does_not_terminate_worker_or_lose_events
+        real loop with the collection streak already at 999,999: collection
+        keeps failing at count 1,000,000+, the worker stays alive, both queued
+        events are persisted exactly once, writer stays attached, drops 0,
+        status never "disabled".
+    Pre-fix confirmation: with the exponent uncapped (cap set to 10**9 in a
+    scratchpad harness) all three tests fail with OverflowError and the loop
+    test logs "collection loop stopped unexpectedly; telemetry persistence
+    disabled (1 queued events dropped)".
+
+  2. FRESHNESS GATE [28] (RESOLVED THROUGH AUTHORISED NARROW CHANGE)
+    Authorisation: item 4 of this operator task explicitly requires replacing
+    the obsolete ZoneInfo source-shape assertion with a behavioural check. Only
+    assertion [28] of scripts/check-inverter-operator-freshness.sh was changed;
+    items 1-27 (including BLOCK 3 Europe/London formatting) are untouched. No
+    unused import was added to run.py.
+    Old [28]: grep run.py for "from zoneinfo import ZoneInfo" (the import only
+    served the removed code that relabelled the DESS Timestamp as a
+    Europe/London observed_at).
+    New [28] (behavioural; no app start, no network, no DB) with a DESS response
+    carrying timestamp, gts and device_observed_at:
+      a. executes the real run.py _inverter_provider (extracted with ast, run
+         with a stub monitor/recorder): observed_at must be None,
+         timestamp_quality "device_time_unverified", received_at the receipt
+         time, and no DESS time string anywhere in the row;
+      b. passes that row through app.web_control_state_provider
+         .build_control_state_snapshot_from_runtime_state: snapshot inverter
+         observed_at None, timestamp_quality unverified;
+      c. AdaptiveTelemetryRecorder: verified/device-time counters 0,
+         last_verified_measurement_at None, event metadata measurement_time
+         None, verified_observation False, no DESS time string;
+      d. WinterRuntimeDiagnostics: measurement_time None, unverified quality.
+    The underlying safety requirement (no unverified DESS time presented as a
+    device measurement time) is preserved and now enforced behaviourally.
+    Results: 28 passed, 0 failed with the 3.12 venv and with system python3.
+    Mutation check (scratchpad copy of run.py, repository untouched):
+      "observed_at": dd.timestamp            -> [28] fails (provider and
+                                                snapshot observed_at, timestamp
+                                                leaked)
+      timestamp_quality "device_time_verified" -> [28] fails
+      original run.py                          -> passes.
+
+  VALIDATION (this pass)
+    test_timescale_data_collector 54 run OK (4 opt-in skipped), repeated 3/3;
+    test_adaptive_telemetry 29 OK; test_winter_runtime_diagnostics 16 OK;
+    test_web_runtime_integration 9 OK.
+    Real PostgreSQL opt-in suite (tests/disposable_postgres.py, postgres:16-alpine):
+      RealPostgresCollectorTests 4/4 OK; container removed.
+    compileall app service run.py OK; check-repo-safety PASSED;
+    check-project-memory PASSED; git diff --check OK; git diff --cached --check
+    OK; index empty.
+    scripts/check-*.sh (43, venv first on PATH): 28 fail. Versus the previous
+    report the only change is check-inverter-operator-freshness, now passing.
+    The remaining 28 are the previously classified 23 "runtime files not
+    modified" scope guards and 5 reported clean-HEAD failures; none modified.
+    Baseline aiohttp.ClientSession error (test_shadow_output_monitor weather
+    fixture): unchanged; full discovery was not rerun in this surgical pass
+    (last full run: 674 run, 596 passed, 77 skipped, that 1 error).
+
+  REQUESTED VERIFICATION SCOPE
+    Narrow independent verification of (1) the backoff exponent cap and its
+    tests and (2) the authorised [28] replacement. No new regression evidence
+    has been found that warrants repeating the full architectural review.
+
+CORRECTIVE PASS 2 — COLLECTOR LOOP TERMINATION (2026-11-18)
+    Scope: the open item from the second reviews/PRECOMMIT_REVIEW.txt
+    (VERDICT: BLOCKED, "BLOCKER 2 ... OPEN"): an exception escaping
+    collect_data() ended timescale_collection_loop, leaving the recorder
+    writer-attached with no worker. Also the review's request for real
+    isolated-database evidence of reconnect / lost-acknowledgement / concurrent
+    arrival. No plan rewrite, no restart of the implementation.
+    Precondition: HEAD 8d5129e062d0f2234f35ef5f76a6f6705d28292e on master;
+    index empty; PLAN.txt / PLAN_REVIEW.txt unchanged since f36b903; latest
+    PRECOMMIT_REVIEW.txt, PLAN.txt, PLAN_REVIEW.txt and this report read.
+
+    Files changed in this pass (both already in the Task 0079 allowlist):
+      app/ml/timescale_data_collector.py
+      tests/test_timescale_data_collector.py
+      .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    Verified unchanged vs HEAD: PLAN.txt, PLAN_REVIEW.txt, scripts/ (no check
+    script edited), tests/disposable_postgres.py, tests/pg_isolation.py,
+    winter_energy_intelligence.py (0078), grid_output_interlock.py and
+    shadow_output_monitor.py (0076). run.py and service/inverter_monitor.py
+    were not touched in this pass (DESS poll_sec still 60). No charging, pump,
+    Tuya, inverter-command or schema change.
+
+  PRECISE FIX (app/ml/timescale_data_collector.py)
+    1. Loop-boundary isolation. timescale_collection_loop() now guards each
+       activity separately with `except Exception` (CancelledError is a
+       BaseException and is never caught there):
+         - collect_data()            -> collection fault
+         - persist_pending_events()  -> flush fault (raised, or a failed write
+                                        reported via persist_failures)
+         - initialize() on reconnect -> reconnect fault
+         - get_current_interval()    -> _safe_interval() falls back to 60 s
+       A failing collection never stops the event flush (and vice versa).
+    2. After a fault: _after_fault() sets persistence_status "degraded" and
+       probes the pool (connection_healthy(): SELECT 1, 10 s timeout). A broken
+       pool is discarded by reset_connection(): terminate() at once (only this
+       loop uses the pool and it resets between operations; a graceful close()
+       was observed to stall up to 10 s on a connection asyncpg left in an
+       InternalClientError state), _is_initialized=False. The loop then
+       re-initialises with back-off; queued events and their stable persistence
+       keys are untouched.
+    3. Bounded back-off per activity (_FaultBackoff): 5, 10, 20, 40, 80, 160,
+       300, 300 ... s (LOOP_RETRY_INITIAL/MAX_SECONDS). Collection retry waits
+       for retry_at; the flush keeps its existing 30 s floor
+       (PERSIST_RETRY_SECONDS); after any fault the loop sleeps at least
+       min(flush interval, 5 s). No zero-length waits after a failure.
+    4. Bounded logging: one WARNING with traceback at the start of a fault
+       streak, then at most one summary per LOOP_FAULT_LOG_INTERVAL_SECONDS
+       (300 s) with the consecutive and suppressed counts; one INFO on
+       recovery. persist_pending_events() now logs each failed attempt at DEBUG
+       only (it previously warned every 30 s indefinitely) and records
+       last_persist_outcome / last_persist_error for the loop.
+    5. Recovery: once the database is back, initialize() succeeds, collection
+       resumes and the flush drains the retained queue without an application
+       restart. The flush streak resets only after an actual verified write or
+       an empty queue ("written"/"idle"), never during the writer's own back-off.
+    6. Shutdown/cancellation: every wait is _wait_for_stop(stop_event, ...), so
+       stop is immediate. `except asyncio.CancelledError` now re-raises (it
+       previously swallowed cancellation); close() still runs in finally.
+    7. Unrecoverable exit: if anything escapes the guarded calls (an
+       Exception outside them, or a non-Exception error), finally detaches the
+       writer: persistence_status "disabled", queued events counted in
+       queue_drops, nothing further is queued. A normal stop or cancellation
+       leaves "unavailable". Unrecoverable configuration (no DATABASE_URL /
+       asyncpg) still detaches as before.
+    8. Unchanged rules: stable event_id, stable persistence keys, verified
+       one-row INSERT or own-row confirmation before acknowledgement,
+       exact-set acknowledgement, bounded queue (256) with explicit drop
+       accounting, FIFO/receipt ordering. EVENT_FLUSH_INTERVAL_SECONDS = 1.0
+       is the existing 1 s flush tick made a named constant (no DESS request).
+
+  REGRESSION TESTS (tests/test_timescale_data_collector.py)
+    Offline, LoopFaultIsolationTests (real loop, real initialize(), stand-in
+    asyncpg whose pools share one committed "server" state):
+      test_collect_data_raises_once_then_succeeds
+      test_reviewer_reproduction_collect_always_raising_still_flushes_events
+      test_database_fails_mid_operation_recovers_and_persists_exactly_once
+        (COMMIT applied, reply lost, connection broken, reconnects refused;
+        events arrive during recovery; all persisted once, in order, lost-ack
+        row reconciled, pool recreated, drops 0)
+      test_overflow_while_recovering_reports_actual_losses
+      test_failed_writes_never_acknowledge_while_persistently_failing
+      test_persistent_failures_are_not_a_busy_loop_and_logs_are_bounded
+      test_shutdown_during_retry_exits_cleanly
+      test_cancellation_is_propagated_not_swallowed
+      test_unexpected_loop_exit_reports_disabled_not_active
+      test_interval_evaluation_error_does_not_end_the_loop
+    FaultBackoffTests:
+      test_backoff_is_bounded_and_logs_are_rate_limited (200 failures ~16 h:
+        delays 5..300 cap; WARNINGs <= 1 + elapsed/300 s)
+    Pre-fix confirmation (scratchpad harness, worktree untouched): the previous
+    loop fails test_collect_data_raises_once_then_succeeds,
+    test_reviewer_reproduction_..., test_database_fails_mid_operation_... and
+    test_cancellation_is_propagated_not_swallowed (4/4 fail); all pass now.
+
+    Real PostgreSQL, opt-in RealPostgresCollectorTests (skipped by default):
+      TIMESCALE_COLLECTOR_LOCAL_POSTGRES=1 PYTHONPATH=..:. python3.12 \
+        tests/disposable_postgres.py run -- python3.12 -m unittest \
+        test_timescale_data_collector.RealPostgresCollectorTests   (from tests/)
+    Each run uses the repository harness: new postgres:16-alpine container,
+    loopback, random credentials, verified ownership via tests/pg_isolation.py,
+    container removed afterwards (0 leftover containers confirmed). The real
+    collector code runs on real asyncpg 0.30.0; a thin test shim only skips
+    CREATE EXTENSION timescaledb and can drop a COMMIT reply.
+      test_real_initialise_and_verified_writes
+        real initialize()/_create_tables() DDL, verified inserts, zero-row
+        INSERT of the event's own row -> "existing"
+      test_real_lost_commit_acknowledgement_reconnects_and_persists_exactly_once
+        COMMIT really applied on the server, client connection terminated and
+        an error raised before the writer sees success -> nothing
+        acknowledged; pool reconnects; retry reconciles both events (2 rows,
+        2 metrics rows, no duplicates)
+      test_real_outage_mid_operation_loop_recovers_without_restart
+        loop running; ALTER ROLE ... NOLOGIN + pg_terminate_backend kills the
+        collector's sessions mid-operation and refuses real reconnects; events
+        arrive during the outage; LOGIN restored -> pool recreated, all 4 events
+        stored exactly once in order, metrics rows 4, drops 0
+      test_real_events_arriving_during_a_write_are_kept
+        writer blocked by a real conflicting table lock; an event arriving
+        mid-write stays queued and is written next, once
+    Results: 4/4 pass; full real suite 5/5 consecutive runs OK; outage test
+    15/15 consecutive runs OK after the terminate() fix (before it, 1 of 4 runs
+    stalled 10 s in graceful pool close — found and fixed in this pass).
+
+  VALIDATION COMMANDS AND RESULTS (this pass, Python 3.12 venv)
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:tests python3.12 -m unittest discover -s tests -q
+      674 run, 596 passed, 77 skipped (73 previous opt-in PostgreSQL + 4 new
+      opt-in real-DB collector tests), 1 error.
+      Baseline error, unchanged, reported separately:
+        test_shadow_output_monitor.test_weather_source_preserves_exact_sun_times_
+        and_clears_missing_data -> AttributeError: module 'aiohttp' has no
+        attribute 'ClientSession' (stubbed aiohttp; reproduced on clean HEAD).
+    Focused: adaptive_telemetry 29 OK; timescale_data_collector 51 OK (4
+      skipped opt-in); winter_runtime_diagnostics 16 OK; web_runtime_integration
+      9 OK; web_query_architecture 16 OK (2 skipped); adaptive_journal_v2 19 OK
+      (12 skipped); shadow_output_monitor 22, 21 OK + baseline error.
+      Offline collector suite 5/5 consecutive runs OK.
+    node --test tests/test_*.cjs: 97 tests, 97 pass, 0 fail.
+    python3.12 -m compileall -q app service run.py: OK.
+    bash scripts/check-repo-safety.sh: PASSED. bash scripts/check-project-memory.sh: PASSED.
+    git diff --check: OK. git diff --cached --check: OK. Index empty.
+    scripts/check-*.sh (43, venv first on PATH): 29 fail — identical set to the
+      previous report; none modified. check-inverter-operator-freshness [28]
+      remains UNRESOLVED (not waived; needs an authorised gate decision).
+      The check scripts' synthetic 127.0.0.1 uvicorn servers were stopped.
+
+  REMAINING DATABASE LIMITATIONS
+    - Timescale-specific gap: the repository harness image is plain PostgreSQL
+      16 (changing tests/disposable_postgres.py is outside the allowlist). Not
+      verified on a real TimescaleDB: CREATE EXTENSION timescaledb,
+      create_hypertable() on these tables, ON CONFLICT (time) and command tags
+      on hypertables/chunks, compression/retention interaction.
+    - The lost-acknowledgement case is produced client-side after a real
+      server COMMIT (connection terminated, error raised); a network partition
+      that drops the CommandComplete packet in transit was not reproduced
+      (the harness permits only the provisioned endpoint, so no TCP proxy).
+    - Process restart/termination still loses the in-memory queue (bounded at
+      256); no durability is claimed.
+    - Long outages beyond queue capacity drop events; drops are counted.
+
+CORRECTIVE PASS — PRECOMMIT BLOCKERS 1-3 (2026-11-18)
+    Scope: close exactly the three reproducible blockers in
+    reviews/PRECOMMIT_REVIEW.txt (VERDICT: BLOCKED). The existing implementation
+    was preserved; no restart, no architecture rewrite, no new planning cycle.
+    Precondition re-verified: HEAD 8d5129e062d0f2234f35ef5f76a6f6705d28292e on
+    master (f36b903 planning commit is its parent; 8d5129e adds only ADR-0004,
+    as already accepted by the precommit reviewer); index empty; PLAN.txt and
+    reviews/PLAN_REVIEW.txt unchanged.
+
+    Files touched in this pass (all already in the Task 0079 allowlist and
+    already part of the uncommitted Task 0079 change set):
+      app/control/adaptive_telemetry.py
+      app/ml/timescale_data_collector.py
+      app/control/winter_runtime_diagnostics.py
+      app/web/static/dashboard.js
+      tests/test_adaptive_telemetry.py
+      tests/test_timescale_data_collector.py
+      tests/test_winter_runtime_diagnostics.py
+      tests/test_web_runtime_integration.py
+      tests/test_task0079_ui.cjs
+      .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    Not touched: PLAN.txt, PLAN_REVIEW.txt, PRECOMMIT_REVIEW.txt, any ADR,
+    app/control/winter_energy_intelligence.py and its tests/reports (Task 0078),
+    grid_output_interlock / shadow monitor (Task 0076), service/inverter_monitor.py
+    (poll_sec still 60), run.py, charging/pump/Tuya/inverter paths, schema.
+
+  BLOCKER 1 — false persistence acknowledgement (FIXED)
+    Root cause: persist_pending_events() used INSERT ... ON CONFLICT DO NOTHING,
+    ignored the command tag and acknowledged the whole batch; the persistence
+    time (PK) was regenerated on every retry, so a lost COMMIT acknowledgement
+    could also produce duplicates.
+    Changes:
+    - TelemetryEvent.event_id: uuid4 hex assigned at enqueue; stored in the event
+      metadata JSONB (one extra bounded key; no schema change). Stable identity
+      across retries, processes and restarts.
+    - Stable persistence key: the power_mode_events/inverter_metrics time is
+      assigned once per event on its first write attempt (_event_key) and reused
+      on every retry. Keys are dropped on acknowledgement and pruned to events
+      still queued, so the map is bounded by the queue size.
+    - inserted_rows(): parses the PostgreSQL command tag. Only "INSERT 0 1"
+      counts as stored; "INSERT 0 0" is a conflict; anything else (None,
+      "UPDATE 1", "INSERT 0 2", malformed) is unverified and raises.
+    - _write_event(): each event runs in a savepoint inside the batch transaction.
+        INSERT power_mode_events = 1 row -> (observed changes) INSERT
+          inverter_metrics must also be 1 row; 0 rows there means the key is held
+          by another metrics row -> savepoint rolled back, event re-keyed.
+        INSERT power_mode_events = 0 rows -> PK lookup
+          SELECT metadata->>'event_id' FROM power_mode_events WHERE time = $1.
+          Equal to this event's id -> "existing": the row (and its metrics row,
+          committed in the same savepoint) was stored by an earlier attempt whose
+          acknowledgement was lost; handled without a duplicate.
+          Different/absent id (foreign or legacy row) -> re-key and retry.
+        At most EVENT_KEY_COLLISION_ATTEMPTS (3) keys per event; still unresolved
+        -> EventPersistenceUnverified -> whole batch rolled back and retained.
+    - Exact-set acknowledgement: recorder.begin_write() marks the batch in
+      flight; recorder.acknowledge(seqs, reconciled=n) removes exactly the
+      verified sequence numbers (never "everything <= last seq"); any exception,
+      including a failed/uncertain COMMIT, calls release_write() and nothing is
+      acknowledged. Events arriving during the write are never removed.
+    - Overflow during a write: an in-flight event shed by the bounded queue is
+      counted as dropped only if that write is not confirmed (it may already be
+      stored); confirmed ones count as persisted. queue_drops therefore counts
+      only real losses.
+    - Checkpoint path: _collect_inverter_metrics() now returns True only for a
+      verified one-row insert, so a zero-row checkpoint insert adds no marker and
+      marks persistence degraded.
+    - New counter events_reconciled_existing (lost-ack reconciliations).
+    Ordering: queue FIFO order and receipt order are preserved; keys come from
+    the monotonic _next_event_time, so for the normal and retry paths DB time
+    order equals queue order (tested). Only an event re-keyed after a foreign-row
+    collision receives a later key than events already keyed behind it; its
+    receipt_at metadata still records the true order.
+
+  BLOCKER 2 — collector exits permanently after startup DB failure (FIXED)
+    Changes:
+    - initialize_with_retry(): recoverable failures are retried with bounded
+      exponential back-off 5 s -> 10 -> 20 -> 40 -> 80 -> 160 -> 300 s (cap),
+      one warning per attempt, waiting on stop_event (no busy loop; shutdown is
+      immediate). Retries continue until shutdown; collection and the event
+      flush start as soon as initialisation succeeds, without an app restart.
+    - initialize() failure closes a half-created pool, resets pool/_is_initialized
+      and reports persistence "unavailable" (never "available") meanwhile.
+    - initialization_recoverable(): only missing DATABASE_URL or missing asyncpg
+      is treated as unrecoverable. In that case the loop detaches the writer:
+      persistence_status "disabled", queued events counted in queue_drops,
+      nothing further is queued (no silent retention of events no writer can
+      ever write).
+    - The collector runs in its own task; DESS monitoring, recorder.observe()
+      (pure in-memory, bounded) and charger protection never wait on it.
+      Cancellation (run.py cancels ml_db_task on shutdown) is handled by the
+      existing CancelledError path and close().
+    Durability statement: the hand-off queue is in-memory only (bounded at 256).
+    Events retained during an outage survive only while the process runs; a
+    process restart or termination loses them. No durability is claimed.
+
+  BLOCKER 3 — stale charging values with current receipt freshness (FIXED)
+    Changes (app/control/winter_runtime_diagnostics.py):
+    - _received_at now means "receipt of the data the current result
+      represents". On evaluation failure it is cleared; snapshot() computes
+      receipt freshness only when status == "ok". A failed result therefore
+      always reports freshness UNAVAILABLE and received_at/receipt_age null, no
+      matter how many DESS responses arrive afterwards.
+    - _failed() builds a fresh snapshot instead of replace(previous, ...):
+      decision, profile, solar_opportunity, charging_context, interlock decision/
+      state = UNAVAILABLE; charge current / charger priority = null; interlock
+      reasons empty; post_recovery_deadlock false; reserve quality
+      UNAVAILABLE_UNVERIFIED; reasons DIAGNOSTIC_EVALUATION_FAILED +
+      RUNTIME_TRUSTED_RESERVE_INTEGRATION_ABSENT.
+    - Previous successful values are kept only in historical_last_success,
+      labelled "HISTORICAL_NOT_CURRENT", with their original received_at and
+      last_successful_evaluation timestamps. A later successful evaluation
+      clears it.
+    - Evaluation still happens only on the DESS observation path; web GET calls
+      snapshot() only (regression test asserts zero evaluator calls per GET).
+    Changes (app/web/static/dashboard.js), defence in depth:
+    - Derived fields (solar, charging, reserve, interlock, receipt) are rendered
+      only when status === "ok"; otherwise "unavailable (evaluation failed)",
+      badge "evaluation failed", even if a payload still carried old values.
+    - Failure row shows "<type> · N total · last successful result <decision> at
+      <time> (historical, not current)"; Last evaluation is suffixed "(last
+      successful; latest evaluation failed)". Historical charging values are not
+      rendered in the panel.
+    - status ok but receipt not current: solar/charging/interlock text is
+      suffixed "as of receipt stale, not current" and the badge is degraded.
+    Battery charging controller, Task 0076/0078 algorithms: unchanged.
+
+  REGRESSION TESTS ADDED/CHANGED IN THIS PASS (all passing)
+    Blocker 1 — tests/test_timescale_data_collector.py, VerifiedPersistenceTests
+    (stateful fake connection returning real command tags, PK enforcement,
+    savepoint rollback, injected lost COMMIT ack and mid-write arrivals):
+      test_zero_row_insert_is_not_acknowledged          (review reproduction)
+      test_unrecognised_command_tag_is_not_acknowledged
+      test_lost_commit_acknowledgement_is_reconciled_without_duplicate
+      test_foreign_row_at_persistence_key_is_rekeyed_not_acknowledged
+      test_metrics_key_collision_rolls_back_the_event_row_and_rekeys
+      test_unresolved_collisions_roll_back_the_whole_batch
+      test_retry_preserves_order_and_stable_keys
+      test_events_arriving_during_the_write_are_kept
+      test_overflow_during_write_counts_only_unconfirmed_events_as_dropped
+      test_checkpoint_metrics_zero_row_insert_adds_no_marker
+    tests/test_adaptive_telemetry.py, QueueTests:
+      test_acknowledge_by_sequence_survives_concurrent_enqueue_and_overflow (updated
+        to begin_write/exact-set acknowledge; now also asserts persisted 1, drops 0)
+      test_acknowledge_removes_only_confirmed_in_flight_events
+      test_failed_write_counts_evicted_in_flight_event_as_dropped
+      test_event_identity_is_unique_and_stable
+      test_detach_writer_stops_queueing_and_counts_queued_events_as_dropped
+      test_metadata_is_bounded_and_has_no_raw_payload (key set + event_id)
+    Blocker 2 — tests/test_timescale_data_collector.py, StartupRecoveryTests
+    (real initialize() with a stand-in asyncpg module):
+      test_startup_outage_retries_reconnects_and_drains_retained_events
+        DB unavailable at startup -> 2 failed initialisations (status
+        "unavailable", event retained) -> DB available -> reconnect on attempt 3
+        -> retained transition stored exactly once; persisted 1, reconciled 0,
+        drops 0, queue empty; collection resumed.
+      test_half_initialised_pool_is_closed_before_retry
+      test_backoff_is_bounded_exponential_and_not_a_busy_loop
+        (waits = [5, 10, 20, 40, 80, 160, 300, 300, 300])
+      test_shutdown_during_backoff_exits_promptly
+      test_cancellation_during_backoff_stops_cleanly
+      test_unrecoverable_configuration_disables_persistence_explicitly
+      test_monitor_side_observation_never_waits_for_the_database
+    Blocker 3:
+      tests/test_winter_runtime_diagnostics.py
+        test_failure_after_charging_success_clears_every_current_field (review
+          reproduction: 2 A CHARGING_REPORTED, then failure for 0 A)
+        test_next_successful_evaluation_replaces_failure_state
+        test_failure_before_any_success_has_no_historical_block
+      tests/test_web_runtime_integration.py, WinterFailureFreshnessTests
+        test_failed_evaluation_then_new_dess_response_is_not_current_in_web_api
+          (1 success with charging -> 2 failed evaluation -> 3 new DESS response
+          -> 4 two /control/state endpoint queries: status evaluation_failed,
+          freshness UNAVAILABLE, charging UNAVAILABLE, current 2 A only inside the
+          HISTORICAL_NOT_CURRENT block with original receipt time, evaluator
+          call count unchanged by GET)
+      tests/test_task0079_ui.cjs (runs the real dashboard.js)
+        failed evaluation never renders historical charging values as current
+        evaluation_failed payload carrying old values is still rendered unavailable
+        successful result with stale receipt is labelled not current
+
+    Pre-fix confirmation: the key regression tests were also run (from a
+    scratchpad harness, worktree untouched) against the pre-fix logic and fail
+    there as the review described:
+      zero-row insert       -> AssertionError 1 != 0 (event acknowledged)
+      lost COMMIT ack       -> duplicate event row (two identical event_ids)
+      startup outage        -> TimeoutError (loop exited, never reconnected)
+      winter failure        -> AssertionError 'WINTER' != 'UNAVAILABLE'
+
+  VALIDATION (this pass)
+    Interpreter /private/tmp/dessmonitor-task0077-venv/bin/python3.12, each module
+    from the repo root with PYTHONPATH=.:tests.
+      Task 0079 focused: adaptive_telemetry 29 OK; timescale_data_collector 36 OK;
+        winter_runtime_diagnostics 16 OK; web_runtime_integration 9 OK;
+        web_query_architecture 16 OK (2 skipped); adaptive_journal_v2 19 OK
+        (12 skipped); shadow_output_monitor 22 run, 21 OK, 1 baseline error.
+      Full Python (all tests/test_*.py modules): 659 run, 585 passed,
+        73 skipped (opt-in disposable-PostgreSQL suites), 1 error.
+      Baseline error, unchanged and recorded separately:
+        test_shadow_output_monitor.test_weather_source_preserves_exact_sun_times_
+        and_clears_missing_data -> AttributeError: module 'aiohttp' has no
+        attribute 'ClientSession' (test stubs aiohttp; reproduced on a clean HEAD
+        archive by the precommit reviewer).
+      Node: node --test tests/test_*.cjs -> 97 tests, 97 pass, 0 fail
+        (task0079 UI 9, previously 6).
+      python -m compileall -q app service run.py: OK (3.12 venv and system python3).
+      scripts/check-repo-safety.sh: PASSED, 0 errors, 0 warnings.
+      scripts/check-project-memory.sh: PASSED, 0 errors.
+      git diff --check: OK. git diff --cached --check: OK. Index empty.
+      scripts/check-*.sh (43 scripts; the earlier "73 total" in this report was a
+        miscount), run with the 3.12 venv first on PATH: 14 pass, 29 fail. The
+        failing set is identical, name for name, to the set listed under "Other
+        repository check scripts" below. No new failure was introduced by this
+        pass. Run with the system python3 instead, two more fail only on missing
+        modules (yaml, tuya_connector) and check-compact-operator-dashboard
+        result differs; these are environment effects.
+      check-inverter-operator-freshness: 27 pass, [28] FAIL (zoneinfo import in
+        run.py) — UNCHANGED and UNRESOLVED. It is not waived; it needs an
+        authorised gate correction/decision outside this allowlist (see
+        REMAINING ISSUES 1).
+
+  QUEUE PERSISTENCE AND RECOVERY GUARANTEES (as implemented)
+    - An event leaves the queue only after its own INSERT reported exactly one
+      row, or a zero-row INSERT was confirmed (by PK + event_id) to be this
+      event's own previously committed row.
+    - Any unverified outcome, statement error or COMMIT failure rolls back the
+      batch and keeps every event queued; retry after 30 s with stable keys, so a
+      committed-but-unacknowledged batch is recognised, not duplicated.
+    - Events enqueued during a write are never acknowledged by that write.
+    - Losses are explicit: queue_drops counts overflow shed events (an in-flight
+      event only if its write was not confirmed) and events discarded when no
+      writer can ever run (unrecoverable configuration).
+    - A database outage at startup or later does not stop the writer: startup
+      retries with 5-300 s back-off; runtime write failures retry every 30 s.
+    - NOT guaranteed: survival of queued events across process restart/
+      termination (in-memory only); retention beyond the 256-event bound during a
+      long outage; dedup across a collision re-key if the foreign-row lookup
+      itself is ambiguous (it is then rolled back and retried, not acknowledged).
+
+  DIAGNOSTIC FRESHNESS BEHAVIOR (as implemented)
+    status ok, receipt <= telemetry_max_age -> RECEIPT_CURRENT_MEASUREMENT_UNVERIFIED
+    status ok, older receipt                -> RECEIPT_STALE; UI labels values
+                                              "as of receipt stale, not current"
+    status evaluation_failed                -> freshness UNAVAILABLE, received_at
+                                              null, all derived fields UNAVAILABLE,
+                                              prior values only in
+                                              historical_last_success
+                                              (HISTORICAL_NOT_CURRENT, original
+                                              timestamps)
+    status no_observation                   -> UNAVAILABLE
+    Device measurement time remains unverified (measurement_time null).
+
+  PROCESS NOTES (this pass)
+    - Pre-fix comparison harnesses lived only in the session scratchpad and
+      monkeypatched old logic in memory; no worktree file was reverted, stashed
+      or staged.
+    - Running scripts/check-*.sh left seven synthetic 127.0.0.1 uvicorn test
+      servers (spawned by those scripts); they were stopped afterwards.
+    - Dashboard-related gate failures re-inspected: check-web-dashboard only [13]
+      CSP; check-compact-operator-dashboard the HEAD-failing items;
+      check-control-state-snapshot / check-runtime-snapshot-adapter only their
+      "runtime files not modified" items.
+
+  REMAINING LIMITATIONS AFTER THIS PASS
+    - [Partly resolved in CORRECTIVE PASS 2: real PostgreSQL 16 scenarios added;
+      Timescale itself still not exercised] PostgreSQL/Timescale was NOT exercised. All persistence tests use an
+      in-memory fake that returns real command tags and models PK conflicts,
+      savepoints and a lost COMMIT acknowledgement, but it does not establish
+      real asyncpg command-tag behaviour on hypertables, JSONB binding,
+      savepoint semantics, transaction commit ambiguity or pool reconnection.
+      The precommit review's requirement for real-database validation (fresh
+      disposable database: schema, collision, concurrent enqueue, rollback, lost
+      acknowledgement, restart, reconnection) remains OPEN.
+    - In-memory queue: process restart loses pending events (no durability).
+    - [Resolved in CORRECTIVE PASS 2] A runtime exception escaping
+      collect_data() ended the collection loop.
+    - check-inverter-operator-freshness [28] and the legacy "runtime files not
+      modified" gates remain as previously reported.
+
+ORIGINAL IMPLEMENTATION REPORT (updated where the corrective pass changed it)
+
+IMPLEMENTED CHANGES
+
+1. Adaptive telemetry recorder (app/control/adaptive_telemetry.py, new)
+    - Fed by InverterMonitor after every successful DESS response, using the
+      response the existing poll already fetched. No request and no I/O. Bounded
+      CPU work, measured at about 0.005 ms per response.
+    - Fingerprints the whole DeviceData payload (sha256, first 16 hex chars).
+      Identical payloads count as repeated responses and create nothing.
+    - First response after start/restart = baseline; no event (no switching claim
+      across a restart or other unobserved gap).
+    - Exact observed "Line Mode" <-> "Invert Mode" change -> mode_transition event
+      on the response where it is first seen. Other mode changes (e.g. Fault Mode)
+      are significant_payload_change with changed field "working_mode"; they are
+      never labelled as Line/Invert transitions.
+    - Deterministic persistence noise filter (PERSISTENCE_NOISE_BINS, floor
+      binning): PV 50 W, battery voltage 0.2 V, charge/discharge current 2 A,
+      output 50 W, AC output load 5 %, AC input voltage 10 V. Documented in code
+      as persistence filters only, never control/reserve/charger thresholds.
+    - A change across a receipt gap > 600 s is labelled sample_continuity="gap".
+      Every event carries previous_receipt_at; the switching moment is "between
+      the two receipts", never an invented physical time.
+    - Bounded queue (default 256), single writer, exact-set acknowledgement of
+      verified writes only (see CORRECTIVE PASS, blocker 1).
+      On overflow the oldest checkpoint marker is shed first, then the oldest event;
+      every drop increments queue_drops. Nothing is queued until a writer attaches
+      (TS disabled -> persistence_status "disabled", not silent loss).
+    - Checkpoint context (checkpoint_context / checkpoint_interval):
+        unknown/stale/naive/malformed/future sun-times    -> 300 s
+        sunrise-1h .. sunset+1h (day + transitions)        -> 300 s
+        night, not stable observed Line Mode               -> 300 s
+        night, validated tuple, observed Line Mode for
+        >= 900 s and current receipt (<= 300 s old)        -> 900 s
+      Input: the exact shared_state["output_shadow_sun_times"] tuple
+      (weather_time, sunrise, sunset), all timezone-aware, weather_time <= now,
+      age <= OutputPolicyBaseline.forecast_max_age_seconds.
+    - Checkpoint markers are written at most every 290 s, so the existing 60 s
+      charging/emergency detail cadence does not multiply marker rows. Each marker
+      records payload_changed_since_last_checkpoint.
+    - Counters: responses, repeated_responses, repeat_ratio, changed_payloads,
+      mode_transitions_observed, significant_changes, checkpoints,
+      stale_checkpoints_skipped, events_persisted, pending_events, queue_drops,
+      verified_independent_observations (always 0),
+      device_time_verified_observations (always 0), last_receipt_at/age,
+      last_verified_measurement_at (always null), persistence_status,
+      checkpoint interval/context.
+
+2. Timescale writer and schedules (app/ml/timescale_data_collector.py)
+    - Collector attaches as the single writer. persist_pending_events() runs on
+      every loop wake-up (1 s with the recorder; no DESS request) and writes up
+      to 100 events per transaction:
+        power_mode_events row for every event (bounded metadata JSONB, unique
+        monotonic persistence time);
+        inverter_metrics row for mode_transition / significant_payload_change,
+        built from that response's own values (not from shared_state).
+    - collect_data(): with the recorder, the checkpoint inverter_metrics row is
+      written only when the latest DESS receipt is current (<= 300 s). During a
+      DESS outage the last response is NOT re-saved as fresh; the skip is counted.
+      A failed metrics insert marks persistence "degraded" and adds no marker.
+    - The legacy clock-heuristic _log_mode_change_event is not called when the
+      recorder is active (the heuristic "grid/inverter" switch is not an observed
+      transition). Without the recorder the legacy path is unchanged.
+    - get_current_interval(): charging (60 s, 10-min grace), SWITCHING (10 s) and
+      low-voltage (< 25.0 V -> 60 s; < 25.5 V -> min(base, 300) s) keep
+      precedence and are never lengthened. Otherwise the recorder's
+      checkpoint interval applies; the sunrise_hour/sunset_hour heuristic cannot
+      select 900 s.
+    - DB write failure -> "degraded", events retained, 30 s retry back-off with one
+      warning per attempt (no per-second log flood). close() sets "unavailable".
+    - Each event INSERT result is verified (command tag / own-row lookup) before
+      acknowledgement; startup DB failures are retried with bounded back-off
+      (see CORRECTIVE PASS, blockers 1 and 2).
+    - Default env intervals for the no-recorder path: TS_INVERTER_INTERVAL 300,
+      TS_GRID_INTERVAL 900 (were 120 / 1800).
+
+3. Monitor and runtime wiring (service/inverter_monitor.py, run.py)
+    - InverterMonitor gains observation_observer. It is called synchronously once
+      per successful response with received_at (now always captured) and the
+      current sun-times tuple. Failures are isolated and rate-limited in logs;
+      solar/charge ticks and the existing shadow monitor still run. poll_sec is
+      unchanged (60).
+    - run.py owns one AdaptiveTelemetryRecorder and one WinterRuntimeDiagnostics.
+      Its observer calls the recorder, then the winter adapter (failure-isolated,
+      about 0.2 ms per response). The web winter provider only reads:
+      snapshot(telemetry=recorder.statistics()).
+    - Inverter web provider: observed_at = None, received_at = DESS receipt time,
+      timestamp_quality = "device_time_unverified". The previous code relabelled the DESS
+      Timestamp as Europe/London observed_at; that unverified relabelling is removed.
+
+4. Winter runtime diagnostics (app/control/winter_runtime_diagnostics.py, new)
+    - build_inputs() constructs one OutputTelemetry per response (observed_at=None,
+      received_at=receipt) and binds InterlockEvaluationInputs to that exact
+      object. evaluate_winter_intelligence (Task 0078, unmodified) recomputes the
+      Task 0076 interlock; evaluate_interlock is also called on the same inputs only
+      to display decision/state/reason codes.
+    - energy=None, independent_reserve_evidence=None, no caller reserve/verification
+      input exists. A final guard maps any BATTERY_USE_ELIGIBLE to
+      RECOVERY_OR_FAULT_HOLD and RUNTIME_TRUSTED_RESERVE_INTEGRATION_ABSENT is
+      always appended.
+    - Exposed (WinterDiagnosticSnapshot, frozen, JSON-safe): status, decision,
+      profile, solar_opportunity, charging_context (+ reported charger priority and
+      charge current), reserve_evidence_quality (always *_UNVERIFIED), interlock
+      decision/state/reasons, HOLD/BLOCK reasons, missing requirements,
+      post_recovery_deadlock, freshness (computed at read time:
+      RECEIPT_CURRENT_MEASUREMENT_UNVERIFIED / RECEIPT_STALE / UNAVAILABLE),
+      received_at, receipt age, measurement_time (null), last successful
+      evaluation, last failure, failure count, persistence_status, telemetry
+      counters, shadow_only=True, command_issued=False, hardware_write_path=False.
+    - Evaluation failure -> status "evaluation_failed", every derived field
+      UNAVAILABLE, no receipt freshness, exception type only (no message); prior
+      values only in historical_last_success (see CORRECTIVE PASS, blocker 3).
+
+5. Read-only web path
+    - Separate typed provider at every boundary:
+      run.py -> start_runtime_read_only_web_host(winter_diagnostics_provider)
+      -> create_app(..., winter_diagnostics_provider) (added after environ, so
+      positional callers keep working) -> create_runtime_control_state_snapshot_
+      provider -> build_control_state_snapshot_from_runtime_state(winter_diagnostics=)
+      -> RuntimeControlSnapshotAdapterInput -> ControlStateSnapshot.winter_diagnostics.
+    - Both the provider and the adapter accept only an exact WinterDiagnosticSnapshot
+      type; anything else (dicts, generic mapping keys, provider exceptions) yields
+      no winter block (rendered "unavailable").
+    - InverterReadSnapshot gains received_at and timestamp_quality.
+    - web_ui_read_contract notes: winter-diagnostics-display-only,
+      winter-diagnostics-no-trusted-reserve.
+    - GET /api/inverter/events (authenticated; 401/503/500 mapped; no exception
+      text leaked). Fixed SQL in web_queries.telemetry_events:
+        WHERE metadata->>'event_kind' IN ('mode_transition',
+        'significant_payload_change', 'checkpoint') ORDER BY time DESC LIMIT 100
+      Legacy rows without event_kind are excluded in SQL and again in Python.
+      Response fields are whitelisted; arbitrary metadata is dropped; from_mode is
+      returned only for mode_transition; verified_observation is always false.
+    - Dashboard: separate "Winter intelligence · read-only diagnostic" panel
+      (textContent/createElement only, no buttons/links/forms). Inverter freshness
+      badge and "Last sync" fall back to receipt time, labelled "receipt fresh/
+      stale" with a title explaining device time is unverified.
+    - Analytics: "Telemetry Events & Provenance (last 100)" table loaded by GET at
+      the existing 2-minute cadence; textContent-only rendering; gap/repeat/time
+      quality labels; explicit "unavailable (persistence ...)" on outage.
+
+EXACT CHANGED FILES (all within the PLAN.txt allowlist)
+    Modified:
+      app/control/control_state_snapshot.py
+      app/control/runtime_snapshot_adapter.py
+      app/control/web_ui_read_contract.py
+      app/ml/timescale_data_collector.py
+      app/web/static/analytics.js
+      app/web/static/dashboard.css
+      app/web/static/dashboard.js
+      app/web/templates/analytics.html
+      app/web/templates/index.html
+      app/web_control_state_provider.py
+      app/web_host.py
+      app/web_queries.py
+      app/web_routes.py
+      app/web_runtime_integration.py
+      run.py
+      service/inverter_monitor.py
+      tests/test_adaptive_journal_v2.py
+      tests/test_shadow_output_monitor.py
+      tests/test_web_query_architecture.py
+    New (untracked):
+      app/control/adaptive_telemetry.py
+      app/control/winter_runtime_diagnostics.py
+      tests/test_adaptive_telemetry.py
+      tests/test_task0079_ui.cjs
+      tests/test_timescale_data_collector.py
+      tests/test_web_runtime_integration.py
+      tests/test_winter_runtime_diagnostics.py
+      .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    Not modified (verified): app/control/winter_energy_intelligence.py,
+      tests/test_winter_energy_intelligence.py, Task 0078 reports,
+      app/control/web_ui_read_endpoint.py, app/control/adaptive_journal_v2.py,
+      PLAN.txt, reviews/PLAN_REVIEW.txt, all ADRs, migrations/schema files.
+
+TESTS AND VALIDATION (original pass; superseded by VALIDATION (this pass) above)
+    Interpreter: /private/tmp/dessmonitor-task0077-venv/bin/python3.12 (isolated
+    Python 3.12 environment, the same one used for Task 0078). Each module run from
+    the repository root with PYTHONPATH=.:tests (tests/ is not a package, so
+    unittest discover cannot be used).
+
+    New Task 0079 tests (83 total, all passing):
+      test_adaptive_telemetry               25 passed
+      test_winter_runtime_diagnostics       13 passed
+      test_timescale_data_collector         19 passed
+      test_web_runtime_integration           8 passed
+      test_shadow_output_monitor (new)       5 passed
+      test_web_query_architecture (new)      4 passed
+      test_adaptive_journal_v2 (new)         3 passed
+      test_task0079_ui.cjs (node --test)     6 passed
+
+    Full Python regression (32 modules): 634 run, 560 passed, 73 skipped, 1 error.
+      Skips are the opt-in disposable-PostgreSQL suites (JOURNAL_V2_LOCAL_POSTGRES,
+      WEB_QUERY_LOCAL_POSTGRES, EASUN postgres, pg_isolation, etc.); none enabled.
+      The 1 error is pre-existing and unrelated:
+        test_shadow_output_monitor.test_weather_source_preserves_exact_sun_times_
+        and_clears_missing_data -- the test stubs aiohttp with an empty module and
+        the unchanged app/weather/openweather_service.py evaluates
+        aiohttp.ClientSession in an annotation at class definition. The committed
+        HEAD version of the test fails identically.
+      Per module: grids 20, decision_pagination 8 (1 skip), decision_routes 3,
+      journal_v2 19 (12 skip), output_policy 70, adaptive_telemetry 25,
+      battery_blocker 29 (5 skip), battery_interval 12, benchmark_storage 6,
+      controls_history 9, decision_log_battery_voltage 10 (1 skip),
+      dess_control_discovery 16, anti_flapping 5, output_actuator 14,
+      output_mapping 3, output_planner 2, easun_postgres 16 (16 skip),
+      grid_output_interlock 42, online_output_learning 125 (30 skip),
+      output_policy_config 18, pg_isolation 34 (6 skip), project_memory_gate 15,
+      sag_learning 10, seasonal 7, shadow_output_monitor 22 (1 pre-existing error),
+      temperature_hotfix 7, timescale_data_collector 19, web_navigation 2,
+      web_query_architecture 16 (2 skip), web_runtime_integration 8,
+      winter_energy_intelligence 29, winter_runtime_diagnostics 13.
+
+    Node UI regression (node --test): 94 passed, 0 failed
+      (adaptive_decisions 21, journal_v2_ui 12, controls 14,
+      decision_log_battery_voltage 37, global_nav 1, task0079 6,
+      temperature_sensor_hotfix 3).
+
+    Required checks:
+      python3 -m compileall -q app service          passed (system 3.15 and venv 3.12)
+      scripts/check-repo-safety.sh                  PASSED, 0 errors, 0 warnings
+      scripts/check-project-memory.sh               PASSED, 0 rejected, 0 errors
+      git diff --check                              passed
+      git diff --cached --check                     passed
+      git status --short --untracked-files=all      28 entries (19 modified, 9 untracked
+                                                    incl. PRECOMMIT_REVIEW.txt); index empty
+
+    Other repository check scripts (scripts/check-*.sh, 73 total). Baseline taken
+    by running every script on a temporary detached worktree of HEAD (since
+    removed):
+      - Failing on HEAD and failing identically now (pre-existing):
+        check-compact-operator-dashboard, check-dess-request-diagnostics-redaction
+        (shell syntax error), check-runtime-read-only-web-host (missing
+        .github/workflows/validate.yml), check-web-authentication,
+        check-web-dashboard (CSP item 13).
+      - New failures that are the historical "runtime files not modified relative
+        to HEAD" gates of earlier PRs; they fail for any change to run.py, app/ml,
+        app/control or service, which this plan explicitly authorizes:
+        check-command-arbitration, check-command-safety-gate,
+        check-control-state-snapshot, check-energy-policy-config-example,
+        check-energy-policy-domain-types, check-execution-eligibility,
+        check-generic-control-domain, check-health-evaluator,
+        check-manual-control-queue, check-policy-decision-engine,
+        check-policy-engine-models, check-policy-engine-operating-boundaries,
+        check-readiness-evaluator, check-relay-switchable-load-mapping,
+        check-runtime-snapshot-adapter, check-schedule-profile-model,
+        check-weather-adjustment-evaluator, check-web-control-state-provider,
+        check-web-host-bootstrap, check-web-host-startup,
+        check-web-ui-read-only-api-contract, check-web-ui-read-only-endpoint,
+        check-web-ui-read-only-endpoint-plan. In each, every other assertion
+        (purity, impurity calls, no write routes, etc.) passed.
+      - One substantive new failure, left for the reviewer:
+        check-inverter-operator-freshness [28] greps run.py for
+        "from zoneinfo import ZoneInfo". That import only served the PR 0037 code
+        that presented the DESS Timestamp as a Europe/London observed_at. ADR-0004
+        and PLAN.txt state DESS timestamp/gts are unverified and must not be shown
+        as measurement time, so that code was removed. Re-adding an unused import
+        just to satisfy the grep was not done. Updating that legacy gate is outside
+        this allowlist.
+
+DATABASE AND JOURNAL VOLUME BEHAVIOR
+    - DESS request volume: unchanged (one fetch per 60 s poll; tests assert the
+      call count and the 60 s sleep).
+    - power_mode_events checkpoint markers: about 288/day at 300 s and about 96/day
+      for a fully stable validated grid night; markers are spaced >= 290 s, so the
+      60 s charging/emergency detail cadence does not multiply them. A simulated
+      24 h of 1-minute polls with two transitions produced exactly 288 markers +
+      2 transition rows and zero adaptive_* writes (test).
+    - inverter_metrics: checkpoint rows follow the existing detail cadence; plus one
+      row per mode_transition / significant change (proportional to filtered
+      changes, not poll count). Repeated payloads create no rows (test: an hour of
+      identical responses -> 12 checkpoint markers, 0 event rows).
+    - Event metadata: about 12 bounded keys, no raw payload (test asserts key set).
+    - Journal v2: schema, dedup, confirmation, cooldown and blockers untouched. The
+      writer does not import or call the journal/learner path (AST test) and never
+      writes adaptive_* tables (test). 1000 identical outcomes derive 0 events.
+    - In-memory hand-off bounded at 256 events; drops are counted and exposed.
+
+TELEMETRY PROVENANCE LIMITATIONS
+    - No trusted device-measurement-time contract exists. DESS Timestamp/gts and
+      DeviceData.device_observed_at are ignored for verification; the verified and
+      device-time counters are structurally 0, and last_verified_measurement_at is
+      null. A test passes caller-supplied device_observed_at and asserts this.
+    - receipt_at = first detection time of a change; collected_at = DB write time.
+      Neither is presented as measurement time.
+    - DESS updates about every 5 min. Transitions inside one DESS update window, or
+      across an outage/restart, can be invisible. A change seen across a > 600 s gap
+      is labelled "gap"; after a restart the first response is only a baseline.
+    - A changed payload with identical binned values (e.g. only Timestamp changed)
+      counts as changed_payloads but creates no event; it is not evidence of a new
+      measurement either way.
+    - Shadow history accepts only verified observed_at samples, so it is
+      effectively empty at runtime. Solar opportunity is therefore usually UNKNOWN.
+      Charger state is passed as unknown to the interlock
+      (CHARGER_STATE_UNVERIFIED) and the reported charger priority is only displayed.
+    - The online learner's LATEST_COLLECTION_STALE (300 s, by DB collection time)
+      can still fire during 900 s stable nights. The previous 1800 s default had the
+      same effect; it fails closed and learner gates are unchanged.
+
+PROOF OF NO NEW HARDWARE-WRITE PATH
+    - New modules import only stdlib and app.control policy/evaluator modules
+      (adaptive_output_policy, grid_output_interlock, winter_energy_intelligence,
+      adaptive_telemetry). The AST test asserts no tuya/requests/asyncpg/app.api/
+      app.service/app.devices imports in winter_runtime_diagnostics.
+    - grep over every added line in all changed non-test files for set_output*,
+      output_priority(, send_command(s), ctrl_device, .control(, tuya, turn_on/off,
+      set_charger, requests./httpx/aiohttp, fetch_device_data, .post(, and router
+      post/put/patch/delete returned no matches.
+    - The only collector import from app.service is the pure label normalizer
+      charger_mode() (already imported by inverter_monitor) to fill the existing
+      inverter_metrics.charger_priority column.
+    - New route is GET only; /control/state remains GET only (tests). The UI adds
+      no button/link/form/input (template and rendering tests).
+    - WinterDiagnosticSnapshot: shadow_only=True, command_issued=False,
+      hardware_write_path=False. No runtime path can yield BATTERY_USE_ELIGIBLE
+      (end-to-end test injects synthetic=False reserve evidence, scalar reserve,
+      verified flags, source strings and an eligible winter dict into the generic
+      runtime mapping; all are ignored).
+    - DESS polling frequency, nighttime charging, charger thresholds, pumps, Tuya
+      and output-source priority: no code changed.
+
+PROCESS NOTES
+    - While establishing a check-script baseline I briefly ran `git stash push
+      --include-untracked` on app/service/run.py/tests and immediately restored it
+      with `git stash pop`. Stash list is empty, the index is empty, and all
+      changes were re-verified as present. The baseline was then taken from a
+      temporary detached `git worktree` of HEAD in the session scratchpad, which
+      has been removed and pruned. A pre-existing worktree
+      (dessmonitor-review-work) was not touched.
+    - No staging, commit, push, migration, deployment, or DESS/DB/device access.
+
+REMAINING ISSUES
+    1. check-inverter-operator-freshness [28] conflicts with ADR-0004 (see above);
+       reviewer decision needed on updating that legacy gate.
+    2. Legacy "runtime files not modified" gates fail by design for this task.
+    3. The real PostgreSQL/Timescale JSONB query and writer were exercised only via
+       fakes; the opt-in disposable-PostgreSQL suites were not run. Real-database
+       validation of the persistence guarantees remains required (precommit review).
+    4. With the recorder active, TS_INVERTER_INTERVAL / TS_GRID_INTERVAL no longer
+       set checkpoint intervals (fixed 300/900 per plan); they still apply when no
+       recorder is attached.
+    5. Pre-existing: the aiohttp-stub weather test error and 5 HEAD-failing scripts.
+    6. Production observation of actual row growth is still required before any
+       rollout (ADR-0004 step 5).
+
+READINESS
+    Corrective pass 2 closes the collector-loop termination blocker and adds real
+    PostgreSQL 16 evidence for reconnect, lost acknowledgement and concurrent
+    arrival. Ready for a fresh independent PRECOMMIT_REVIEW of Task 0079. Not
+    self-approved. Corrective pass 3 fixes the backoff overflow and resolves
+    check-inverter-operator-freshness [28] by the authorised behavioural check.
+    Open item: real TimescaleDB (hypertable) validation.
+    All changes are unstaged and uncommitted; no staging, commit, push, stash,
+    deployment, database, DESS or device access was performed in this pass.

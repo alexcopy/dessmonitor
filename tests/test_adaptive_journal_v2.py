@@ -102,6 +102,50 @@ class EventDerivationTests(unittest.TestCase):
                                                           self.base)], ['EVIDENCE_RECOVERED'])
 
 
+class TelemetryCheckpointIsolationTests(unittest.IsolatedAsyncioTestCase):
+    """Task 0079: adaptive telemetry checkpoints never create Journal v2 decision events."""
+
+    async def test_a_day_of_checkpoints_and_events_never_writes_journal_tables(self):
+        from app.control.adaptive_telemetry import AdaptiveTelemetryRecorder
+        from test_timescale_data_collector import collector_with, dd
+        recorder = AdaptiveTelemetryRecorder()
+        collector = collector_with(recorder)
+        start = datetime.now(timezone.utc) - timedelta(days=1)
+        for minute in range(0, 24 * 60):  # one DESS poll per minute
+            received = start + timedelta(minutes=minute)
+            mode = 'Invert Mode' if 600 <= minute < 900 else 'Line Mode'
+            recorder.observe(dd(working_state=mode, timestamp=str(minute // 5)), received_at=received)
+            if minute % 5 == 0:
+                recorder.add_checkpoint(collected_at=received + timedelta(seconds=1))
+            if len(recorder.pending(1000)) >= 50:
+                await collector.persist_pending_events()
+        await collector.persist_pending_events()
+        statements = [sql for sql, _ in collector.pool.statements]
+        self.assertFalse([sql for sql in statements if 'adaptive_' in sql])
+        self.assertEqual(recorder.checkpoints, 288)
+        self.assertEqual(recorder.mode_transitions, 2)
+        # Each checkpoint is one power_mode_events marker; 2 transitions add 2 marker + 2 metrics rows.
+        self.assertEqual(len([s for s in statements if 'power_mode_events' in s]), 288 + 2)
+
+    def test_repeated_identical_outcomes_derive_no_events(self):
+        base = EventDerivationTests.base
+        events = [e for _ in range(1000) for e in v2._derive_events(base, dict(base))]
+        self.assertEqual(events, [])
+
+    def test_telemetry_writer_does_not_import_the_decision_path(self):
+        import ast
+        for rel in ('app/ml/timescale_data_collector.py', 'app/control/adaptive_telemetry.py',
+                    'app/control/winter_runtime_diagnostics.py'):
+            source = (ROOT / rel).read_text()
+            tree = ast.parse(source)
+            imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+            imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            with self.subTest(rel):
+                self.assertFalse([m for m in imported if m and ('adaptive_journal' in m or 'online_output_learning' in m)])
+                self.assertNotIn('run_evaluation_v2', source)
+                self.assertNotIn('adaptive_decision_events', source)
+
+
 @unittest.skipUnless(os.environ.get('JOURNAL_V2_LOCAL_POSTGRES') == '1',
                      'requires disposable local PostgreSQL (JOURNAL_V2_LOCAL_POSTGRES=1)')
 class JournalV2PostgresTests(unittest.IsolatedAsyncioTestCase):

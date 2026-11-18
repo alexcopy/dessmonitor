@@ -9,7 +9,8 @@ from shared_state.shared_state import shared_state
 
 
 class InverterMonitor:
-    def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None, charge_controller=None, shadow_monitor=None):
+    def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None,
+                 charge_controller=None, shadow_monitor=None, observation_observer=None):
         self.api      = dess_api
         self.interval = poll_sec
         self.logger   = InverterLogger()                  # файл + Loki
@@ -19,16 +20,30 @@ class InverterMonitor:
         self.solar_controller = solar_controller
         self.charge_controller = charge_controller
         self.shadow_monitor = shadow_monitor
+        self.observation_observer = observation_observer
         self._shadow_last_error_log = None
+        self._observer_last_error_log = None
 
     async def run(self) -> None:
         while not self._stop.is_set():
             try:
                 dd = await asyncio.to_thread(self.api.fetch_device_data)
-                received_at = datetime.now(timezone.utc) if self.shadow_monitor is not None else None
+                received_at = datetime.now(timezone.utc)
                 self.last_data = dd
                 self.logger.log(dd)                       # Inverter log
                 self._process_business_metrics(dd)
+                if self.observation_observer is not None:
+                    try:
+                        self.observation_observer(
+                            dd,
+                            received_at=received_at,
+                            sun_times=shared_state.get("output_shadow_sun_times"),
+                        )
+                    except Exception:
+                        now = time.monotonic()
+                        if self._observer_last_error_log is None or now - self._observer_last_error_log >= 300:
+                            self.imp.exception("[TELEMETRY] observation hand-off failed; monitoring continues")
+                            self._observer_last_error_log = now
                 if self.solar_controller is not None:
                     try:
                         await self.solar_controller.tick()

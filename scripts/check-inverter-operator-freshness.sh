@@ -342,11 +342,86 @@ else
     assert_fail 27 ".dm-badge.error" "CSS class not found"
 fi
 
-# [26] run.py zoneinfo import
-if grep -q "from zoneinfo import ZoneInfo" run.py 2>/dev/null; then
-    assert_pass 28 "run.py imports zoneinfo for Europe/London timezone"
+# [28] DESS timestamps are never presented as verified device measurement time.
+# Replaces the former source-shape grep for "from zoneinfo import ZoneInfo" in
+# run.py (Task 0079, explicitly authorised narrow change): that import only
+# served code relabelling the unverified DESS Timestamp as a Europe/London
+# observed_at, which ADR-0004 removed. This check is behavioural: it executes
+# the real run.py inverter web provider (extracted with ast, no app start, no
+# network), the read-only snapshot adapter, the telemetry recorder and the
+# winter diagnostics with a DESS response carrying timestamp/gts/
+# device_observed_at, and requires that none becomes a verified/observed time.
+OUT28=$(run_python "
+import ast, json, types
+from datetime import datetime, timezone
+from typing import Any
+
+DESS_TS = '2026-12-10 20:00:00'
+GTS = '1797019200000'
+DEVICE_TS = '2026-12-10T20:00:00+08:00'
+RECEIPT = datetime(2026, 12, 10, 12, 0, 5, tzinfo=timezone.utc)
+dd = types.SimpleNamespace(
+    timestamp=DESS_TS, gts=GTS, device_observed_at=DEVICE_TS,
+    battery_voltage=26.4, battery_capacity=60.0, battery_charging_current=0.0,
+    battery_discharging_current=0.0, pv1_voltage=0.0, pv1_power=0.0, pv2_voltage=0.0,
+    pv2_power=0.0, pv_total_power=0.0, output_voltage=230.0, output_power=400.0,
+    output_apparent_power=420.0, ac_input_voltage=230.0, ac_input_frequency=50.0,
+    ac_output_load=8.0, working_state='Line Mode', mains_status='Normal',
+    charger_priority='Solar only', output_priority='Utility first')
+fail = []
+leaked = lambda value: any(s in value for s in (DESS_TS, GTS, DEVICE_TS, '20:00:00'))
+
+# 1. Real run.py provider (extracted, executed with a stub monitor/recorder).
+tree = ast.parse(open('run.py', encoding='utf-8').read())
+func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '_inverter_provider')
+ns = {'Any': Any, 'inverter_mon': types.SimpleNamespace(last_data=dd),
+      'telemetry_recorder': types.SimpleNamespace(latest_received_at=RECEIPT)}
+exec(compile(ast.Module(body=[func], type_ignores=[]), 'run.py', 'exec'), ns)
+row = ns['_inverter_provider']()
+if row.get('observed_at') is not None: fail.append('provider observed_at=%r' % row.get('observed_at'))
+if row.get('timestamp_quality') != 'device_time_unverified': fail.append('provider timestamp_quality')
+if row.get('received_at') != RECEIPT.isoformat(): fail.append('provider received_at is not the receipt time')
+if leaked(json.dumps(row, default=str)): fail.append('provider exposes the DESS timestamp')
+
+# 2. Read-only /control/state snapshot built from that provider row.
+from app.web_control_state_provider import build_control_state_snapshot_from_runtime_state
+snap = build_control_state_snapshot_from_runtime_state(
+    {'snapshot_id': 's', 'created_at': RECEIPT.isoformat(), 'loads': [], 'inverter': [row]})
+inv = snap.inverter[0]
+if inv.observed_at is not None: fail.append('snapshot observed_at=%r' % inv.observed_at)
+if inv.timestamp_quality != 'device_time_unverified': fail.append('snapshot timestamp_quality')
+
+# 3. Telemetry recorder: no verified observation / device-time counter, no measurement time.
+from app.control.adaptive_telemetry import AdaptiveTelemetryRecorder
+rec = AdaptiveTelemetryRecorder(); rec.attach_writer()
+rec.observe(dd, received_at=RECEIPT)
+dd2 = types.SimpleNamespace(**dict(vars(dd), working_state='Invert Mode', timestamp='2026-12-10 20:05:00'))
+rec.observe(dd2, received_at=RECEIPT.replace(second=59))
+stats = rec.statistics(RECEIPT.replace(second=59))
+if stats['verified_independent_observations'] or stats['device_time_verified_observations']:
+    fail.append('recorder counted a verified observation')
+if stats['last_verified_measurement_at'] is not None: fail.append('recorder last_verified_measurement_at')
+meta = rec.pending()[0].metadata(RECEIPT)
+if meta['measurement_time'] is not None or meta['verified_observation'] is not False \
+        or meta['timestamp_quality'] != 'device_time_unverified':
+    fail.append('event metadata claims a measurement time')
+if leaked(json.dumps(meta)): fail.append('event metadata exposes the DESS timestamp')
+
+# 4. Winter diagnostics: measurement time stays null and unverified.
+from app.control.winter_runtime_diagnostics import WinterRuntimeDiagnostics
+w = WinterRuntimeDiagnostics().observe(dd, received_at=RECEIPT, evaluated_at=RECEIPT)
+if w.measurement_time is not None or w.timestamp_quality != 'device_time_unverified':
+    fail.append('winter diagnostics measurement_time=%r' % w.measurement_time)
+
+print('device_time_failures:', '; '.join(fail) if fail else 'none')
+" 2>&1) || true
+
+echo "$OUT28" | tail -n 3 | while IFS= read -r line; do echo "  $line"; done
+
+if echo "$OUT28" | grep -q "^device_time_failures: none$"; then
+    assert_pass 28 "DESS timestamp is never presented as verified device measurement time"
 else
-    assert_fail 28 "zoneinfo import" "run.py missing zoneinfo import"
+    assert_fail 28 "DESS timestamp provenance" "$(echo "$OUT28" | tail -n 1)"
 fi
 
 # ---------------------------------------------------------------------------

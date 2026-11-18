@@ -8,10 +8,76 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Dict, Any, Optional, Literal
 from enum import Enum
 import json
+
+from app.control.adaptive_telemetry import AdaptiveTelemetryRecorder, MAX_WRITE_BATCH
+
+# Back-off after a failed telemetry-event write; events stay in the bounded queue.
+PERSIST_RETRY_SECONDS = 30
+# A persistence key held by a different row is re-keyed at most this often per
+# event and attempt; anything still unverified rolls the batch back for retry.
+EVENT_KEY_COLLISION_ATTEMPTS = 3
+# Database initialisation retry: bounded exponential back-off while the writer
+# stays attached. Retries continue until shutdown; no busy loop.
+INIT_RETRY_INITIAL_SECONDS = 5.0
+INIT_RETRY_MAX_SECONDS = 300.0
+# Collection-loop fault isolation: a failing collection, flush or reconnect
+# backs off 5 s -> ... -> 300 s (cap). A fault streak logs its first failure
+# with a traceback, then at most one summary per LOOP_FAULT_LOG_INTERVAL_SECONDS.
+LOOP_RETRY_INITIAL_SECONDS = 5.0
+LOOP_RETRY_MAX_SECONDS = 300.0
+LOOP_FAULT_LOG_INTERVAL_SECONDS = 300.0
+LOOP_RETRY_EXPONENT_CAP = 30
+CONNECTION_CHECK_TIMEOUT_SECONDS = 10.0
+# With the recorder the loop wakes this often to flush observed changes; it
+# performs no DESS request (DESS polling stays in InverterMonitor, 60 s).
+EVENT_FLUSH_INTERVAL_SECONDS = 1.0
+
+_PME_INSERT = """INSERT INTO power_mode_events
+                 (time, from_mode, to_mode, battery_soc, metadata)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (time) DO NOTHING"""
+_PME_EVENT_ID_AT = "SELECT metadata->>'event_id' FROM power_mode_events WHERE time = $1"
+_EVENT_METRICS_INSERT = """INSERT INTO inverter_metrics (
+                 time, battery_voltage, battery_soc,
+                 battery_current_dis, battery_current_chg,
+                 pv_power_w, output_power_w, output_voltage,
+                 ac_input_voltage, ac_input_frequency, ac_output_load_pct,
+                 total_load_w, working_mode, charger_priority, charger_priority_raw,
+                 output_priority_raw, mains_status
+             ) VALUES (
+                 $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+             ) ON CONFLICT (time) DO NOTHING"""
+
+
+class EventPersistenceUnverified(Exception):
+    """An event's storage could not be confirmed; the batch is rolled back and retained."""
+
+
+class _PersistenceKeyCollision(Exception):
+    """The persistence key is held by a different row; roll back the savepoint and re-key."""
+
+
+def inserted_rows(status: object) -> int | None:
+    """Rows inserted according to a PostgreSQL command tag ("INSERT 0 <n>").
+
+    Returns None when the tag is missing or not an INSERT tag, so an
+    unrecognised result is never mistaken for a successful write.
+    """
+    if not isinstance(status, str):
+        return None
+    parts = status.split()
+    if len(parts) != 3 or parts[0] != "INSERT":
+        return None
+    try:
+        rows = int(parts[2])
+    except ValueError:
+        return None
+    return rows if rows >= 0 else None
+
 
 try:
     import asyncpg
@@ -41,14 +107,15 @@ class TimescaleDataCollector:
     def __init__(
             self,
             # Интервалы для разных режимов (секунды)
-            inverter_interval: int = 120,  # 2 минуты при работе от солнца
-            grid_interval: int = 1800,  # 30 минут при работе от сети
+            inverter_interval: int = 300,  # 5 минут при работе от солнца
+            grid_interval: int = 900,  # 15 минут при стабильной сети ночью
             switching_interval: int = 10,  # 10 секунд при переключении
             # Параметры определения режима
             min_inverter_power: float = 50.0,  # Минимальная мощность для режима "инвертор"
             sunrise_hour: int = 6,  # Начало возможной работы от солнца
             sunset_hour: int = 20,  # Конец работы от солнца
             database_url: Optional[str] = None,
+            telemetry_recorder: AdaptiveTelemetryRecorder | None = None,
     ):
         """
         Args:
@@ -87,6 +154,163 @@ class TimescaleDataCollector:
         self._switching_detected_at = None
         self._last_weather_write: float = 0.0  # throttle weather writes
         self._charge_detail_until: float = 0.0
+        self.telemetry_recorder = telemetry_recorder
+        self._last_event_time: datetime | None = None
+        self._persist_retry_at: float = 0.0
+        # Incremented on every failed event-write attempt; the loop uses it to
+        # check (and if needed recreate) the connection pool.
+        self.persist_failures = 0
+        # Outcome of the last persist_pending_events() call: "written", "idle"
+        # (nothing queued), "backoff", "failed", "unavailable" or "no_recorder".
+        self.last_persist_outcome = "idle"
+        self.last_persist_error: str | None = None
+        # event_id -> stable persistence key for events not yet acknowledged.
+        self._event_keys: dict[str, datetime] = {}
+        if telemetry_recorder is not None:
+            telemetry_recorder.attach_writer()
+
+    def _next_event_time(self) -> datetime:
+        """Unique, monotonically increasing persistence time (power_mode_events PK)."""
+        now = datetime.now(timezone.utc)
+        if self._last_event_time is not None and now <= self._last_event_time:
+            now = self._last_event_time + timedelta(microseconds=1)
+        self._last_event_time = now
+        return now
+
+    def _event_key(self, event) -> datetime:
+        """Stable persistence time (power_mode_events PK) for one queued event.
+
+        Assigned on the first write attempt and reused on every retry, so a
+        retry after a lost COMMIT acknowledgement finds the stored row by key
+        instead of inserting a duplicate. It is the first persistence-attempt
+        time, not a measurement time.
+        """
+        key = self._event_keys.get(event.event_id)
+        if key is None:
+            key = self._next_event_time()
+            self._event_keys[event.event_id] = key
+        return key
+
+    def _prune_event_keys(self) -> None:
+        """Keep keys only for events still queued (bounded by the queue size)."""
+        recorder = self.telemetry_recorder
+        if recorder is None:
+            self._event_keys.clear()
+            return
+        queued = {event.event_id for event in recorder.pending(recorder.queue_size)}
+        for event_id in [k for k in self._event_keys if k not in queued]:
+            del self._event_keys[event_id]
+
+    async def _write_event(self, conn, event, charger_mode) -> str:
+        """Write one event inside the batch transaction and verify the result.
+
+        Returns "inserted" or "existing" (this exact event is already stored at
+        its key). Raises EventPersistenceUnverified otherwise.
+        """
+        needs_metrics = event.event_kind != "checkpoint" and bool(event.metrics)
+        for _attempt in range(EVENT_KEY_COLLISION_ATTEMPTS):
+            key = self._event_key(event)
+            try:
+                async with conn.transaction():  # savepoint: a collision undoes only this event
+                    inserted = inserted_rows(await conn.execute(
+                        _PME_INSERT, key, event.from_mode or "UNKNOWN", event.to_mode or "UNKNOWN",
+                        event.battery_soc, json.dumps(event.metadata(key), separators=(",", ":")),
+                    ))
+                    if inserted == 1:
+                        if needs_metrics:
+                            m = event.metrics
+                            metrics_inserted = inserted_rows(await conn.execute(
+                                _EVENT_METRICS_INSERT,
+                                key, m.get("battery_voltage"), m.get("battery_soc"),
+                                m.get("battery_current_dis"), m.get("battery_current_chg"),
+                                m.get("pv_power_w"), m.get("output_power_w"), m.get("output_voltage"),
+                                m.get("ac_input_voltage"), m.get("ac_input_frequency"), m.get("ac_output_load_pct"),
+                                m.get("total_load_w"), m.get("working_mode"),
+                                charger_mode(m.get("charger_priority_raw")), m.get("charger_priority_raw"),
+                                m.get("output_priority_raw"), m.get("mains_status"),
+                            ))
+                            if metrics_inserted == 0:
+                                raise _PersistenceKeyCollision()
+                            if metrics_inserted != 1:
+                                raise EventPersistenceUnverified("inverter_metrics insert result unverified")
+                        return "inserted"
+                    if inserted != 0:
+                        raise EventPersistenceUnverified("power_mode_events insert result unverified")
+            except _PersistenceKeyCollision:
+                self._event_keys[event.event_id] = self._next_event_time()
+                continue
+            # Zero rows: the key is taken. Only this event's own row (stored by an
+            # earlier attempt whose acknowledgement was lost) counts as handled.
+            # Its metrics row was committed in that same savepoint.
+            if await conn.fetchval(_PME_EVENT_ID_AT, key) == event.event_id:
+                return "existing"
+            self._event_keys[event.event_id] = self._next_event_time()
+        raise EventPersistenceUnverified("persistence key collisions not resolved")
+
+    async def persist_pending_events(self) -> int:
+        """Single writer for the bounded telemetry hand-off.
+
+        Mode transitions and significant changes are written as soon as the
+        loop runs (about every second), not at the next checkpoint. Each event
+        gets a power_mode_events row with bounded metadata; observed changes
+        also get an inverter_metrics row built from that response's own values.
+        Checkpoint markers only add the power_mode_events row (the checkpoint's
+        inverter_metrics row was written by collect_data). Never calls Journal v2.
+
+        An event is acknowledged only after its INSERT reported one row, or a
+        zero-row INSERT was confirmed to be this event's own earlier row. Any
+        other outcome rolls the whole batch back and keeps it queued.
+        """
+        recorder = self.telemetry_recorder
+        if recorder is None:
+            self.last_persist_outcome = "no_recorder"
+            return 0
+        if not self.pool:
+            recorder.persistence_status = "unavailable"
+            self.last_persist_outcome = "unavailable"
+            return 0
+        if time.monotonic() < self._persist_retry_at:
+            self.last_persist_outcome = "backoff"
+            return 0
+        pending = recorder.begin_write(MAX_WRITE_BATCH)
+        if not pending:
+            recorder.release_write()
+            if recorder.persistence_status != "degraded":
+                recorder.persistence_status = "available"
+            self.last_persist_outcome = "idle"
+            return 0
+        from app.service.battery_charge_controller import charger_mode  # noqa: PLC0415
+        handled: list[int] = []
+        reconciled = 0
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.transaction():
+                    for event in pending:
+                        if await self._write_event(conn, event, charger_mode) == "existing":
+                            reconciled += 1
+                        handled.append(event.seq)
+        except Exception as exc:
+            # Includes a failed/uncertain COMMIT: nothing is acknowledged. Keys
+            # are kept so a retry recognises rows that were in fact committed.
+            recorder.release_write()
+            self._prune_event_keys()
+            recorder.persistence_status = "degraded"
+            self.persist_failures += 1
+            self.last_persist_outcome = "failed"
+            self.last_persist_error = type(exc).__name__
+            self._persist_retry_at = time.monotonic() + PERSIST_RETRY_SECONDS
+            # Rate-limited warnings are emitted by the collection loop; this is
+            # per-attempt detail only.
+            logger.debug("[TS] telemetry event persistence failed (%s); retry in %ss; %s events retained",
+                         type(exc).__name__, PERSIST_RETRY_SECONDS, len(pending))
+            return 0
+        written = recorder.acknowledge(handled, reconciled=reconciled)
+        self._prune_event_keys()
+        recorder.persistence_status = "available"
+        recorder.last_persisted_at = self._last_event_time
+        self.last_persist_outcome = "written"
+        self.last_persist_error = None
+        return written
 
     async def initialize(self) -> bool:
         """Инициализация: подключение к БД и создание таблиц"""
@@ -121,7 +345,62 @@ class TimescaleDataCollector:
 
         except Exception as e:
             logger.error(f"❌ Failed to initialize TimescaleDB: {e}")
+            # Do not keep a half-initialised pool: a retry starts cleanly and
+            # persist_pending_events() keeps reporting "unavailable" meanwhile.
+            pool, self.pool = self.pool, None
+            self._is_initialized = False
+            if pool is not None:
+                try:
+                    await pool.close()
+                except Exception as close_exc:  # noqa: BLE001 - best-effort cleanup
+                    logger.debug("[TS] closing failed pool: %s", type(close_exc).__name__)
+            if self.telemetry_recorder is not None and self.telemetry_recorder.writer_attached:
+                self.telemetry_recorder.persistence_status = "unavailable"
             return False
+
+    async def connection_healthy(self) -> bool:
+        """Cheap read-only probe of the pool (SELECT 1) with a bounded timeout."""
+        pool = self.pool
+        if pool is None:
+            return False
+        try:
+            async def probe():
+                async with pool.acquire() as conn:
+                    return await conn.fetchval("SELECT 1")
+            return await asyncio.wait_for(probe(), timeout=CONNECTION_CHECK_TIMEOUT_SECONDS) == 1
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - any failure means "not healthy"
+            return False
+
+    async def reset_connection(self) -> None:
+        """Discard a broken pool; the loop re-initialises it with back-off.
+
+        Queued events and their stable persistence keys are kept, so rows that
+        were committed before the break are recognised on retry, not duplicated.
+        """
+        pool, self.pool = self.pool, None
+        self._is_initialized = False
+        if pool is not None:
+            # Only this loop uses the pool and it resets between operations, so
+            # nothing is in flight: terminate at once. A graceful close() can
+            # wait on a connection asyncpg left in a broken state.
+            terminate = getattr(pool, "terminate", None)
+            try:
+                if callable(terminate):
+                    terminate()
+                else:
+                    await asyncio.wait_for(pool.close(), timeout=CONNECTION_CHECK_TIMEOUT_SECONDS)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - best effort; the pool is discarded anyway
+                logger.debug("[TS] discarding broken pool: %s", type(exc).__name__)
+        if self.telemetry_recorder is not None and self.telemetry_recorder.writer_attached:
+            self.telemetry_recorder.persistence_status = "degraded"
+
+    def initialization_recoverable(self) -> bool:
+        """False only for configuration that no retry can fix (no URL / no asyncpg)."""
+        return bool(self.database_url) and ASYNCPG_AVAILABLE
 
     async def _create_tables(self) -> None:
         """Создание таблиц в TimescaleDB"""
@@ -666,7 +945,7 @@ class TimescaleDataCollector:
         timestamp = datetime.now(_tz.utc)
         try:
             async with self.pool.acquire() as conn:
-                await conn.execute("""
+                status = await conn.execute("""
                     INSERT INTO inverter_metrics (
                         time, battery_voltage, battery_soc,
                         battery_current_dis, battery_current_chg,
@@ -696,9 +975,15 @@ class TimescaleDataCollector:
                 shared_state.get("output_priority_raw"),
                 shared_state.get("mains_status"),
                 )
-                logger.debug("[TS] inverter_metrics written at %s", timestamp)
+            if inserted_rows(status) != 1:
+                # A zero-row (conflicting) or unrecognised result is not a stored checkpoint.
+                logger.warning("[TS] inverter_metrics checkpoint not stored (%s)", status)
+                return False
+            logger.debug("[TS] inverter_metrics written at %s", timestamp)
+            return True
         except Exception as exc:
             logger.warning("[TS] inverter_metrics insert failed: %s", exc)
+            return False
 
     async def _collect_device_energy_counters(self, timestamp: datetime, devices) -> None:
         """Write add_ele counters to device_energy_counters for daily delta calculation."""
@@ -756,16 +1041,29 @@ class TimescaleDataCollector:
             logger.warning("Collector not initialized, skipping collection")
             return {"status": "not_initialized", "records": 0}
 
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
         records_inserted = 0
         # Определяем текущий режим
         await self._collect_weather_data(timestamp)
-        await self._collect_inverter_metrics(timestamp)
+        recorder = self.telemetry_recorder
+        if recorder is None:
+            await self._collect_inverter_metrics(timestamp)
+        elif recorder.receipt_is_current(timestamp):
+            # Checkpoint of the current DESS receipt. A stored row is not a new measurement.
+            if await self._collect_inverter_metrics(timestamp):
+                recorder.add_checkpoint(collected_at=timestamp)
+            else:
+                recorder.persistence_status = "degraded"
+        else:
+            # DESS outage/no response yet: never re-save the last response as fresh.
+            recorder.note_stale_checkpoint()
         current_mode = self._detect_power_mode(dev_mgr)
 
-        # Детект переключения режима
+        # Детект переключения режима. With the telemetry recorder, only observed
+        # DESS working_mode changes are recorded (by the recorder); the legacy
+        # clock-heuristic mode change is not logged as a power-mode transition.
         if current_mode != self._previous_mode:
-            if self._previous_mode != PowerMode.UNKNOWN:
+            if self._previous_mode != PowerMode.UNKNOWN and recorder is None:
                 await self._log_mode_change_event(
                     self._previous_mode,
                     current_mode,
@@ -912,14 +1210,21 @@ class TimescaleDataCollector:
             self._charge_detail_until = now + 600
         if now < self._charge_detail_until:
             return 60
-        base = self.intervals.get(self._current_mode, self.intervals[PowerMode.GRID])
+        if self._current_mode is PowerMode.SWITCHING:
+            base = self.intervals[PowerMode.SWITCHING]
+        elif self.telemetry_recorder is not None:
+            # Observed DESS mode + validated sun-times only; the sunrise_hour/
+            # sunset_hour heuristic cannot select the 900 s branch.
+            base = self.telemetry_recorder.checkpoint_interval(datetime.now(timezone.utc))
+        else:
+            base = self.intervals.get(self._current_mode, self.intervals[PowerMode.GRID])
         if self._current_mode == PowerMode.GRID:
             v = shared_state.get("battery_voltage")
             if v is not None:
                 if v < 25.0:
                     return 60    # critical — every minute
                 elif v < 25.5:
-                    return 300   # approaching threshold — every 5 min
+                    return min(base, 300)   # approaching threshold — never lengthened
         return base
 
     async def _count_records(self) -> int:
@@ -951,7 +1256,107 @@ class TimescaleDataCollector:
         """Закрыть подключение к БД"""
         if self.pool:
             await self.pool.close()
+            self.pool = None
             logger.info("✅ Database connection closed")
+        if self.telemetry_recorder is not None and self.telemetry_recorder.writer_attached:
+            self.telemetry_recorder.persistence_status = "unavailable"
+
+
+async def initialize_with_retry(collector: TimescaleDataCollector, stop_event: asyncio.Event) -> bool:
+    """Initialise the database, retrying recoverable failures until shutdown.
+
+    Back-off doubles from INIT_RETRY_INITIAL_SECONDS up to INIT_RETRY_MAX_SECONDS
+    and waits on ``stop_event``, so there is no busy loop and shutdown is
+    immediate. Cancellation propagates. While waiting, the recorder keeps its
+    bounded in-memory queue (overflow is counted) and reports "unavailable";
+    this task is separate from DESS monitoring and charger protection.
+    Returns False on shutdown or unrecoverable configuration.
+    """
+    delay = INIT_RETRY_INITIAL_SECONDS
+    attempt = 0
+    while not stop_event.is_set():
+        attempt += 1
+        if await collector.initialize():
+            if attempt > 1:
+                logger.info("[TS] database initialised after %s attempts; collection resumes", attempt)
+            return True
+        if not collector.initialization_recoverable():
+            return False
+        logger.warning("[TS] database initialisation attempt %s failed; retry in %.0fs", attempt, delay)
+        if await _wait_for_stop(stop_event, delay):
+            return False
+        delay = min(delay * 2, INIT_RETRY_MAX_SECONDS)
+    return False
+
+
+async def _wait_for_stop(stop_event: asyncio.Event, seconds: float) -> bool:
+    """Wait up to ``seconds``; True if shutdown was requested meanwhile."""
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
+class _FaultBackoff:
+    """Bounded exponential back-off and rate-limited logging for one loop activity."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.consecutive = 0
+        self.total = 0
+        self.retry_at = 0.0
+        self._last_log_at: float | None = None
+        self._suppressed = 0
+
+    def ready(self, now: float) -> bool:
+        return now >= self.retry_at
+
+    def failure(self, exc: BaseException | None, now: float, cause: str | None = None) -> float:
+        self.consecutive += 1
+        self.total += 1
+        # Cap the exponent before exponentiating: 2 ** 1024 cannot become a float
+        # (OverflowError after ~85 h of failures). 2 ** 30 already exceeds any cap.
+        exponent = min(self.consecutive - 1, LOOP_RETRY_EXPONENT_CAP)
+        delay = min(LOOP_RETRY_INITIAL_SECONDS * (2 ** exponent), LOOP_RETRY_MAX_SECONDS)
+        self.retry_at = now + delay
+        cause = cause or (type(exc).__name__ if exc is not None else "unavailable")
+        if self.consecutive == 1:
+            logger.warning("[TS] %s failed (%s); retry in %.0fs; queued telemetry events are retained",
+                           self.name, cause, delay, exc_info=exc is not None)
+            self._last_log_at, self._suppressed = now, 0
+        elif self._last_log_at is None or now - self._last_log_at >= LOOP_FAULT_LOG_INTERVAL_SECONDS:
+            logger.warning("[TS] %s still failing (%s); %s consecutive failures, %s not logged; retry in %.0fs",
+                           self.name, cause, self.consecutive, self._suppressed, delay)
+            self._last_log_at, self._suppressed = now, 0
+        else:
+            self._suppressed += 1
+        return delay
+
+    def success(self) -> None:
+        if self.consecutive:
+            logger.info("[TS] %s recovered after %s consecutive failures", self.name, self.consecutive)
+        self.consecutive = 0
+        self.retry_at = 0.0
+        self._last_log_at, self._suppressed = None, 0
+
+
+def _safe_interval(collector: TimescaleDataCollector) -> float:
+    """get_current_interval() with a conservative fallback; it never ends the loop."""
+    try:
+        return collector.get_current_interval()
+    except Exception as exc:  # noqa: BLE001 - loop boundary
+        logger.debug("[TS] interval evaluation failed (%s); using 60 s", type(exc).__name__)
+        return 60
+
+
+async def _after_fault(collector: TimescaleDataCollector) -> None:
+    """Mark persistence degraded and recreate the pool if it is broken."""
+    recorder = collector.telemetry_recorder
+    if recorder is not None and recorder.writer_attached:
+        recorder.persistence_status = "degraded"
+    if collector.pool is not None and not await collector.connection_healthy():
+        await collector.reset_connection()
 
 
 async def timescale_collection_loop(
@@ -962,44 +1367,118 @@ async def timescale_collection_loop(
     """
     Главный цикл сбора данных с адаптивным интервалом
 
+    Recoverable errors are isolated at the loop boundary: a failing collection
+    never stops the event flush, a failing flush or collection marks
+    persistence degraded, checks the pool and recreates it when broken, and
+    each activity backs off 5-300 s. Queued events stay queued (bounded) until
+    a verified write. CancelledError is always re-raised. Only an unrecoverable
+    configuration, or an unexpected non-Exception exit, detaches the writer and
+    reports persistence "disabled".
+
     Args:
         collector: Экземпляр TimescaleDataCollector
         dev_mgr: DeviceManager
         stop_event: Event для остановки
     """
     logger.info("🚀 Starting adaptive TimescaleDB collection loop")
-
-    # Инициализация
-    if not await collector.initialize():
-        logger.error("❌ Failed to initialize collector, exiting")
-        return
-
-    last_collection_at = None
+    recorder = collector.telemetry_recorder
+    clean_exit = False
     try:
-        while not stop_event.is_set():
-            # Check shared_state even during long adaptive waits. This performs
-            # no network telemetry request and refreshes the charging grace timer.
-            interval = collector.get_current_interval()
-            now = time.monotonic()
-            if last_collection_at is None or now - last_collection_at >= interval:
-                stats = await collector.collect_data(dev_mgr)
-                last_collection_at = time.monotonic()
-                if stats["status"] != "success":
-                    logger.warning(f"Collection issue: {stats}")
-                interval = collector.get_current_interval()
+        # Инициализация: recoverable database failures are retried, not fatal.
+        if not await initialize_with_retry(collector, stop_event):
+            if not stop_event.is_set() and not collector.initialization_recoverable():
+                logger.error("❌ TimescaleDB collector cannot start (configuration); telemetry persistence disabled")
+                if recorder is not None:
+                    dropped = recorder.detach_writer()
+                    if dropped:
+                        logger.warning("[TS] %s queued telemetry events dropped: no writer can run", dropped)
+            clean_exit = True
+            return
 
-            # Re-evaluate charging within a minute, without collecting full data
-            # early when the normal adaptive interval is still in effect.
-            remaining = interval - (time.monotonic() - last_collection_at)
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=min(60, max(0, remaining)))
-            except asyncio.TimeoutError:
-                pass
+        collect_fault = _FaultBackoff("telemetry collection")
+        flush_fault = _FaultBackoff("telemetry event flush")
+        reconnect_fault = _FaultBackoff("database reconnect")
+        last_collection_at: float | None = None
+        flush_interval = EVENT_FLUSH_INTERVAL_SECONDS if recorder is not None else 60.0
+
+        while not stop_event.is_set():
+            now = time.monotonic()
+
+            # Broken pool discarded after a fault: re-initialise with back-off.
+            if collector.pool is None or not collector._is_initialized:
+                if reconnect_fault.ready(now):
+                    try:
+                        reconnected = await collector.initialize()
+                    except Exception as exc:  # noqa: BLE001 - loop boundary
+                        reconnected = False
+                        reconnect_fault.failure(exc, time.monotonic())
+                    else:
+                        if reconnected:
+                            reconnect_fault.success()
+                        else:
+                            reconnect_fault.failure(None, time.monotonic())
+                    if recorder is not None and recorder.writer_attached and not reconnected:
+                        recorder.persistence_status = "degraded"
+                if collector.pool is None or not collector._is_initialized:
+                    await _wait_for_stop(stop_event, max(0.0, reconnect_fault.retry_at - time.monotonic()))
+                    continue
+
+            # Collection (checkpoints, weather, device rows): isolated from the flush.
+            interval = _safe_interval(collector)
+            now = time.monotonic()
+            due = last_collection_at is None or now - last_collection_at >= interval
+            if due and collect_fault.ready(now):
+                try:
+                    stats = await collector.collect_data(dev_mgr)
+                except Exception as exc:  # noqa: BLE001 - loop boundary
+                    collect_fault.failure(exc, time.monotonic())
+                    await _after_fault(collector)
+                else:
+                    collect_fault.success()
+                    last_collection_at = time.monotonic()
+                    if stats.get("status") != "success":
+                        logger.warning(f"Collection issue: {stats}")
+                interval = _safe_interval(collector)
+
+            # Event flush: verified writes only; failures retain the queue.
+            if collector.pool is not None and flush_fault.ready(time.monotonic()):
+                failures_before = collector.persist_failures
+                try:
+                    await collector.persist_pending_events()
+                except Exception as exc:  # noqa: BLE001 - loop boundary
+                    flush_fault.failure(exc, time.monotonic())
+                    await _after_fault(collector)
+                else:
+                    if collector.persist_failures != failures_before:
+                        # Write failed inside persist (events retained, 30 s floor);
+                        # log rate-limited here and recreate the pool if broken.
+                        flush_fault.failure(None, time.monotonic(), cause=collector.last_persist_error)
+                        await _after_fault(collector)
+                    elif collector.last_persist_outcome in ("written", "idle"):
+                        flush_fault.success()
+
+            # Sleep until the next flush tick or collection/retry time; never 0
+            # after a failure (retry_at is in the future), so no busy loop.
+            now = time.monotonic()
+            next_collect = now + interval if last_collection_at is None else last_collection_at + interval
+            next_collect = max(next_collect, collect_fault.retry_at)
+            wait = min(flush_interval, max(0.0, next_collect - now))
+            if collect_fault.consecutive or flush_fault.consecutive:
+                wait = max(wait, min(flush_interval, LOOP_RETRY_INITIAL_SECONDS))
+            await _wait_for_stop(stop_event, wait)
+        clean_exit = True
 
     except asyncio.CancelledError:
         logger.info("📊 Collection loop cancelled")
+        clean_exit = True
+        raise
     except Exception as e:
         logger.error(f"❌ Error in collection loop: {e}", exc_info=True)
     finally:
         await collector.close()
+        if not clean_exit and recorder is not None and recorder.writer_attached:
+            # The worker is gone: never leave an apparently active recorder behind.
+            dropped = recorder.detach_writer()
+            logger.error("[TS] collection loop stopped unexpectedly; telemetry persistence disabled "
+                         "(%s queued events dropped)", dropped)
         logger.info("✅ TimescaleDB collector stopped")

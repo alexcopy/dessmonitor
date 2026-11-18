@@ -77,6 +77,8 @@ class WebUiReadEndpointContract:
     notes: tuple[str, ...] = (
         "read-only-api-contract",
         "future-web-ui-read-model",
+        "winter-diagnostics-display-only",
+        "winter-diagnostics-no-trusted-reserve",
         "operator-writes-through-control-layer",
         "no-execution",
     )
@@ -190,6 +192,8 @@ def build_web_ui_control_state_response(
             notes=(
                 "read-only-api-contract",
                 "future-web-ui-read-model",
+                "winter-diagnostics-display-only",
+                "winter-diagnostics-no-trusted-reserve",
                 "operator-writes-through-control-layer",
                 "no-execution",
             ),
@@ -227,6 +231,8 @@ def build_web_ui_control_state_response(
         notes=(
             "read-only-api-contract",
             "future-web-ui-read-model",
+            "winter-diagnostics-display-only",
+            "winter-diagnostics-no-trusted-reserve",
             "operator-writes-through-control-layer",
             "no-execution",
         ),

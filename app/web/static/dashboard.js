@@ -106,6 +106,22 @@
         dom.warningsBody = document.getElementById("warnings-body");
         dom.startupResetBadge = document.getElementById("startup-reset-badge");
         dom.startupResetInfoText = document.getElementById("startup-reset-info-text");
+        /* Winter intelligence diagnostic (read-only, Task 0079) */
+        dom.winterPanel = document.getElementById("winter-diagnostics-panel");
+        dom.winterDecision = document.getElementById("winter-decision");
+        dom.winterFreshness = document.getElementById("winter-freshness");
+        dom.winterSolar = document.getElementById("winter-solar");
+        dom.winterCharging = document.getElementById("winter-charging");
+        dom.winterReserve = document.getElementById("winter-reserve");
+        dom.winterInterlock = document.getElementById("winter-interlock");
+        dom.winterReceipt = document.getElementById("winter-receipt");
+        dom.winterMeasurement = document.getElementById("winter-measurement");
+        dom.winterPersistence = document.getElementById("winter-persistence");
+        dom.winterLastEval = document.getElementById("winter-last-eval");
+        dom.winterFailure = document.getElementById("winter-failure");
+        dom.winterTelemetry = document.getElementById("winter-telemetry");
+        dom.winterReasons = document.getElementById("winter-reasons");
+        dom.winterMissing = document.getElementById("winter-missing");
         /* Detect if we are on the analytics page (no dashboard-content) */
         dom.isAnalyticsPage = !dom.dashboardContent;
     }
@@ -292,8 +308,12 @@
             if (dom.invFreshness) { dom.invFreshness.textContent = "unavailable"; dom.invFreshness.className = "dm-badge"; }
             return;
         }
-        var state = computeInverterFreshness(inv.observed_at);
-        var labels = { fresh: "fresh", stale: "stale", unavailable: "unavailable" };
+        /* Device measurement time is unverified; fall back to DESS receipt time, labelled as such. */
+        var receiptOnly = !inv.observed_at && !!inv.received_at;
+        var state = computeInverterFreshness(inv.observed_at || inv.received_at);
+        var labels = receiptOnly
+            ? { fresh: "receipt fresh", stale: "receipt stale", unavailable: "unavailable" }
+            : { fresh: "fresh", stale: "stale", unavailable: "unavailable" };
         var classes = { fresh: "dm-badge ok", stale: "dm-badge degraded", unavailable: "dm-badge" };
         if (dom.invFreshness) {
             dom.invFreshness.textContent = labels[state] || "unavailable";
@@ -426,7 +446,9 @@
 
         /* Inverter timestamp */
         if (dom.invTimestamp) {
-            dom.invTimestamp.textContent = formatLondonTimestamp(inv.observed_at);
+            dom.invTimestamp.textContent = formatLondonTimestamp(inv.observed_at || inv.received_at);
+            dom.invTimestamp.title = inv.observed_at ? "Device observation time"
+                : "DESS response receipt time; device measurement time unverified";
         }
 
         /* SOC gauge */
@@ -443,7 +465,7 @@
 
         /* Footer bar */
         if (dom.footerInvTime) {
-            dom.footerInvTime.textContent = formatLondonTimestamp(inv.observed_at);
+            dom.footerInvTime.textContent = formatLondonTimestamp(inv.observed_at || inv.received_at);
         }
         if (dom.footerAcIn) {
             dom.footerAcIn.textContent = formatCompact(inv.ac_input_voltage, "V");
@@ -920,6 +942,124 @@
     }
 
     /* -----------------------------------------------------------------------
+     * Winter intelligence diagnostic (read-only; textContent only, no controls)
+     * -----------------------------------------------------------------------
+     */
+
+    var WINTER_DECISION_CLASSES = {
+        RECOVERY_OR_FAULT_HOLD: "dm-badge error",
+        WINTER_GRID_HOLD: "dm-badge degraded",
+        EVENING_RESERVE_CONSERVATION: "dm-badge degraded",
+        SOLAR_CHARGING_OBSERVATION: "dm-badge muted",
+        SOLAR_RETURN_CANDIDATE: "dm-badge muted"
+    };
+    var WINTER_FRESHNESS_LABELS = {
+        RECEIPT_CURRENT_MEASUREMENT_UNVERIFIED: "receipt current \u00b7 measurement unverified",
+        RECEIPT_STALE: "receipt stale",
+        RECEIPT_IN_FUTURE: "receipt time invalid",
+        UNAVAILABLE: "unavailable"
+    };
+    var WINTER_DERIVED_FIELDS = ["winterSolar", "winterCharging", "winterReserve", "winterInterlock", "winterReceipt"];
+
+    function setWinterText(el, value) {
+        if (el) { el.textContent = safeText(value); }
+    }
+
+    function setWinterList(listEl, items) {
+        if (!listEl) { return; }
+        while (listEl.firstChild) { listEl.removeChild(listEl.firstChild); }
+        var values = Array.isArray(items) && items.length > 0 ? items : ["\u2014"];
+        for (var i = 0; i < values.length && i < 40; i++) {
+            var li = document.createElement("li");
+            li.textContent = safeText(values[i]);
+            listEl.appendChild(li);
+        }
+    }
+
+    function formatWinterTelemetry(t) {
+        if (!t || typeof t !== "object") { return "unavailable"; }
+        var parts = [
+            "responses " + safeText(t.responses),
+            "repeats " + safeText(t.repeated_responses),
+            "changed " + safeText(t.changed_payloads),
+            "transitions " + safeText(t.mode_transitions_observed),
+            "checkpoints " + safeText(t.checkpoints),
+            "verified " + safeText(t.verified_independent_observations),
+            "drops " + safeText(t.queue_drops),
+            "checkpoint " + safeText(t.checkpoint_interval_seconds) + "s (" + safeText(t.checkpoint_context) + ")"
+        ];
+        return parts.join(" \u00b7 ");
+    }
+
+    function renderWinterDiagnostics(snapshot) {
+        if (!dom.winterPanel) { return; }
+        var w = snapshot ? snapshot.winter_diagnostics : null;
+        if (!w || typeof w !== "object") {
+            setWinterText(dom.winterDecision, "UNAVAILABLE");
+            if (dom.winterDecision) { dom.winterDecision.className = "dm-badge"; }
+            setWinterText(dom.winterFreshness, "unavailable");
+            if (dom.winterFreshness) { dom.winterFreshness.className = "dm-badge"; }
+            [dom.winterSolar, dom.winterCharging, dom.winterReserve, dom.winterInterlock, dom.winterReceipt,
+             dom.winterMeasurement, dom.winterPersistence, dom.winterLastEval, dom.winterFailure,
+             dom.winterTelemetry].forEach(function (el) { setWinterText(el, "unavailable"); });
+            setWinterList(dom.winterReasons, ["WINTER_DIAGNOSTICS_UNAVAILABLE"]);
+            setWinterList(dom.winterMissing, []);
+            return;
+        }
+        /* The runtime path cannot produce battery-use eligibility; never style anything as "ok". */
+        var evaluated = w.status === "ok";
+        if (!evaluated) {
+            /* No current evaluated data: never show earlier decision/charging values or receipt freshness. */
+            var label = w.status === "evaluation_failed" ? "unavailable (evaluation failed)" : "unavailable";
+            setWinterText(dom.winterDecision, "UNAVAILABLE");
+            if (dom.winterDecision) { dom.winterDecision.className = "dm-badge degraded"; }
+            setWinterText(dom.winterFreshness, w.status === "evaluation_failed" ? "evaluation failed" : "unavailable");
+            if (dom.winterFreshness) { dom.winterFreshness.className = "dm-badge degraded"; }
+            WINTER_DERIVED_FIELDS.forEach(function (key) { setWinterText(dom[key], label); });
+        } else {
+            var current = w.freshness === "RECEIPT_CURRENT_MEASUREMENT_UNVERIFIED";
+            var asOf = current ? "" : " \u00b7 as of " + (WINTER_FRESHNESS_LABELS[w.freshness] || "unavailable receipt") + ", not current";
+            setWinterText(dom.winterDecision, w.decision);
+            if (dom.winterDecision) { dom.winterDecision.className = WINTER_DECISION_CLASSES[w.decision] || "dm-badge"; }
+            setWinterText(dom.winterFreshness, WINTER_FRESHNESS_LABELS[w.freshness] || "unavailable");
+            if (dom.winterFreshness) { dom.winterFreshness.className = current ? "dm-badge muted" : "dm-badge degraded"; }
+            setWinterText(dom.winterSolar, safeText(w.solar_opportunity) + asOf);
+            var charging = safeText(w.charging_context);
+            if (w.charger_priority_reported) { charging += " \u00b7 charger " + safeText(w.charger_priority_reported); }
+            if (w.charge_current_a_reported !== null && w.charge_current_a_reported !== undefined) {
+                charging += " \u00b7 " + safeText(w.charge_current_a_reported) + " A reported";
+            }
+            setWinterText(dom.winterCharging, charging + asOf);
+            setWinterText(dom.winterReserve, w.reserve_evidence_quality);
+            setWinterText(dom.winterInterlock, safeText(w.interlock_decision) + " / " + safeText(w.interlock_state)
+                + (w.post_recovery_deadlock ? " \u00b7 post-recovery deadlock" : "") + asOf);
+            var receipt = w.received_at ? formatLondonTimestamp(w.received_at) : "unavailable";
+            if (w.receipt_age_seconds !== null && w.receipt_age_seconds !== undefined) {
+                receipt += " (" + Math.round(Number(w.receipt_age_seconds)) + " s ago)";
+            }
+            setWinterText(dom.winterReceipt, receipt);
+        }
+        setWinterText(dom.winterMeasurement, w.measurement_time ? w.measurement_time : "unverified (" + safeText(w.timestamp_quality) + ")");
+        setWinterText(dom.winterPersistence, w.persistence_status);
+        var lastEval = w.last_successful_evaluation ? formatLondonTimestamp(w.last_successful_evaluation) : "none";
+        if (!evaluated && w.last_successful_evaluation) { lastEval += " (last successful; latest evaluation failed)"; }
+        setWinterText(dom.winterLastEval, lastEval);
+        var failure = "none";
+        if (w.diagnostic_failure) {
+            failure = safeText(w.diagnostic_failure) + " \u00b7 " + safeText(w.failure_count) + " total";
+            var h = w.historical_last_success;
+            if (h && typeof h === "object" && h.last_successful_evaluation) {
+                failure += " \u00b7 last successful result " + safeText(h.decision) + " at "
+                    + formatLondonTimestamp(h.last_successful_evaluation) + " (historical, not current)";
+            }
+        }
+        setWinterText(dom.winterFailure, failure);
+        setWinterText(dom.winterTelemetry, formatWinterTelemetry(w.telemetry));
+        setWinterList(dom.winterReasons, w.reasons);
+        setWinterList(dom.winterMissing, w.missing_requirements);
+    }
+
+    /* -----------------------------------------------------------------------
      * Rendering
      * -----------------------------------------------------------------------
      */
@@ -961,6 +1101,9 @@
 
         /* Sensors panel */
         renderSensorsPanel(snapshot);
+
+        /* Winter intelligence diagnostic (read-only) */
+        renderWinterDiagnostics(snapshot);
 
         /* Hidden compatibility */
         if (dom.summaryStatus && data.status) dom.summaryStatus.textContent = safeText(data.status);

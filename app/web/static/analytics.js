@@ -145,6 +145,106 @@
     });
 })();
 
+/* ── Telemetry Events & Provenance (Task 0079; read-only, textContent only) ── */
+(function() {
+    var KIND_LABELS = {
+        mode_transition: "Observed mode change",
+        significant_payload_change: "Significant change",
+        checkpoint: "Checkpoint"
+    };
+
+    function utc(iso) {
+        if (!iso) return "\u2014";
+        var t = new Date(iso);
+        if (isNaN(t.getTime())) return "\u2014";
+        return t.toISOString().replace("T", " ").substring(0, 19);
+    }
+
+    function cell(row, text, cls) {
+        var td = document.createElement("td");
+        td.textContent = text == null || text === "" ? "\u2014" : String(text);
+        if (cls) td.className = cls;
+        row.appendChild(td);
+    }
+
+    function message(tbody, text) {
+        while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+        var tr = document.createElement("tr");
+        var td = document.createElement("td");
+        td.colSpan = 7;
+        td.textContent = text;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+    }
+
+    function modeText(ev) {
+        if (ev.event_kind === "mode_transition") {
+            return String(ev.from_mode || "?") + " \u2192 " + String(ev.to_mode || "?");
+        }
+        return ev.to_mode || "\u2014";
+    }
+
+    function changedText(ev) {
+        if (ev.event_kind === "checkpoint") {
+            if (ev.payload_changed_since_last_checkpoint === true) return "payload changed since last checkpoint";
+            if (ev.payload_changed_since_last_checkpoint === false) return "repeated payload";
+            return "first checkpoint";
+        }
+        var fields = Array.isArray(ev.changed_fields) ? ev.changed_fields : [];
+        return fields.map(function(name) {
+            var v = ev.quantized_values ? ev.quantized_values[name] : undefined;
+            return v === undefined || v === null ? String(name) : String(name) + "\u2248" + String(v);
+        }).join(", ");
+    }
+
+    function render(data) {
+        var tbody = document.getElementById("telemetryEventsBody");
+        var summary = document.getElementById("telemetryEventsSummary");
+        if (!tbody) return;
+        if (!data || !Array.isArray(data.events)) {
+            if (summary) summary.textContent = "Telemetry events unavailable (persistence " +
+                String((data && data.persistence_status) || "unavailable") + ")";
+            message(tbody, "Unavailable");
+            return;
+        }
+        var c = data.counts || {};
+        if (summary) {
+            summary.textContent = "Shown: " + data.events.length + " of max " + String(data.limit || 100) +
+                " \u00b7 mode changes " + String(c.mode_transition || 0) +
+                " \u00b7 significant changes " + String(c.significant_payload_change || 0) +
+                " \u00b7 checkpoints " + String(c.checkpoint || 0) +
+                " \u00b7 verified device measurements " +
+                String(data.events.filter(function(ev) { return ev.verified_observation === true; }).length);
+        }
+        if (!data.events.length) { message(tbody, "No telemetry events recorded yet"); return; }
+        while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+        data.events.forEach(function(ev) {
+            var tr = document.createElement("tr");
+            cell(tr, utc(ev.collected_at), "dm-mono");
+            cell(tr, KIND_LABELS[ev.event_kind] || "Unknown", "dm-telemetry-kind-" + (KIND_LABELS[ev.event_kind] ? ev.event_kind : "unknown"));
+            cell(tr, modeText(ev), "dm-mono");
+            cell(tr, changedText(ev), "dm-mono");
+            cell(tr, utc(ev.receipt_at), "dm-mono");
+            cell(tr, ev.sample_continuity === "gap" ? "gap: DESS update(s) missed" : ev.sample_continuity, "dm-mono");
+            cell(tr, ev.timestamp_quality || "device_time_unverified", "dm-mono");
+            tbody.appendChild(tr);
+        });
+    }
+
+    function loadTelemetryEvents() {
+        if (!document.getElementById("telemetryEventsBody")) return;
+        fetch("/api/inverter/events", { method: "GET", credentials: "same-origin" })
+            .then(function(r) { return r.json().catch(function() { return null; }); })
+            .then(render)
+            .catch(function() { render(null); });
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        loadTelemetryEvents();
+        setInterval(loadTelemetryEvents, 120000); // same cadence as the inverter metrics table
+    });
+})();
+
 /* ── Meter Daily Energy ─────────────────────────────────── */
 (function() {
     var currentDays = 30;

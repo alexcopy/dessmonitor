@@ -390,6 +390,7 @@ async def start_runtime_read_only_web_host(
     per_device_results_provider: Callable[[], dict[str, str] | None] | None = None,
     sensors_provider: Callable[[], list[dict[str, Any]] | None] | None = None,
     inverter_provider: Callable[[], dict[str, Any] | None] | None = None,
+    winter_diagnostics_provider: Callable[[], Any | None] | None = None,
 ) -> RuntimeWebHostHandle | None:
     env = environ if environ is not None else os.environ
     if not is_runtime_web_host_enabled(env):
@@ -415,7 +416,10 @@ async def start_runtime_read_only_web_host(
         inverter_provider=inverter_provider,
     )
     from app.web_host import create_app
-    app = create_app(runtime_state_provider=provider)
+    app = create_app(
+        runtime_state_provider=provider,
+        winter_diagnostics_provider=winter_diagnostics_provider,
+    )
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     config.reload = False
     config.workers = 1

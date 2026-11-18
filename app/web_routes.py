@@ -1050,6 +1050,39 @@ def create_auth_router(
             return JSONResponse({"detail": str(exc)}, status_code=500)
 
 
+    # -- /api/inverter/events GET (read-only, Task 0079) -------------------
+    @router.get("/api/inverter/events")
+    async def api_inverter_events(request: Request) -> Any:
+        """Return at most 100 recent telemetry events with their provenance.
+
+        Rows are persistence records of DESS responses: receipt_at is when the
+        response was received, collected_at when it was stored. Neither is a
+        verified device measurement time.
+        """
+        auth_ok, _ = _check_auth(request)
+        if not auth_ok:
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            return JSONResponse({"detail": "DATABASE_URL not set", "persistence_status": "unavailable"},
+                                status_code=503)
+        try:
+            rows = await web_queries.telemetry_events(db_url)
+        except Exception:
+            return JSONResponse({"detail": "telemetry events unavailable", "persistence_status": "degraded"},
+                                status_code=500)
+        events = [event for event in (_telemetry_event_view(row) for row in rows) if event is not None]
+        counts = {kind: sum(1 for event in events if event["event_kind"] == kind) for kind in _TELEMETRY_EVENT_KINDS}
+        return JSONResponse({
+            "events": events,
+            "limit": 100,
+            "counts": counts,
+            "persistence_status": "available",
+            "provenance_note": ("Persistence records of DESS responses. receipt_at = response received, "
+                                "collected_at = stored; device measurement time is unverified."),
+        })
+
+
     # -- /api/overload/alert GET ----------------------------------------
     @router.get("/api/overload/alert")
     async def api_overload_alert(request: Request) -> Any:
@@ -1341,6 +1374,52 @@ def _check_auth(request: Request) -> tuple[bool, str | None]:
     if session is None:
         return False, None
     return validate_session(session)
+
+
+_TELEMETRY_EVENT_KINDS = ("mode_transition", "significant_payload_change", "checkpoint")
+_TELEMETRY_VALUE_KEYS = ("pv_power_w", "battery_voltage", "battery_current_chg", "battery_current_dis",
+                         "output_power_w", "ac_output_load_pct", "ac_input_voltage")
+
+
+def _telemetry_event_view(row: Any) -> dict[str, Any] | None:
+    """Whitelist bounded event fields; unknown kinds and arbitrary metadata are dropped."""
+    metadata = row["metadata"]
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except ValueError:
+            return None
+    if not isinstance(metadata, dict) or metadata.get("event_kind") not in _TELEMETRY_EVENT_KINDS:
+        return None
+    kind = metadata["event_kind"]
+    values = metadata.get("quantized_values")
+    values = values if isinstance(values, dict) else {}
+    changed = metadata.get("changed_fields")
+    changed = changed if isinstance(changed, list) else []
+
+    def _text(value: Any) -> str | None:
+        return str(value)[:64] if value is not None else None
+
+    def _num(value: Any) -> float | None:
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    stored = row["time"]
+    return {
+        "event_kind": kind,
+        "from_mode": _text(row["from_mode"]) if kind == "mode_transition" else None,
+        "to_mode": _text(row["to_mode"]),
+        "changed_fields": [str(name)[:40] for name in changed[:12]],
+        "quantized_values": {key: _num(values.get(key)) for key in _TELEMETRY_VALUE_KEYS if key in values},
+        "receipt_at": _text(metadata.get("receipt_at")),
+        "previous_receipt_at": _text(metadata.get("previous_receipt_at")),
+        "collected_at": stored.isoformat() if hasattr(stored, "isoformat") else _text(stored),
+        "timestamp_quality": _text(metadata.get("timestamp_quality")) or "device_time_unverified",
+        "sample_continuity": _text(metadata.get("sample_continuity")),
+        "payload_changed_since_last_checkpoint": metadata.get("payload_changed_since_last_checkpoint")
+        if isinstance(metadata.get("payload_changed_since_last_checkpoint"), bool) else None,
+        "payload_fingerprint": _text(metadata.get("payload_fingerprint")),
+        "verified_observation": False,
+    }
 
 
 def _login_error(request: Request, message: str) -> Any:

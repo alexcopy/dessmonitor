@@ -88,6 +88,7 @@ def create_placeholder_control_state_snapshot_provider() -> Callable[[], None]:
 def create_app(
     runtime_state_provider: Callable[[], dict[str, Any] | None] | None = None,
     environ: dict[str, str] | None = None,
+    winter_diagnostics_provider: Callable[[], Any | None] | None = None,
 ):
     """Create a FastAPI application with auth and the read-only GET /control/state endpoint.
 
@@ -120,6 +121,9 @@ def create_app(
         runtime_state_provider: Optional callable that returns a runtime
             state mapping or None. When provided, real snapshots are built.
         environ: Optional env mapping (defaults to ``os.environ``).
+        winter_diagnostics_provider: Optional separate, display-only Task 0078
+            diagnostic provider. It is forwarded as its own typed argument and is
+            never merged into the generic runtime state mapping. No write route.
 
     Returns:
         A ``FastAPI`` application instance.
@@ -156,7 +160,10 @@ def create_app(
 
     if runtime_state_provider is not None:
         from app.web_control_state_provider import create_runtime_control_state_snapshot_provider  # noqa: PLC0415
-        provider = create_runtime_control_state_snapshot_provider(runtime_state_provider)
+        provider = create_runtime_control_state_snapshot_provider(
+            runtime_state_provider,
+            winter_diagnostics_provider=winter_diagnostics_provider,
+        )
     else:
         provider = create_placeholder_control_state_snapshot_provider()
 

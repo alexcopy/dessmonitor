@@ -172,6 +172,17 @@ async def inverter_metrics(database_url):
             """)
 
 
+async def telemetry_events(database_url):
+    """Bounded Task 0079 telemetry events. Legacy rows without event_kind are excluded."""
+    return await _fetch(database_url, """
+                SELECT time, from_mode, to_mode, battery_soc, metadata
+                FROM power_mode_events
+                WHERE metadata->>'event_kind' IN ('mode_transition', 'significant_payload_change', 'checkpoint')
+                ORDER BY time DESC
+                LIMIT 100
+            """, command_timeout=10)
+
+
 async def energy_devices_today(database_url):
     return await _fetch(database_url, """
                 WITH power_stats AS (

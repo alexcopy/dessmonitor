@@ -264,6 +264,95 @@ class ShadowOutputMonitorTests(unittest.TestCase):
                 sys.modules.pop("service.inverter_monitor", None)
         asyncio.run(run())
 
+    def _run_monitor_once(self, *, observer, shadow=None, fetch_error=None, polls=1):
+        """Run the real InverterMonitor loop with stubbed I/O for ``polls`` iterations."""
+        result = {}
+
+        async def run():
+            api = Mock()
+            if fetch_error is not None:
+                api.fetch_device_data.side_effect = fetch_error
+            else:
+                api.fetch_device_data.return_value = data(self.now.isoformat())
+            charge = Mock()
+            charge.tick = AsyncMock()
+            stubs = {}
+            for name, attrs in {
+                "app.api": {"DessAPI": object, "DeviceData": object},
+                "app.monitoring.inverter_logger": {"InverterLogger": Mock},
+                "app.service.battery_charge_controller": {"charger_mode": lambda value: value},
+                "app.utils.time_utils": {"smart_sleep": AsyncMock()},
+                "shared_state.shared_state": {"shared_state": {"output_shadow_sun_times": ("sun",)}},
+            }.items():
+                module = ModuleType(name)
+                module.__dict__.update(attrs)
+                stubs[name] = module
+            with patch.dict(sys.modules, stubs):
+                sys.modules.pop("service.inverter_monitor", None)
+                module = importlib.import_module("service.inverter_monitor")
+                monitor = module.InverterMonitor(api, charge_controller=charge, shadow_monitor=shadow,
+                                                 observation_observer=observer)
+                monitor._process_business_metrics = Mock()
+                monitor.imp = Mock()
+                sleeps = []
+
+                async def sleep(stop_event, interval):
+                    sleeps.append(interval)
+                    if len(sleeps) >= polls:
+                        monitor.stop()
+
+                with patch.object(module, "smart_sleep", side_effect=sleep):
+                    await monitor.run()
+                result.update(api=api, charge=charge, monitor=monitor, sleeps=sleeps)
+                sys.modules.pop("service.inverter_monitor", None)
+
+        asyncio.run(run())
+        return result
+
+    def test_observer_sees_each_successful_response_once_without_extra_requests(self):
+        observer = Mock()
+        shadow = Mock()
+        out = self._run_monitor_once(observer=observer, shadow=shadow, polls=3)
+        self.assertEqual(out["api"].fetch_device_data.call_count, 3)  # one request per poll, unchanged
+        self.assertEqual(observer.call_count, 3)
+        self.assertEqual(out["sleeps"], [60, 60, 60])  # default poll interval preserved
+        kwargs = observer.call_args.kwargs
+        self.assertIsNotNone(kwargs["received_at"].utcoffset())
+        self.assertEqual(kwargs["sun_times"], ("sun",))
+        self.assertEqual(shadow.observe.call_count, 3)  # shadow monitor neither delayed nor replaced
+        self.assertIs(observer.call_args.args[0], shadow.observe.call_args.args[0])
+        self.assertEqual(kwargs["received_at"], shadow.observe.call_args.kwargs["received_at"])
+
+    def test_observer_runs_even_when_shadow_monitor_is_disabled(self):
+        observer = Mock()
+        self._run_monitor_once(observer=observer, shadow=None)
+        observer.assert_called_once()
+
+    def test_observer_failure_does_not_stop_charger_or_shadow(self):
+        observer = Mock(side_effect=RuntimeError("observer failure"))
+        shadow = Mock()
+        out = self._run_monitor_once(observer=observer, shadow=shadow)
+        out["charge"].tick.assert_awaited_once()
+        shadow.observe.assert_called_once()
+        out["monitor"].imp.exception.assert_called_once()
+
+    def test_dess_outage_does_not_call_observer(self):
+        observer = Mock()
+        out = self._run_monitor_once(observer=observer, fetch_error=ConnectionError("DESS down"))
+        observer.assert_not_called()
+        out["charge"].tick.assert_not_awaited()
+        self.assertIsNone(out["monitor"].last_data)
+
+    def test_real_recorder_as_observer_is_bounded_and_request_free(self):
+        from app.control.adaptive_telemetry import AdaptiveTelemetryRecorder
+        recorder = AdaptiveTelemetryRecorder(queue_size=4)
+        recorder.attach_writer()
+        out = self._run_monitor_once(observer=recorder.observe, polls=10)
+        self.assertEqual(out["api"].fetch_device_data.call_count, 10)
+        self.assertEqual(recorder.responses, 10)
+        self.assertEqual(recorder.repeats, 9)  # identical cached payloads
+        self.assertEqual(recorder.pending(), ())
+
 
 if __name__ == "__main__":
     unittest.main()

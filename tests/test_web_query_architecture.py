@@ -262,3 +262,84 @@ class LocalPostgresTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await conn.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()"), 0)
         finally:
             await conn.close()
+
+
+class TelemetryEventsRouteTests(unittest.IsolatedAsyncioTestCase):
+    """Task 0079: bounded, fixed-SQL, read-only telemetry event history."""
+
+    def setUp(self):
+        self.router = web_routes.create_auth_router(None, None)
+        self.route = next(r for r in self.router.routes if r.path == '/api/inverter/events')
+
+    async def test_query_is_fixed_bounded_and_filters_event_kinds_in_sql(self):
+        conn = SimpleNamespace(fetch=AsyncMock(return_value=[]), close=AsyncMock())
+        with patch.dict(sys.modules, {'asyncpg': SimpleNamespace(connect=AsyncMock(return_value=conn))}):
+            self.assertEqual(await web_queries.telemetry_events('test'), [])
+        sql = ' '.join(conn.fetch.await_args.args[0].split())
+        self.assertEqual(conn.fetch.await_args.args[1:], ())
+        self.assertIn("FROM power_mode_events", sql)
+        self.assertIn("WHERE metadata->>'event_kind' IN ('mode_transition', 'significant_payload_change', 'checkpoint')", sql)
+        self.assertTrue(sql.endswith("ORDER BY time DESC LIMIT 100"))
+        conn.close.assert_awaited_once()
+
+    async def test_route_is_get_only_and_requires_auth(self):
+        self.assertEqual(self.route.methods, {'GET'})
+        self.assertFalse([r.path for r in self.router.routes
+                          if 'inverter/events' in r.path and r.methods - {'GET', 'HEAD'}])
+        with patch.object(web_routes, '_check_auth', return_value=(False, None)):
+            self.assertEqual((await self.route.endpoint(object())).status_code, 401)
+
+    async def test_unavailable_and_failing_database_are_explicit(self):
+        with patch.object(web_routes, '_check_auth', return_value=(True, 'user')), patch.dict(os.environ, {}, clear=True):
+            response = await self.route.endpoint(object())
+            self.assertEqual((response.status_code, json.loads(response.body)['persistence_status']), (503, 'unavailable'))
+        with patch.object(web_routes, '_check_auth', return_value=(True, 'user')), \
+                patch.dict(os.environ, {'DATABASE_URL': 'synthetic'}), \
+                patch.object(web_queries, 'telemetry_events', new=AsyncMock(side_effect=RuntimeError('secret dsn'))):
+            response = await self.route.endpoint(object())
+            self.assertEqual(response.status_code, 500)
+            self.assertNotIn('secret', response.body.decode())
+            self.assertEqual(json.loads(response.body)['persistence_status'], 'degraded')
+
+    async def test_response_contract_whitelists_fields_and_never_relabels_changes(self):
+        stamp = datetime(2026, 12, 10, 1, tzinfo=timezone.utc)
+        meta = lambda kind, **extra: json.dumps(dict({
+            'event_kind': kind, 'changed_fields': ['pv_power_w'], 'quantized_values': {'pv_power_w': 400.0, 'raw': 'x'},
+            'receipt_at': '2026-12-10T00:59:58+00:00', 'collected_at': '2026-12-10T01:00:00+00:00',
+            'timestamp_quality': 'device_time_unverified', 'payload_fingerprint': 'abc', 'sample_continuity': 'contiguous',
+            'verified_observation': True, 'raw_payload': {'secret': 1}}, **extra))
+        rows = [
+            {'time': stamp, 'from_mode': 'Line Mode', 'to_mode': 'Invert Mode', 'battery_soc': 60.0,
+             'metadata': meta('mode_transition')},
+            {'time': stamp, 'from_mode': 'Line Mode', 'to_mode': 'Line Mode', 'battery_soc': 60.0,
+             'metadata': meta('significant_payload_change')},
+            {'time': stamp, 'from_mode': 'Line Mode', 'to_mode': 'Line Mode', 'battery_soc': 60.0,
+             'metadata': meta('checkpoint', payload_changed_since_last_checkpoint=False)},
+            {'time': stamp, 'from_mode': 'grid', 'to_mode': 'inverter', 'battery_soc': None,
+             'metadata': json.dumps({'mode_change_count': 3})},  # legacy row
+            {'time': stamp, 'from_mode': 'x', 'to_mode': 'y', 'battery_soc': None, 'metadata': '{not json'},
+            {'time': stamp, 'from_mode': 'x', 'to_mode': 'y', 'battery_soc': None,
+             'metadata': json.dumps({'event_kind': 'command_executed'})},
+        ]
+        with patch.object(web_routes, '_check_auth', return_value=(True, 'user')), \
+                patch.dict(os.environ, {'DATABASE_URL': 'synthetic'}), \
+                patch.object(web_queries, 'telemetry_events', new=AsyncMock(return_value=rows)):
+            response = await self.route.endpoint(object())
+        body = json.loads(response.body)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([e['event_kind'] for e in body['events']],
+                         ['mode_transition', 'significant_payload_change', 'checkpoint'])
+        self.assertEqual(body['counts'], {'mode_transition': 1, 'significant_payload_change': 1, 'checkpoint': 1})
+        transition, change, checkpoint = body['events']
+        self.assertEqual((transition['from_mode'], transition['to_mode']), ('Line Mode', 'Invert Mode'))
+        self.assertIsNone(change['from_mode'])  # a generic change is never shown as a mode transition
+        self.assertEqual(change['quantized_values'], {'pv_power_w': 400.0})
+        self.assertFalse(checkpoint['payload_changed_since_last_checkpoint'])
+        self.assertTrue(all(e['verified_observation'] is False for e in body['events']))
+        self.assertNotIn('raw_payload', response.body.decode())
+        self.assertNotIn('secret', response.body.decode())
+        self.assertEqual(set(transition), {
+            'event_kind', 'from_mode', 'to_mode', 'changed_fields', 'quantized_values', 'receipt_at',
+            'previous_receipt_at', 'collected_at', 'timestamp_quality', 'sample_continuity',
+            'payload_changed_since_last_checkpoint', 'payload_fingerprint', 'verified_observation'})
+        self.assertEqual(transition['collected_at'], stamp.isoformat())

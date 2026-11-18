@@ -291,6 +291,34 @@
             </tbody>
         </table>
     </div>
+    <!-- SECTION: Telemetry events & provenance (Task 0079, read-only) -->
+    <div class="dm-section-label">Telemetry Events &amp; Provenance (last 100)</div>
+    <div class="dm-card dm-telemetry-events" id="telemetryEventsCard">
+        <p class="dm-telemetry-note" id="telemetryEventsNote">
+            Rows record DESS responses as received and stored. Receipt time is when the response arrived;
+            stored time is the database write. Device measurement time is unverified, and a row is not proof of a new measurement.
+            Mode changes are observed between two available responses; the exact switching moment is unknown.
+        </p>
+        <div class="dm-telemetry-summary dm-mono" id="telemetryEventsSummary">Loading&hellip;</div>
+        <div class="dm-table-scroll">
+            <table class="dm-table dm-table-compact" id="telemetryEventsTable">
+                <thead>
+                    <tr>
+                        <th>Stored (UTC)</th>
+                        <th>Kind</th>
+                        <th>Mode</th>
+                        <th>Changed</th>
+                        <th>Received (UTC)</th>
+                        <th>Continuity</th>
+                        <th>Time quality</th>
+                    </tr>
+                </thead>
+                <tbody id="telemetryEventsBody">
+                    <tr><td colspan="7">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </main>
 
 

@@ -50,6 +50,7 @@ from app.control.policy_models import (
     LoadCandidate,
     PolicyDecisionResult,
 )
+from app.control.winter_runtime_diagnostics import WinterDiagnosticSnapshot
 
 # ---------------------------------------------------------------------------
 # RuntimeSnapshotAdapterStatus — adapter health
@@ -146,6 +147,7 @@ class RuntimeControlSnapshotAdapterInput:
     battery_window: BatteryOperatingWindow | None = None
     mode: RuntimeControlModeState | None = None
     inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
+    winter_diagnostics: WinterDiagnosticSnapshot | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -359,6 +361,8 @@ def _parse_inverter(
                 inv = InverterReadSnapshot(
                     snapshot_id=str(item.get("snapshot_id", "")),
                     observed_at=str(item["observed_at"]) if item.get("observed_at") is not None else None,
+                    received_at=str(item["received_at"]) if item.get("received_at") is not None else None,
+                    timestamp_quality=str(item.get("timestamp_quality", "device_time_unverified")),
                     battery_voltage=_safe_inverter_float(item.get("battery_voltage")),
                     battery_soc=_safe_inverter_float(item.get("battery_soc")),
                     battery_current_chg=_safe_inverter_float(item.get("battery_current_chg")),
@@ -545,6 +549,11 @@ def build_runtime_control_snapshot(
         loads=load_candidates,
         sensors=sensors,
         inverter=inverter,
+        # Display-only Task 0078 block, accepted only as the exact typed provider
+        # result. Generic runtime_state keys (reserve, synthetic/verified flags,
+        # source strings, decisions) are never read for it.
+        winter_diagnostics=(adapter_input.winter_diagnostics
+                            if type(adapter_input.winter_diagnostics) is WinterDiagnosticSnapshot else None),
         load_metadata=explicit_loads,
         policy_decision=adapter_input.policy_decision,
         command_proposal=adapter_input.command_proposal,

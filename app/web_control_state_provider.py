@@ -28,6 +28,7 @@ from app.control.runtime_snapshot_adapter import (
     _parse_sensors,
     build_runtime_control_snapshot,
 )
+from app.control.winter_runtime_diagnostics import WinterDiagnosticSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +38,7 @@ from app.control.runtime_snapshot_adapter import (
 
 def build_control_state_snapshot_from_runtime_state(
     runtime_state: dict[str, Any] | None,
+    winter_diagnostics: WinterDiagnosticSnapshot | None = None,
 ) -> Any | None:  # ControlStateSnapshot | None (avoids import at module level)
     """Build a ControlStateSnapshot from a caller-provided runtime state mapping.
 
@@ -115,6 +117,7 @@ def build_control_state_snapshot_from_runtime_state(
         battery_window=battery_window,
         mode=mode,
         inverter=inverter,
+        winter_diagnostics=winter_diagnostics,
         notes=tuple(notes) if isinstance(notes, (list, tuple)) else (),
     )
 
@@ -130,6 +133,7 @@ def build_control_state_snapshot_from_runtime_state(
 
 def create_runtime_control_state_snapshot_provider(
     runtime_state_provider: Callable[[], dict[str, Any] | None] | None = None,
+    winter_diagnostics_provider: Callable[[], WinterDiagnosticSnapshot | None] | None = None,
 ) -> Callable[[], Any | None]:
     """Create a snapshot provider callable from an optional runtime state provider.
 
@@ -165,7 +169,15 @@ def create_runtime_control_state_snapshot_provider(
             return None
         if not state:
             return None
-        return build_control_state_snapshot_from_runtime_state(state)
+        # Separate typed provider; a failure leaves the block absent (unavailable),
+        # never a stale result rendered as current.
+        try:
+            winter = winter_diagnostics_provider() if winter_diagnostics_provider else None
+        except Exception:
+            winter = None
+        if type(winter) is not WinterDiagnosticSnapshot:
+            winter = None
+        return build_control_state_snapshot_from_runtime_state(state, winter_diagnostics=winter)
 
     return _provider
 

@@ -44,6 +44,7 @@ from app.control.policy_models import (
     LoadCandidate,
     PolicyDecisionResult,
 )
+from app.control.winter_runtime_diagnostics import WinterDiagnosticSnapshot
 
 # ---------------------------------------------------------------------------
 # ControlStateSnapshotStatus — overall snapshot health
@@ -152,6 +153,8 @@ class InverterReadSnapshot:
     """
     snapshot_id: str = ""
     observed_at: str | None = None
+    received_at: str | None = None
+    timestamp_quality: str = "device_time_unverified"
     battery_voltage: float | None = None
     battery_soc: float | None = None
     battery_current_chg: float | None = None
@@ -228,6 +231,7 @@ class ControlStateSnapshotInput:
     battery_window: BatteryOperatingWindow | None = None
     mode: ControlModeSnapshot | None = None
     inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
+    winter_diagnostics: WinterDiagnosticSnapshot | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -252,6 +256,7 @@ class ControlStateSnapshot:
     energy_budget: EnergyBudget | None = None
     battery_window: BatteryOperatingWindow | None = None
     inverter: tuple[InverterReadSnapshot, ...] = field(default_factory=tuple)
+    winter_diagnostics: WinterDiagnosticSnapshot | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
@@ -480,6 +485,7 @@ def build_control_state_snapshot(
         mode=mode,
         energy_budget=snapshot_input.energy_budget,
         battery_window=snapshot_input.battery_window,
+        winter_diagnostics=snapshot_input.winter_diagnostics,
         notes=tuple(all_notes),
         warnings=tuple(warnings),
     )

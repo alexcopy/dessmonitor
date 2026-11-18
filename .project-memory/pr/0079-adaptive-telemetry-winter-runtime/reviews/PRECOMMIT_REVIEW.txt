@@ -1,0 +1,121 @@
+TASK 0079 — FINAL CORRECTIVE PRECOMMIT REVIEW
+
+VERDICT: APPROVED
+
+TARGETED FINAL VERIFICATION — CURRENT VERDICT
+The prior blocker below is historical and is resolved. The backoff caps the
+exponent before exponentiation. Independent direct calls at failure counts 1,
+7, 1025 and 1,000,000 returned 5, 300, 300 and 300 seconds. The focused real
+loop regression starts at 999,999 failures, confirms continued execution, two
+events persisted exactly once, no queue drops and no disabled writer. This is
+an accelerated offline test, not a years-long production run. Bounded-queue
+overflow and application restart can still lose events as documented.
+
+FRESHNESS ASSERTION AND OPERATOR AUTHORIZATION
+The current operator task explicitly authorizes the narrow replacement of item
+28 in scripts/check-inverter-operator-freshness.sh despite its omission from
+the original plan allowlist. This is an explicit task-specific scope exception;
+the locked PLAN.txt is not rewritten or backdated. Existing checks 1-27 are
+unchanged. Item 28 exercises the actual provider, read snapshot, recorder and
+winter diagnostics for timestamp provenance. It passed; independently injecting
+a forged verified-observation count into a scratch copy made item 28 fail while
+checks 1-27 passed. No dummy ZoneInfo import was added.
+
+FINAL VALIDATION
+Python 3.12 collector suite: 54 run, 50 passed and 4 PostgreSQL opt-in tests
+skipped; adaptive telemetry: 29 passed. The separately executed earlier
+disposable PostgreSQL 16 suite passed four tests as recorded below. Freshness
+script: 28 passed. Repository safety and Project Memory checks passed; git
+diff --check and git diff --cached --check passed. HEAD is 8d5129e on master;
+index empty. No implementation file was modified by this review.
+
+REMAINING BLOCKERS: None for the operator-authorized shadow-only commit.
+WARNINGS: Timescale hypertables and actual network-level lost COMMIT replies were
+not tested; treat them as deployment validation limitations. Other historical
+check-script failures and the baseline aiohttp fixture error remain as recorded
+below and are not claimed green. No physical control or deployment is approved.
+COMMIT READINESS: YES for the separately authorized shadow-only implementation
+commit, including the explicitly authorized item 28 correction.
+
+PRIOR REVIEW — HISTORICAL FINDINGS (superseded where stated above)
+HEAD: 8d5129e062d0f2234f35ef5f76a6f6705d28292e; branch master; index empty.
+The approved f36b903 planning artifacts are committed and unchanged.
+
+COLLECTOR-LOOP BLOCKER: OPEN
+The original one-off collect_data exception is now isolated and the tests show
+continued event flushing, pool recovery, bounded queue behavior and cancellation.
+However prolonged repeated errors expose a new failure in that same recovery
+path: app/ml/timescale_data_collector.py:1317 calculates
+min(5.0 * 2**(consecutive-1), 300.0). The exponential is evaluated before
+the cap. Independent reproduction with _FaultBackoff('test').consecutive=1024
+followed by failure(None, 0) raises OverflowError: int too large to convert to
+float. After about 1025 consecutive failures (~85 hours at the capped delay),
+this escapes the per-operation handler; lines 1471-1479 stop the worker and
+detach it, dropping queued events. Cap the exponent or delay before performing
+unbounded arithmetic and test a sustained streak beyond 1025 failures, including
+subsequent recovery. This is an implementation blocker, not a request for a new
+architecture.
+
+PREVIOUS THREE BLOCKERS
+1. False acknowledgement: CLOSED for the demonstrated zero-row and retry cases;
+   one-row status or matching event identity is required before acknowledgement.
+2. Startup DB outage: CLOSED for recoverable initialization failure; bounded
+   retries, pool cleanup and interruptible waits are implemented. The longer
+   runtime streak failure described above remains OPEN.
+3. Stale winter output after failed evaluation: CLOSED. Current values become
+   unavailable and previous values remain explicitly HISTORICAL_NOT_CURRENT with
+   original timestamps; GET does not initiate evaluation.
+
+REAL POSTGRESQL RESULTS
+Independently ran TIMESCALE_COLLECTOR_LOCAL_POSTGRES=1 with the repository's
+disposable_postgres.py harness and Python 3.12 against a newly created,
+identity-verified postgres:16-alpine container. All four
+RealPostgresCollectorTests passed: initialization/write, concurrent arrival,
+committed-result lost to a client-side shim, and outage/reconnect/replay. The
+container was removed. The coder reports five repeated full-suite runs and 15
+outage repetitions; I independently ran the suite once, not those repetitions.
+
+REMAINING TIMESCALE AND DURABILITY LIMITATIONS
+The real test used PostgreSQL 16, not Timescale hypertables. Lost confirmation
+was simulated client-side after a real server COMMIT, not a network-level lost
+reply. Queue state is in memory and is not durable across application restart;
+the approved plan does not require restart durability. Long outages can exceed
+the bounded queue; drops are counted.
+
+LEGACY CHECK-SCRIPT ASSESSMENT
+The previous review independently executed 23 change-sensitive historical
+guards; they fail because Task 0079 changes paths those old tasks forbade, not
+because the approved scope itself violates an implemented safety assertion.
+The five additional clean-HEAD failures are coder-reported and were not all
+independently reproduced in this review. I reran bash
+scripts/check-inverter-operator-freshness.sh: 27 pass, item 28 fails solely
+because it greps run.py for ZoneInfo. ADR-0004 disallows treating the DESS
+display timestamp as verified London measurement time; reintroducing an unused
+import would be misleading. If that configured check remains mandatory, this is
+a separate REPOSITORY-GOVERNANCE BLOCKER: authorize a narrowly scoped update to
+item 28 to assert the new receipt-only, unverified measurement-time behavior,
+and run its regression check. The reviewer cannot alter the out-of-scope script
+or silently waive an enforced gate.
+
+TESTS AND SAFETY VALIDATION
+Python 3.12 full discovery: 674 run, 596 passed, 77 skipped, one known
+aiohttp.ClientSession stub error independently reproduced on clean HEAD in the
+prior review. Focused collector suite: 51 run, 47 passed, 4 opt-in PostgreSQL
+tests skipped (those four passed separately on the disposable DB above).
+node --test tests/test_*.cjs: 97 passed. compileall app service run.py passed
+with pycache redirected outside the repository. Repository safety and Project
+Memory checks and git diff --check/cached --check passed. Four real PostgreSQL
+tests passed once independently. No hardware, production or shared DB access.
+
+IMPLEMENTATION BLOCKERS
+The reproducible long-running backoff OverflowError above.
+
+REPOSITORY-GOVERNANCE BLOCKERS
+The still-failing ZoneInfo check must be corrected or resolved through the
+authorized process if enforced; the remaining historical check failures are
+not silently claimed green.
+
+EXACT READINESS FOR IMPLEMENTATION COMMIT: NO. Fix the bounded-backoff defect,
+resolve the configured gate through its authorized process, and obtain a fresh
+independent review. No code, tests, locked planning files or guard scripts were
+modified; no staging, commit, push, deployment or hardware action occurred.

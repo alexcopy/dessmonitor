@@ -8,7 +8,6 @@ import signal
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo  # stdlib Python 3.9+, requires tzdata in Docker image
 from app.api import DessAPI
 from app.config import Config
 from app.device_initializer import DeviceInitializer
@@ -16,6 +15,8 @@ from app.logger import setup_logging, add_file_logger
 # ML модули
 from app.ml.ml_data_collector import MLDataCollector, ml_collection_loop
 from app.ml.timescale_data_collector import TimescaleDataCollector, timescale_collection_loop
+from app.control.adaptive_telemetry import AdaptiveTelemetryRecorder
+from app.control.winter_runtime_diagnostics import WinterRuntimeDiagnostics
 from app.monitoring.device_status_logger import DeviceStatusLogger
 from app.service.smart_home_controller import SmartHomeController
 from app.service.overload_protector import OverloadProtector
@@ -271,7 +272,36 @@ async def main() -> None:
             important_log.info("[OUTPUT_SHADOW] enabled; observe only")
         except Exception:
             important_log.exception("[OUTPUT_SHADOW] startup failed; monitoring continues")
-    inverter_mon = InverterMonitor(dess_api, poll_sec=60, charge_controller=charge_ctrl, shadow_monitor=shadow_monitor)
+    # Task 0079: read-only telemetry recorder + winter diagnostics. Both consume
+    # the response the existing poll already fetched; no request, no command.
+    shadow_baseline = getattr(shadow_monitor, "baseline", None)
+    telemetry_recorder = AdaptiveTelemetryRecorder(
+        forecast_max_age_seconds=getattr(shadow_baseline, "forecast_max_age_seconds", 180.0 * 60.0),
+    )
+    winter_diagnostics = WinterRuntimeDiagnostics(
+        baseline=shadow_baseline,
+        history_provider=lambda: tuple(shadow_monitor.history) if shadow_monitor is not None else (),
+    )
+    _winter_error_logged_at: list[float] = []
+
+    def _observe_dess_response(dd, *, received_at, sun_times=None) -> None:
+        telemetry_recorder.observe(dd, received_at=received_at, sun_times=sun_times)
+        try:
+            winter_diagnostics.observe(dd, received_at=received_at, sun_times=sun_times)
+        except Exception:
+            # observe() already records failures; this only guards the monitor loop.
+            now_mono = __import__("time").monotonic()
+            if not _winter_error_logged_at or now_mono - _winter_error_logged_at[0] >= 300:
+                important_log.exception("[WINTER_DIAG] evaluation failed; monitoring continues")
+                _winter_error_logged_at[:] = [now_mono]
+
+    inverter_mon = InverterMonitor(
+        dess_api,
+        poll_sec=60,
+        charge_controller=charge_ctrl,
+        shadow_monitor=shadow_monitor,
+        observation_observer=_observe_dess_response,
+    )
     inverter_task = asyncio.create_task(inverter_mon.run())
 
     # ─── 4b. OPTIONAL WEB HOST (start early for reset visibility) ──
@@ -281,33 +311,16 @@ async def main() -> None:
     def _inverter_provider() -> dict[str, Any] | None:
         """Read latest inverter data from InverterMonitor for web dashboard.
 
-        Returns None when no DeviceData has been received yet.
-        Normalises observed_at to ISO 8601 with Europe/London timezone offset
-        using zoneinfo.ZoneInfo.  Assumes naive local-time strings from the
-        DESS API represent Europe/London local time.
+        Returns None when no DeviceData has been received yet. The DESS
+        timestamp has no verified measurement-time contract, so it is not
+        exposed as observed_at; the DESS receipt time is the only freshness
+        clock and is labelled as receipt time.
         """
         if inverter_mon.last_data is None:
             return None
         dd = inverter_mon.last_data
-
-        # --- observed_at: normalise to ISO 8601 Europe/London ---
-        observed_at_iso: str | None = None
-        raw_ts = dd.timestamp
-        if raw_ts and isinstance(raw_ts, str) and raw_ts.strip():
-            raw_ts = raw_ts.strip()
-            # If already ISO-like (contains T, Z, or offset), pass as-is
-            if "T" in raw_ts or "Z" in raw_ts or "+" in raw_ts or raw_ts.endswith("00:00"):
-                observed_at_iso = raw_ts
-            else:
-                # Naive "YYYY-MM-DD HH:MM:SS" assumed to be Europe/London local time
-                try:
-                    naive_dt = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
-                    london_dt = naive_dt.replace(tzinfo=ZoneInfo("Europe/London"))
-                    observed_at_iso = london_dt.isoformat()
-                except (ValueError, TypeError, KeyError):
-                    observed_at_iso = raw_ts  # fallback: pass original
-        elif raw_ts is not None:
-            observed_at_iso = str(raw_ts)
+        received = telemetry_recorder.latest_received_at
+        received_iso = received.isoformat() if received is not None else None
 
         return {
             "battery_voltage": dd.battery_voltage,
@@ -327,8 +340,17 @@ async def main() -> None:
             "ac_output_load": dd.ac_output_load,
             "working_mode": dd.working_state if dd.working_state else "",
             "mains_status": dd.mains_status if dd.mains_status else "",
-            "observed_at": observed_at_iso,
+            # Device measurement time is unverified; never presented as observed_at.
+            "observed_at": None,
+            "received_at": received_iso,
+            "timestamp_quality": "device_time_unverified",
+            "freshness": "receipt_only" if received_iso else "unavailable",
         }
+
+    def _winter_provider():
+        """Display-only winter block for /control/state; evaluation happens on the DESS path."""
+        winter_diagnostics.set_persistence_status(telemetry_recorder.persistence_status)
+        return winter_diagnostics.snapshot(telemetry=telemetry_recorder.statistics())
 
     # ─── 5. STARTUP RESET — command all binary switches OFF ──
     reset_coordinator = StartupResetCoordinator(
@@ -347,6 +369,7 @@ async def main() -> None:
             per_device_results_provider=reset_coordinator.get_per_device_results,
             sensors_provider=_make_sensors_provider(telemetry_registry),
             inverter_provider=_inverter_provider,
+            winter_diagnostics_provider=_winter_provider,
         )
     except Exception as exc:
         important_log.warning(f"[WEB] Read-only host not started: {exc}")
@@ -423,16 +446,17 @@ async def main() -> None:
     ts_enabled = os.getenv("TS_ENABLED", "").lower() in ("true", "1", "yes", "on")
 
     if ts_enabled:
-        ts_inverter_interval = int(os.getenv("TS_INVERTER_INTERVAL", "120"))
-        ts_grid_interval = int(os.getenv("TS_GRID_INTERVAL", "1800"))
+        ts_inverter_interval = int(os.getenv("TS_INVERTER_INTERVAL", "300"))
+        ts_grid_interval = int(os.getenv("TS_GRID_INTERVAL", "900"))
         ts_switching_interval = int(os.getenv("TS_SWITCHING_INTERVAL", "10"))
         ts_collector = TimescaleDataCollector(
-            inverter_interval=ts_inverter_interval,                              # 2 (120) минуты при солнце ☀️
-            grid_interval=ts_grid_interval,                                      # 30 (1800) минут ночью 🌙
+            inverter_interval=ts_inverter_interval,                              # 5 (300) минут при солнце ☀️ (без recorder)
+            grid_interval=ts_grid_interval,                                      # 15 (900) минут ночью 🌙 (без recorder)
             switching_interval=ts_switching_interval,                            # 10 секунд при переключении ⚡
             min_inverter_power=float(os.getenv("TS_MIN_INVERTER_POWER", "50.0")),# Порог определения режима "инвертор"
             sunrise_hour=int(os.getenv("TS_SUNRISE_HOUR", "6")),                 # ~восход
             sunset_hour=int(os.getenv("TS_SUNSET_HOUR", "20")),                  # ~закат
+            telemetry_recorder=telemetry_recorder,
         )
 
         ts_stats = ts_collector.get_statistics()
@@ -441,6 +465,10 @@ async def main() -> None:
             f"Intervals: ☀️{ts_stats['intervals']['inverter']}s / "
             f"🌙{ts_stats['intervals']['grid']}s / "
             f"⚡{ts_stats['intervals']['switching']}s"
+        )
+        important_log.info(
+            "[ML DB] Adaptive telemetry: checkpoints 300s day/transition/unknown, "
+            "900s only for validated stable grid night; observed changes persisted between checkpoints"
         )
     else:
         ts_collector = None
