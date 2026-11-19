@@ -11,7 +11,7 @@ models:
     model: deepseek-chat
     base_url: https://api.deepseek.com
     token_key: DEEPSEEK_API_KEY
-    max_tokens: 8000
+    max_tokens: 10000
     temperature: 0
 
 agents:
