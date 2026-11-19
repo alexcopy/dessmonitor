@@ -1,0 +1,333 @@
+TASK
+    0081 — Live Runtime Integration of Grid-Charge Coordination
+
+AGENT
+    plan
+
+MODE
+    planning only
+
+BRANCH
+    master
+
+PR
+    0081-grid-charge-coordination-runtime
+
+PRECONDITION
+    Read-only verification completed before this plan:
+
+    HEAD at the initial planning inspection:
+    e5fac972a254002a5048670aa04876ab17a647a0
+    branch: master
+    Git index: empty
+
+    A later read-only recheck before this amendment reports HEAD
+    8d5672694844ce845bf1ca0de5ffb25120b7e524 on master, with Task 0080
+    tracked at HEAD and only the Task 0081 PLAN.txt and reviews/PLAN_REVIEW.txt
+    untracked. The earlier e5fac97 state is retained here as planning history;
+    the coder must re-run the standard precondition and preserve the current
+    repository state. No Task 0081 implementation file existed when planning
+    began.
+
+STATUS AND GOVERNANCE
+
+    This is a forward-looking plan. It does not authorize runtime changes,
+    DESS requests, charging changes, hardware commands, staging, deployment or
+    an implementation commit. The compliant sequence is:
+
+    1. independent review of this PLAN.txt;
+    2. operator-controlled planning commit after approval;
+    3. targeted implementation in the future allowlist;
+    4. CODER_REPORT.txt with actual validation;
+    5. independent PRECOMMIT_REVIEW.txt;
+    6. operator-controlled implementation commit only after approval.
+
+    Task 0080's implementation and review remain immutable context. This task
+    connects its observations to existing runtime diagnostics and the
+    authenticated read-only dashboard; it does not redesign or weaken the
+    coordinator.
+
+GOAL
+
+    Make the existing Task 0080 coordinator's real successful DESS-path
+    observations visible through the authenticated operator dashboard while
+    keeping all results shadow-only. The dashboard must distinguish observed
+    inverter and charger facts, reported-but-unverified output priority,
+    coordinator state, blockers, continuity uncertainty and unavailable
+    evidence. It must never create a DESS control path or make battery-output
+    eligibility more permissive.
+
+READ-ONLY FINDINGS
+
+    - service/inverter_monitor.py already owns the single DESS polling loop and
+      invokes an observation callback before existing solar and charging ticks.
+    - run.py already creates WinterRuntimeDiagnostics, feeds it from that
+      callback, and supplies its snapshot to the existing read-only web host.
+    - WinterDiagnosticSnapshot is already typed, sanitized and transported by
+      the existing web_control_state_provider, runtime_snapshot_adapter,
+      control_state_snapshot and web_ui_read_contract. No parallel endpoint is
+      needed.
+    - Task 0080's pure evaluate_coordination() recomputes Task 0076 and calls
+      Task 0078 from exact raw inputs. It accepts receipt history and separate
+      setting/charger evidence; it has no hardware imports or command path.
+    - The current runtime adapter intentionally has no trusted BMS/shunt
+      reserve, no durable interlock state, and no verified DESS setting
+      catalogue/value readback. These remain visible blocking conditions.
+    - The current DESS response exposes output priority and charger priority as
+      ordinary telemetry, but historical values and regular telemetry are not
+      silently promoted to queryDeviceCtrlValue verification.
+    - AdaptiveTelemetryRecorder already computes a bounded stable payload
+      fingerprint, but its current fingerprint is private. A small read-only
+      accessor is required so the runtime adapter can reuse that identity
+      without duplicating hashing or inventing provenance.
+    - The existing dashboard already has a Task 0079 winter diagnostic panel,
+      text-only rendering and read-only API guarantees. A compact coordination
+      section can be added beside it.
+
+IMPLEMENTATION DESIGN
+
+1. RUNTIME INPUT BINDING
+
+    Extend WinterRuntimeDiagnostics with a display-only coordination result.
+    Build the coordinator inputs from the same successful DESS response and a
+    new bounded diagnostic-local ReceiptObservation history. Do not use
+    ShadowOutputMonitor.history as coordinator history: it contains only
+    OutputTelemetry and does not preserve receipt time, fingerprint, charger
+    metadata or policy metadata required by Task 0080:
+
+    - construct exactly one OutputTelemetry and one
+      InterlockEvaluationInputs snapshot for the response;
+    - retain receipt_at as the freshness clock and leave device measurement
+      time unverified; never substitute receipt time for measurement time;
+    - maintain a bounded deque of ReceiptObservation objects in the diagnostic
+      adapter. Append exactly one entry for every successful DESS response,
+      including duplicate payloads, with the exact normalized OutputTelemetry
+      object, separate received_at, the recorder's stable payload fingerprint,
+      and the current immutable charger/policy metadata. Missing fingerprints,
+      unknown device time, stale receipt age, out-of-order receipt, duplicates
+      and gaps remain represented as uncertainty; none is repaired or bridged.
+      The deque is diagnostic memory only and is not a second poller or durable
+      lockout store;
+    - expose a read-only AdaptiveTelemetryRecorder.latest_fingerprint property
+      and pass that value to the diagnostic adapter. Do not copy the recorder's
+      private state or implement a second fingerprint algorithm;
+    - map the response's charger-priority field to raw display evidence only.
+      Unless an already-approved explicit readback source supplies the
+      provenance, ordinary DESS telemetry maps to UNKNOWN provenance and cannot
+      satisfy Task 0080's DEVICE_READBACK gate. Never silently label it
+      DEVICE_READBACK;
+    - add a typed read-only adapter for the existing shared_state
+      charge_policy_status mapping. Map its state, emergency flag and desired
+      mode with ChargePolicyProvenance.RUNTIME_STATUS, but retain verified=False
+      and evaluated_at=None because the current controller publishes neither
+      an explicit verification flag nor a policy timestamp. Missing or malformed
+      fields map to UNKNOWN/None. This intentionally keeps the coordinator at
+      FAULT_HOLD when approved policy provenance is absent; it does not modify
+      BatteryChargeController or treat a desired command as verified state;
+    - represent ordinary DESS output-priority telemetry as a reported setting
+      with unverified catalogue/readback quality unless an already-approved
+      source explicitly supplies both. Do not call queryDeviceCtrlField or
+      queryDeviceCtrlValue from this integration;
+    - preserve unavailable durable/restart state as a visible Task 0076 fault;
+      do not create a new database table, state store or lockout authority.
+
+    The existing winter observer must retain the normalized RuntimeWinterInputs
+    for the current response. The post-charge coordinator callback attaches
+    the current read-only charger/policy metadata to that same OutputTelemetry
+    object, then calls evaluate_coordination with an InterlockEvaluationInputs
+    whose telemetry identity is exact. It must reject a missing or mismatched
+    pending response as FAULT_HOLD rather than reconstructing a contradictory
+    snapshot from the dashboard or a later response.
+
+    Add an optional post-charge observation callback to the existing
+    InverterMonitor flow. The required order is:
+
+    successful DESS fetch → existing observation/telemetry hand-off → solar
+    tick → BatteryChargeController.tick() → post-charge coordinator callback →
+    existing ShadowOutputMonitor handling.
+
+    The callback must be isolated in its own exception boundary and
+    rate-limited logging path. A coordinator exception must not skip, cancel or
+    alter the charger tick, shadow monitor, next inverter poll or web host. This
+    callback adds no DESS request and does not move, suppress or replace
+    BatteryChargeController.tick().
+
+2. COORDINATION DIAGNOSTIC CONTRACT
+
+    Extend WinterDiagnosticSnapshot with a sanitized coordination block (or an
+    equivalent typed display-only structure) containing only web-safe values:
+
+    - status and advisory coordination state;
+    - desired output profile, always labelled advisory/shadow-only;
+    - reported output priority and explicit verification quality;
+    - observed charger mode and charger provenance;
+    - GRID_CHARGING_ACTIVE_WITH_SBU conflict when the coordinator's evidence
+      supports it; never describe this as a physical output switch;
+    - coordinator reason codes and missing/blocking evidence;
+    - observed recovery-cycle count and continuity confidence;
+    - mode-change count and lockout expiry only when supplied by the unchanged
+      Task 0076 result;
+    - last receipt/evaluation freshness, measurement-time quality and
+      persistence status;
+    - shadow_only=True, command_issued=False and hardware_write_path=False.
+
+    A no-observation, failed-evaluation, stale, contradictory or unavailable
+    input must yield an explicit unavailable/FAULT_HOLD display block. Do not
+    retain prior coordination facts as current after a failed new evaluation.
+    Historical information may be retained only with an explicit historical,
+    not-current label consistent with Task 0079.
+
+    The current independent-reserve boundary remains unchanged. The runtime
+    result may show GRID_HOLD, FAULT_HOLD, CHURN_LOCKOUT and conflict reasons,
+    but it must not expose SOLAR_OPERATION as available or promote any reserve,
+    voltage, charging completion, sunrise, reported SOC or setting claim into
+    battery-use eligibility.
+
+3. EXISTING AUTHENTICATED DASHBOARD
+
+    Add a compact “Grid / Battery Coordination” section near the current
+    winter diagnostics panel. Render with the existing authenticated
+    read-only /control/state response and textContent-only helpers. Display:
+
+    - advisory coordination state and desired profile;
+    - reported output priority plus “reported/unverified” quality;
+    - observed charger state and provenance;
+    - supported grid-charge/SBU conflict marker;
+    - blockers, reason codes and missing evidence;
+    - observed cycle count and continuity status;
+    - lockout expiry when present;
+    - receipt/evaluation freshness and measurement-time quality;
+    - a persistent “SHADOW ONLY — NO HARDWARE COMMANDS” label.
+
+    Missing data must render as unavailable with an explanation. No button,
+    form, POST route, command affordance, or output-priority control is added.
+    SOLAR_OPERATION must not be rendered as available under the current reserve
+    boundary.
+
+4. API AND SNAPSHOT BOUNDARY
+
+    Reuse the existing WinterDiagnosticSnapshot field transported by the
+    current ControlStateSnapshot. Do not modify the read-only endpoint contract,
+    add a second endpoint, accept generic runtime-state claims, or allow web
+    input to influence evaluator inputs. If an adapter change is technically
+    required to serialize the typed coordination block, it must remain a pure
+    pass-through change with no runtime reads or recomputation.
+
+SAFETY INVARIANTS
+
+    - No DESS ctrlDevice, queryDeviceCtrlField or queryDeviceCtrlValue call is
+      introduced by Task 0081.
+    - No output-priority, charger-priority, threshold, schedule or current
+      setting changes are introduced.
+    - Emergency and existing BatteryChargeController behavior are preserved;
+      diagnostics cannot interrupt or authorize charging.
+    - Grid-assisted charging blocks intentional battery-output return in the
+      displayed coordinator result; charging-induced voltage recovery never
+      establishes reserve or eligibility.
+    - Task 0076 remains the only interlock authority and Task 0078 remains the
+      only winter eligibility authority.
+    - Receipt time and device measurement time remain separate. No physical
+      transition time, confirmed cycle, reserve amount, or lockout is invented.
+    - All coordinator exceptions fail closed in the diagnostic block and are
+      contained so inverter monitoring, charging and web serving continue.
+    - The new path is observational only, has no actuator imports, and remains
+      disconnected from command arbitration and execution eligibility.
+
+FUTURE IMPLEMENTATION ALLOWLIST
+
+    Runtime and UI implementation files:
+
+    - app/control/winter_runtime_diagnostics.py
+    - app/control/adaptive_telemetry.py
+    - service/inverter_monitor.py
+    - run.py
+    - app/web/templates/index.html
+    - app/web/static/dashboard.js
+    - app/web/static/dashboard.css
+
+    Focused and regression tests:
+
+    - tests/test_winter_runtime_diagnostics.py
+    - tests/test_adaptive_telemetry.py
+    - tests/test_shadow_output_monitor.py
+    - tests/test_web_runtime_integration.py
+    - tests/test_task0079_ui.cjs
+
+    Project Memory artifacts:
+
+    - .project-memory/pr/0081-grid-charge-coordination-runtime/CODER_REPORT.txt
+    - .project-memory/pr/0081-grid-charge-coordination-runtime/reviews/PRECOMMIT_REVIEW.txt
+
+    The implementation may add no other files. The reviewer may modify only
+    reviews/PRECOMMIT_REVIEW.txt. PLAN.txt and reviews/PLAN_REVIEW.txt are
+    locked after their respective planning gates.
+
+FILES INSPECTED BUT EXCLUDED
+
+    No changes are planned for the already-compatible pass-through layers:
+
+    - app/control/grid_charge_output_coordination.py
+    - app/control/grid_output_interlock.py
+    - app/control/winter_energy_intelligence.py
+    - app/service/battery_charge_controller.py
+    - app/web_control_state_provider.py
+    - app/web_runtime_integration.py
+    - app/control/control_state_snapshot.py
+    - app/control/web_ui_read_endpoint.py
+    - app/web_host.py
+
+    No Task 0076, 0078, 0079 or 0080 artifact is modified. Any need to change
+    these files requires a separately approved plan amendment.
+
+TEST AND ACCEPTANCE PLAN
+
+    Add deterministic tests for:
+
+    - startup before the first successful DESS response;
+    - post-charge callback ordering and exception isolation: event markers must
+      prove existing observer → solar tick → charger tick → coordinator
+      callback → shadow monitor, and a coordinator exception must still allow
+      both charger and shadow callbacks to run;
+    - one bounded ReceiptObservation entry per successful response, stable
+      fingerprint reuse, duplicate/gap/unknown-time continuity and exact
+      OutputTelemetry identity binding;
+    - safe charge-policy adapter mapping with runtime provenance but
+      verified=False/evaluated_at=None, and no BatteryChargeController change;
+    - active grid recovery with reported SBU and explicit conflict quality;
+    - voltage rise during grid charging remaining non-eligible;
+    - weak PV after sunrise and recovery completion without reserve;
+    - repeated/duplicate responses, unknown measurement time and stale receipt;
+    - missing/contradictory charger and policy metadata;
+    - unavailable persistence/restart state and lockout display;
+    - coordinator evaluator exceptions leaving monitor and charging flow alive;
+    - web/API serialization, authenticated GET-only behavior, unavailable
+      rendering, text-only safety and the mandatory shadow-only label;
+    - no SOLAR_OPERATION or BATTERY_USE_ELIGIBLE promotion from caller claims;
+    - unchanged existing charging behavior and no command spies invoked.
+
+    Required validation after implementation:
+
+    - focused Task 0081 runtime, web and UI tests;
+    - Task 0076 interlock, Task 0078 winter, Task 0079 telemetry/diagnostics,
+      existing web-runtime and charging-controller regression suites;
+    - JavaScript syntax/UI tests using the repository's existing Node command;
+    - compileall, scripts/check-repo-safety.sh,
+      scripts/check-project-memory.sh, git diff --check and complete worktree
+      plus empty-index checks;
+    - report any baseline environmental failures separately from new failures.
+
+    Acceptance requires current coordinator facts and blockers to appear via
+    the authenticated read-only dashboard, no new command path, preserved
+    charging behavior, all focused safety tests passing, and an independent
+    precommit review. It does not require or permit a positive solar-operation
+    result.
+
+NON-GOALS
+
+    - No active Utility First or SBU switching.
+    - No DESS setting retrieval unless a future separately approved plan proves
+      it is necessary; this plan deliberately uses existing observations only.
+    - No independent reserve verifier, new persistence store, lockout authority,
+      polling loop, ML engine, charger-policy change or hardware test.
+    - No deployment, Kubernetes, database schema, API write route or operator
+      control button.

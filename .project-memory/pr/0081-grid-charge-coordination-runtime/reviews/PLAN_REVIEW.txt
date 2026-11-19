@@ -1,0 +1,335 @@
+TASK 0081 — CURRENT PLAN-REVIEW VERDICT
+
+VERDICT: APPROVED
+
+The amended plan resolves all three prior blockers. The original CHANGES
+REQUIRED review is preserved below as audit history; the detailed amendment
+review follows that historical record.
+
+---
+
+AUDIT HISTORY — ORIGINAL REVIEW
+
+TASK 0081 — INDEPENDENT PLAN REVIEW
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW SCOPE
+
+Reviewed:
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/ADR/ADR-0003-runtime-safety-before-ml-control.md
+- .project-memory/ADR/ADR-0004-adaptive-inverter-telemetry-and-winter-shadow.md
+- .project-memory/pr/0080-grid-charge-output-coordination/PLAN.txt
+- .project-memory/pr/0080-grid-charge-output-coordination/reviews/PLAN_REVIEW.txt
+- .project-memory/pr/0080-grid-charge-output-coordination/reviews/PRECOMMIT_REVIEW.txt
+- .project-memory/pr/0080-grid-charge-output-coordination/CODER_REPORT.txt
+- .project-memory/pr/0081-grid-charge-coordination-runtime/PLAN.txt
+- service/inverter_monitor.py
+- run.py
+- app/control/winter_runtime_diagnostics.py
+- app/control/shadow_output_monitor.py
+- app/control/grid_charge_output_coordination.py
+- app/control/grid_output_interlock.py
+- app/service/battery_charge_controller.py
+- app/web_control_state_provider.py
+- app/web_runtime_integration.py
+- app/control/control_state_snapshot.py
+- app/control/web_ui_read_endpoint.py
+- app/web_host.py
+- app/web/templates/index.html
+- app/web/static/dashboard.js
+- app/web/static/dashboard.css
+- the current Task 0079 and Task 0080 focused tests and UI tests
+
+REPOSITORY CHECKS
+
+Read-only precondition:
+
+- HEAD: 8d5672694844ce845bf1ca0de5ffb25120b7e524
+- branch: master
+- Git index: empty
+- worktree: only the untracked Task 0081 PLAN.txt is present
+
+The plan records an earlier planning-time HEAD of e5fac97 and describes the
+Task 0080 files as untracked. That is historical planning context, not the
+current repository state: Task 0080 is now tracked at HEAD 8d56726. The
+future coder must re-run the standard precondition and preserve the current
+state; no Task 0080 file was modified by this review.
+
+Executed checks:
+
+- PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m
+  unittest discover -s tests -p 'test_grid_charge_output_coordination.py'
+  — 37 passed.
+- PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m
+  unittest discover -s tests -p 'test_winter_runtime_diagnostics.py'
+  — 16 passed.
+- PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m
+  unittest discover -s tests -p 'test_web_runtime_integration.py'
+  — 9 passed.
+- node --test tests/test_task0079_ui.cjs — 9 passed.
+- scripts/check-repo-safety.sh — passed, 0 errors and 0 warnings.
+- scripts/check-project-memory.sh — passed; Task 0081 is reported as a
+  planning draft.
+- compileall for the inspected runtime modules — passed.
+- git diff --check — passed.
+- static command scan of the planned runtime/diagnostic/UI files found no
+  queryDeviceCtrlField, queryDeviceCtrlValue, ctrlDevice, charger-setting or
+  output-setting call in the diagnostic/dashboard path.
+
+The focused ShadowOutputMonitor suite ran 22 tests with 21 passing and one
+known baseline error in test_weather_source_preserves_exact_sun_times_and_clears_missing_data:
+the test's stub aiohttp module lacks ClientSession. This is unrelated to
+Task 0081 and is reported, not treated as a new plan defect.
+
+BLOCKING FINDINGS
+
+1. The planned coordinator history is not the history required by Task 0080.
+
+Plan lines 93–95 require reuse of ShadowOutputMonitor.history. The current
+monitor stores a deque of OutputTelemetry objects only (shadow_output_monitor.py
+lines 34 and 72–90). It retains a point only when device observed_at is known
+and ordered. It does not retain the separate received_at/fingerprint pair,
+charger observation, or policy provenance needed by Task 0080.
+
+The coordinator's actual contract requires a tuple of ReceiptObservation
+objects, each containing an InterlockSnapshot, a separate received_at and a
+non-empty fingerprint (grid_charge_output_coordination.py lines 30–35 and
+80–124). Its duplicate, receipt-gap, measurement-gap and recovery-cycle
+decisions therefore cannot be implemented from ShadowOutputMonitor.history.
+Under the current runtime, WinterRuntimeDiagnostics deliberately sets
+OutputTelemetry.observed_at=None (winter_runtime_diagnostics.py lines 185–197),
+so this source is normally empty as well.
+
+The acceptance tests requested at plan lines 248–255 would consequently test
+an in-memory synthetic path rather than the actual DESS observation path, or
+would silently lose the history needed for duplicate/gap semantics.
+
+Minimal required correction: define in the plan the bounded in-memory
+ReceiptObservation history and its owner within the existing allowlist. It
+must be appended once for every successful response, preserve separate
+receipt time and unverified device time, carry the actual charger/policy
+metadata and a stable response fingerprint, and explicitly reset or mark
+uncertainty for duplicate, stale, future, out-of-order and gap cases. It must
+not use dashboard data or substitute receipt time for measurement time. If
+the existing recorder is to own this history, the plan must specify the typed
+adapter/API; otherwise the plan must state the bounded diagnostic-local deque.
+No database table or second DESS polling loop is needed.
+
+2. The charging-policy provenance provider named by the plan does not exist.
+
+Plan lines 96–102 require a read-only provider exposing the
+BatteryChargeController's runtime status, provenance and verification flag.
+The current BatteryChargeController has no such typed provider. Its current
+published shared_state dictionary (battery_charge_controller.py lines
+179–194) contains state, desired/observed charger modes and error fields, but
+no provenance or verified flag. Its command methods remain in the same
+controller (lines 196–224). The current WinterRuntimeDiagnostics input path
+creates an InterlockSnapshot with the default unknown charger and a null
+policy (winter_runtime_diagnostics.py lines 200–205).
+
+This matters because evaluate_coordination requires fresh, non-UNKNOWN,
+verified ChargePolicyStatus metadata and DEVICE_READBACK charger evidence;
+otherwise it must produce FAULT_HOLD. Ordinary DESS telemetry is correctly
+forbidden from being promoted to either readback or verified policy status,
+but the plan does not say how the actual runtime status reaches the evaluator.
+It also does not specify how setting freshness is represented without using
+receipt_at as an unverified device measurement time.
+
+Minimal required correction: specify the read-only adapter and its exact
+mapping in an allowed file. With the current sources, the safe mapping is
+runtime-status provenance with verified=False unless an already-approved
+source supplies an explicit verification flag; ordinary DESS charger/output
+telemetry must remain UNKNOWN/UNVERIFIED, not DEVICE_READBACK. The plan must
+state that this intentionally leaves conflict/readback-dependent results
+blocked when no approved source exists, while still displaying the reported
+raw value separately. If a verified provider cannot be built without changing
+BatteryChargeController, the plan must amend the allowlist before
+implementation rather than implying that the provider already exists.
+
+REQUIRED CALLBACK ORDER
+
+The safety intent is sound, but the implementation acceptance must assert the
+actual sequence. In the current monitor, the existing observation observer
+runs before solar_controller.tick() and BatteryChargeController.tick(), and
+the existing ShadowOutputMonitor runs afterward (inverter_monitor.py lines
+35–75). The new coordinator callback must be a separate post-charge callback:
+
+successful DESS fetch → existing observer/telemetry hand-off → solar tick →
+BatteryChargeController.tick() → coordinator callback → existing shadow
+monitor handling (or an explicitly documented equivalent).
+
+The existing observer must not be moved, replaced or made dependent on the
+coordinator. The new callback needs its own exception boundary and rate-
+limited logging, and its failure must not skip the charger tick. Add an
+ordering test with event markers and a failure test proving that both the
+charger and shadow monitor still run. This is required to make plan lines
+110–116 and 194–197 executable, not merely descriptive.
+
+SAFE AND ACCEPTABLE PLAN CONTENT
+
+The following parts are aligned with the approved Task 0080 boundary and
+repository standards:
+
+- The runtime/UI file allowlist is explicit and excludes Task 0076–0080,
+  BatteryChargeController, API/auth route, snapshot-contract and deployment
+  files. No file outside the listed runtime, UI, test and Project Memory
+  artifacts may be added.
+- The plan correctly reuses the authenticated GET /control/state path. The
+  current web host protects /control/state with session validation and the
+  router exposes exactly one GET route; no write route is required.
+- The plan preserves Task 0080's shadow-only markers and the Task 0078
+  independent-reserve boundary. It does not authorize SOLAR_OPERATION or
+  BATTERY_USE_ELIGIBLE from voltage, charging completion, SOC or reported
+  settings.
+- The plan explicitly prohibits ctrlDevice, queryDeviceCtrlField,
+  queryDeviceCtrlValue, output-priority changes, charger-policy changes,
+  threshold changes, deployment and hardware access.
+- The stated post-charge callback, isolated exceptions, unavailable/fault
+  display, textContent-only dashboard rendering, and authenticated GET-only
+  path preserve emergency charging and existing monitoring when implemented
+  with the ordering above.
+
+REVIEW DECISION
+
+CHANGES REQUIRED. Do not make a planning commit or begin implementation until
+the plan has been amended by the plan agent to define the typed bounded
+ReceiptObservation history and the exact read-only charging-policy/provenance
+adapter. The plan should also make the callback ordering testable as stated
+above. No implementation code, tests, Task 0080 artifact, plan or deployment
+file was modified by this review; this artifact is the only file written.
+
+The current failures are plan-contract gaps, not evidence that active control
+is needed. The safe fallback remains FAULT_HOLD/unavailable diagnostics, with
+existing charging and emergency behavior unchanged.
+TASK 0081 — FRESH INDEPENDENT PLAN REVIEW AFTER AMENDMENT
+
+VERDICT: APPROVED
+
+REVIEW BASIS
+
+The amended PLAN.txt was reread in full, together with this artifact's prior
+CHANGES REQUIRED review, the repository agent/orchestrator standards, the
+Task 0080 plan and review, and the current Task 0080 runtime contracts and
+read-only dashboard interfaces. This review is a new planning gate; the
+earlier findings remain preserved below as audit history.
+
+READ-ONLY PRECONDITION
+
+- HEAD: 8d5672694844ce845bf1ca0de5ffb25120b7e524
+- branch: master
+- Git index: empty
+- worktree: the untracked Task 0081 PLAN.txt and this untracked review
+  artifact only
+
+RESOLUTION OF PRIOR BLOCKERS
+
+1. Bounded ReceiptObservation history — RESOLVED
+
+PLAN.txt lines 91–113 now explicitly require a diagnostic-local bounded deque,
+not ShadowOutputMonitor.history. It appends exactly one ReceiptObservation for
+each successful DESS response, including duplicates, and binds each entry to:
+
+- the exact single normalized OutputTelemetry object;
+- a separate received_at receipt timestamp, without substituting it for device
+  measurement time;
+- the AdaptiveTelemetryRecorder stable payload fingerprint through a new
+  read-only latest_fingerprint accessor;
+- immutable charger and charge-policy metadata carried in the same interlock
+  snapshot; and
+- explicit uncertainty for missing fingerprints, unknown device time, stale or
+  out-of-order receipts, duplicates and gaps.
+
+PLAN.txt lines 134–140 additionally require the post-charge path to use that
+same object and reject a missing or mismatched pending response as FAULT_HOLD.
+The acceptance contract at lines 291–293 requires one-entry-per-response,
+fingerprint reuse, duplicate/gap/unknown-time continuity checks, and exact
+OutputTelemetry identity assertions. The plan forbids a second poller, durable
+lockout store, dashboard reconstruction, or receipt-time substitution.
+
+2. Charge-policy/provenance adapter — RESOLVED SAFELY
+
+PLAN.txt lines 119–126 now define the adapter against the current shared_state
+charge_policy_status mapping: state, emergency flag, and desired charger mode
+are copied as read-only values; provenance is ChargePolicyProvenance.RUNTIME_STATUS;
+verified is explicitly False; and evaluated_at is explicitly None because the
+current BatteryChargeController publishes neither a verification flag nor a
+policy timestamp. Missing or malformed fields become UNKNOWN/None.
+
+This mapping intentionally cannot satisfy Task 0080's verified policy gate and
+therefore remains blocked at FAULT_HOLD where approved policy provenance is
+absent. It does not alter BatteryChargeController or treat a desired command
+as observed state. PLAN.txt lines 114–118 and 127–130 separately require raw
+DESS charger/output-priority telemetry to remain display-only UNKNOWN/
+unverified evidence, never DEVICE_READBACK, and prohibit
+queryDeviceCtrlField/queryDeviceCtrlValue calls.
+
+The current Task 0080 types confirm that this is the conservative mapping:
+ChargePolicyStatus accepts the named fields and has verified=False by default,
+while evaluate_interlock requires a fresh policy timestamp, verified=True,
+non-UNKNOWN provenance, and DEVICE_READBACK charger evidence before using the
+metadata. The amendment therefore keeps the known runtime limitation visible
+without inventing verification.
+
+3. Callback order and exception isolation — RESOLVED
+
+PLAN.txt lines 142–153 specify the executable order:
+
+successful DESS fetch → existing observation/telemetry hand-off → solar tick →
+BatteryChargeController.tick() → post-charge coordinator callback → existing
+ShadowOutputMonitor handling.
+
+The coordinator callback is explicitly separate, has its own exception
+boundary and rate-limited logging, adds no DESS request, and cannot skip,
+cancel, move, suppress, or replace the charger tick. The acceptance tests at
+lines 286–302 require event-marker ordering plus a failure case proving that
+both charger and shadow callbacks still run after a coordinator exception.
+This is concrete and executable within the listed service/inverter_monitor.py
+allowlist.
+
+SCOPE, SAFETY, AND API REVIEW
+
+- The future implementation allowlist at PLAN.txt lines 240–282 is explicit:
+  six runtime/UI files, five focused test files, CODER_REPORT.txt, and this
+  PRECOMMIT_REVIEW.txt only. The plan prohibits all other files and locks
+  PLAN.txt and PLAN_REVIEW.txt after this gate.
+- The dashboard reuses the existing authenticated GET /control/state path and
+  current WinterDiagnosticSnapshot/ControlStateSnapshot transport. PLAN.txt
+  lines 186–214 prohibit new endpoints, web input into evaluator inputs,
+  POST/form/button/command affordances, and non-pass-through API changes.
+- Task 0080 is not weakened: lines 180–184 preserve the independent-reserve
+  boundary and prohibit SOLAR_OPERATION or BATTERY_USE_ELIGIBLE promotion from
+  voltage, charging completion, SOC, sunrise, or reported settings.
+- Lines 216–234 prohibit ctrlDevice and both queryDeviceCtrl calls, all setting
+  or charger-policy changes, threshold/schedule/current changes, deployment,
+  hardware tests, actuator imports, and command arbitration wiring. Emergency
+  and existing charging behavior remain outside the diagnostic authority.
+- The plan keeps receipt time separate from measurement time, exposes
+  unavailable/fault conditions rather than stale current facts, and preserves
+  the accepted absence of trusted independent reserve evidence.
+
+VALIDATION RUN
+
+- Task 0080 coordination tests: 37 passed.
+- Winter runtime diagnostics tests: 16 passed.
+- Web runtime integration tests: 9 passed.
+- Existing Task 0079 UI tests: 9 passed.
+- scripts/check-repo-safety.sh: passed, 0 errors, 0 warnings.
+- scripts/check-project-memory.sh: passed; Task 0081 reported as PLANNING
+  COMPLETE.
+
+No hardware, DESS, production, deployment, staging, commit, or push action was
+performed. No implementation file was modified.
+
+DECISION
+
+APPROVED for the planning commit and subsequent coder phase, subject to the
+coder implementing the exact contracts above and the later independent
+PRECOMMIT_REVIEW gate. This approval does not authorize runtime deployment,
+active output control, charger changes, or hardware access.
+
+END OF CURRENT AMENDMENT REVIEW
+
