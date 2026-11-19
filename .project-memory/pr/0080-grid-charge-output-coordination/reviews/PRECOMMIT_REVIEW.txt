@@ -1,0 +1,276 @@
+TASK 0080 — FINAL INDEPENDENT PRECOMMIT REVIEW
+
+VERDICT: APPROVED
+
+REVIEW STATUS
+
+This is an independent final review of the corrective implementation. The
+earlier self-check and its original findings are preserved below as audit
+history. The implementation is ready for the single operator-controlled
+commit, subject to the repository workflow. No implementation, test,
+configuration or runtime file was modified by this review.
+
+REVIEWED ARTIFACTS AND SCOPE
+
+Read in full:
+
+- PLAN.txt and reviews/PLAN_REVIEW.txt for the approved Task 0080 scope;
+- the earlier PRECOMMIT_REVIEW.txt findings;
+- CODER_REPORT.txt, including the corrective-pass report;
+- app/control/grid_charge_output_coordination.py;
+- tests/test_grid_charge_output_coordination.py;
+- the relevant Task 0076 interlock, Task 0078 winter evaluator, and Task 0079
+  telemetry/runtime diagnostic contracts and focused tests.
+
+The worktree contains only the approved untracked Task 0080 implementation,
+test, coder report and review artifact. HEAD is
+e5fac972a254002a5048670aa04876ab17a647a0 on master and the Git index is
+empty.
+
+FINDINGS RESOLVED
+
+1. TELEMETRY FRESHNESS AND CONTINUITY — RESOLVED
+
+_cycles() requires aware, ordered measurement and receipt timestamps, requires
+received_at - observed_at to be non-negative and <= the configured
+telemetry_max_age_seconds, and rejects samples received after evaluation. A
+stale-at-receipt observation resets the partial cycle and marks continuity
+uncertain. Receipt gaps, measurement gaps, history-window age, duplicate
+payloads, unknown/out-of-order times, charger-readback age and mode continuity
+are checked independently. Receipt time is never substituted for device
+measurement time. The 179/180/181-second matrix is exercised at every trace
+position, and the original stale 30/29/28-minute reproduction produces zero
+cycles and FAULT_HOLD.
+
+2. WINTER EVALUATOR FAILURES — RESOLVED
+
+ValueError, RuntimeError, KeyError and invalid winter return values produce
+WINTER_EVALUATION_UNAVAILABLE and AUTHORITY_EVALUATION_UNAVAILABLE, retain no
+invalid winter decision, and select FAULT_HOLD. Emergency recovery precedence
+still selects EMERGENCY_RECOVERY when the recomputed interlock carries the
+emergency-precedence reason. The charging-controller snapshot remains
+unchanged.
+
+3. EXACT BOUNDARY MATRIX — RESOLVED
+
+The 37 focused coordinator tests assert actual returned states, reason codes,
+lockout expiries and direct Task 0076 equivalence for below/at/above cases:
+receipt and measurement gaps, history window, current telemetry and output
+setting freshness, recovery readback age, mains and battery dwell, settling,
+failed-trial duration, failed-trial lockout, escalation, mode-change count and
+window, churn lockout duration, and persisted lockout expiry. Duplicate,
+unknown, out-of-order, contradictory and invalidating samples are also
+asserted. The coordinator does not introduce a second threshold or lockout
+authority.
+
+4. FRESHNESS CLARIFICATION — DOCUMENTATION-ONLY CORRECTION
+
+The coder report sentence saying a 300/301-second sample would otherwise be
+stale is imprecise when read against the test's explicit 301-second limit.
+The implementation uses inclusive comparisons (`<=`), and the test expects
+300 and 301 seconds to remain fresh while 302 seconds is stale. The 901-second
+case fails because of the independent measurement-gap boundary, not because a
+301-second receipt age is stale. This is a reporting wording issue only; no
+implementation or test blocker remains.
+
+SAFETY VERIFICATION
+
+- Active Solar + Mains/grid-assisted charging with reported SBU remains
+  GRID_HOLD and emits GRID_CHARGING_ACTIVE_WITH_SBU when the setting evidence
+  is valid.
+- Rising battery voltage, including the tested 25.5, 26.0, 27.0 and 28.0 V
+  observations, never creates a battery-return result or reserve proof.
+- Recovery completion and improving PV do not create reserve evidence.
+- Current Task 0078 reserve limitations remain fail-closed; the synthetic=False
+  and valid-looking non-synthetic reserve fixtures remain unverified.
+- Emergency recovery retains precedence over winter-evaluator failure.
+- CoordinationDecision enforces Utility profile, shadow_only=True,
+  command_issued=False, hardware_write_attempted=False and
+  physical_transition_proven=False.
+- Static import/call checks show no runtime, DESS, actuator, relay, Tuya,
+  charger or output-setting command path. `rg` found no runtime import or call
+  site for the new coordinator.
+
+SCOPE AND RUNTIME STATUS
+
+The coordinator is a pure disconnected module and is not wired into runtime.
+Only the approved implementation, focused test, coder report and this review
+artifact are present as Task 0080 worktree entries. No Task 0076, 0078 or 0079
+implementation was changed. No DESS, inverter, charger, database, production
+service or hardware access occurred.
+
+VALIDATION
+
+Using `/private/tmp/dessmonitor-task0077-venv/bin/python`:
+
+- Task 0080 focused suite: 37 passed.
+- Relevant Task 0076/0078/0079 suites: 193 passed.
+- Full repository suite: 714 run, 77 skipped, 1 error. The sole error is the
+  pre-existing `test_shadow_output_monitor` weather-fixture failure caused by
+  its stub `aiohttp` module lacking `ClientSession`; it is outside Task 0080
+  and matches the earlier recorded baseline failure.
+- compileall for the new implementation and focused tests: passed.
+- scripts/check-repo-safety.sh: passed, 0 errors and 0 warnings.
+- scripts/check-project-memory.sh: passed, 56 directories and 0 rejected.
+- git diff --check and git diff --cached --check: passed.
+- `git diff --cached --name-only`: empty.
+
+An initial multi-module test invocation without `PYTHONPATH=tests:.` produced
+two test-import errors; the repository-standard rerun with that path passed
+all 193 relevant tests. This was a command-context issue, not a regression.
+
+COMMIT READINESS
+
+APPROVED for the operator-controlled direct-to-master commit. This approval
+covers only the current shadow-only, disconnected Task 0080 implementation and
+does not authorize runtime wiring, DESS writes, charger changes, output
+priority changes, deployment or hardware testing. The accepted limitation
+remains that SOLAR_OPERATION cannot be reached without independently verified
+reserve evidence.
+
+--- PRESERVED AUDIT HISTORY ---
+
+TASK 0080 — CORRECTIVE PASS REVIEW (AUTHOR SELF-CHECK; NOT INDEPENDENT)
+
+VERDICT: CHANGES REQUIRED
+
+REMAINING BLOCKER
+    Independent review remains outstanding. This assistant authored the original
+    implementation in the same conversation and cannot provide the independent
+    precommit approval required by the task. The technical checks below are a
+    self-check; they must not be represented as an independent approval. A
+    separate reviewer must evaluate the current files and issue the verdict.
+    No remaining concrete implementation defect was established by this pass.
+
+CORRECTIONS TO PRIOR FINDINGS
+    1. Stale-at-receipt samples now reset cycle progress and mark continuity
+       uncertain. The code compares received_at - observed_at with the supplied
+       telemetry_max_age_seconds using <=. Tests check 179/180/181 seconds in
+       each sequence position, the original stale trace, duplicates and gaps.
+    2. Winter exceptions and wrong result types yield explicit unavailable
+       reasons and FAULT_HOLD, preserving the interlock and emergency precedence.
+       Tests cover ValueError, RuntimeError, KeyError, invalid return and active
+       emergency; no charging action is performed.
+    3. Tests now assert below/at/above for mains and battery dwell, settling,
+       failed-trial length and lockout, escalation, mode counts and window,
+       churn and persisted expiry, freshness and continuity. They compare the
+       coordinator's interlock result and lockout expiry with Task 0076 itself.
+       Prior boundary-coverage finding is technically resolved on this review.
+
+FRESHNESS CLARIFICATION
+    A 300-second delay is fresh under a 301-second limit, as is 301 seconds;
+    302 seconds is stale. The max-gap test raises the limit to 301 and expects
+    the 901-second measurement gap to fail on the gap itself. The coder report
+    says the sample would otherwise be stale: this refers to the default
+    180-second limit, not the 301-second test limit. Code and test implement
+    the inclusive rule; no implementation defect was found in that case.
+
+SAFETY AND SCOPE
+    Current results remain Utility only; reported grid charging with valid SBU
+    readback is a configuration conflict, not a physical switch claim. Battery
+    voltage rise cannot prove independent reserve. Existing interlock remains
+    authoritative for lockout. No charger, pump, runtime or actuator file is
+    modified. The approved plan intentionally excludes runtime wiring and a
+    positive promotion path pending a separately approved reserve authority.
+    A future positive result requires a future code amendment; it is not already
+    available merely by passing a purportedly verified input.
+
+VALIDATION
+    Python 3.12 isolated environment: 230 focused tests passed; repository safety,
+    Project Memory gate, freshness checks 28/28 and git diff --check passed.
+    The prior 696-test run with 77 skips and one aiohttp.ClientSession fixture
+    error reproduced the same error when the 0080 tests were excluded; this
+    pass did not rerun the entire suite. No production or hardware access.
+    HEAD e5fac972a254002a5048670aa04876ab17a647a0 on master; index empty.
+    No implementation or test file was edited, staged or committed here.
+
+COMMIT READINESS: NO — independent approval still required.
+
+--- PRIOR REVIEW, PRESERVED AS AUDIT HISTORY ---
+
+TASK 0080 — PRECOMMIT REVIEW (AUTHOR SELF-CHECK; NOT INDEPENDENT)
+
+VERDICT: CHANGES REQUIRED
+
+REVIEWER INDEPENDENCE
+    This review was performed in the same assistant conversation that authored
+    the implementation. It is an author self-check, not an independent
+    precommit approval. A separate independent reviewer remains required after
+    correction; this file must not be used as evidence of independent approval.
+
+BLOCKERS
+    1. Stale measurements can create a reported recovery cycle.
+       app/control/grid_charge_output_coordination.py:84-89 checks that a
+       measurement is inside the one-hour mode-change window but does not check
+       its age at receipt against the supplied telemetry freshness limit.
+       Reproduction: three observations with measurement times 30, 29 and 28
+       minutes before evaluation, received respectively 2, 1 and 0 minutes
+       before evaluation, with fresh charger readback, modes Line (grid
+       charging), Invert, Line and distinct fingerprints. The existing default
+       telemetry_max_age_seconds is 180. Actual: recovery_cycles=1,
+       continuity_uncertain=False, GRID_HOLD. Expected: the stale-at-receipt
+       samples interrupt the sequence and do not create a cycle. This does not
+       issue hardware commands or change the lockout authority, but falsely
+       reports diagnostic evidence in direct conflict with the approved plan.
+       Smallest fix: validate measurement age at receipt against the existing
+       baseline freshness contract, break the sequence on stale samples, and
+       test the exact inclusive freshness boundary and one value beyond it.
+
+    2. An unavailable winter authority can be labelled as normal GRID_HOLD.
+       app/control/grid_charge_output_coordination.py:161-169 catches an error
+       from evaluate_winter_intelligence after interlock has been assigned;
+       lines 194-202 do not consider winter=None or the error marker. A mocked
+       ValueError from the winter evaluator gives GRID_HOLD with
+       AUTHORITY_EVALUATION_UNAVAILABLE and winter=None. The approved plan
+       defines missing/unavailable required interlock evidence as FAULT_HOLD,
+       with emergency precedence. The current output is conservative, but its
+       state masks the failed authority. Smallest fix: retain emergency
+       precedence and select FAULT_HOLD when the required authority evaluation
+       fails; add an offline failure-isolation test.
+
+    3. The approved exact-boundary test matrix is incomplete. Existing tests
+       cover lockout expiry and several successful/failed trials, and the new
+       tests cover receipt/measurement continuity and history-window edges.
+       They do not establish equality-versus-adjacent behavior for every
+       specified max_mode_changes, failed_trial_max_seconds,
+       max_failed_trial_escalation, min_mains_dwell_seconds,
+       post_transition_settle_seconds and min_battery_dwell_seconds boundary.
+       The plan explicitly requires these checks. Add only missing boundary
+       assertions against the existing authority and coordinator delegation;
+       reuse existing fixtures and tests rather than duplicate full scenarios.
+
+KEY SAFETY AND SCOPE
+    The current coordinator only returns a Utility profile, separates observed
+    mode from reported setting, emits the SBU/grid-charge conflict for valid
+    readback, preserves interlock lockout/expiry, and has no actuator path.
+    Neither current charging voltage nor claimed reserve creates a positive
+    battery return. The module is disconnected and charging/pump/runtime code
+    remains unchanged. No physical switching is proven by these diagnostics.
+
+SOLAR_OPERATION AND RUNTIME WIRING
+    Current Task 0078 cannot verify independent reserve. GRID_HOLD is the
+    intended fail-closed outcome for ordinary current conditions. The approved
+    plan explicitly forbids implementing a positive promotion path until a
+    separately approved change to the authority chain: this implementation
+    also rejects SOLAR_OPERATION in CoordinationDecision.__post_init__, so a
+    future verified reserve input alone will not make it reachable without an
+    approved code amendment. This is consistent with the approved current
+    scope; it is not evidence that future positive behavior already works.
+    Runtime wiring was explicitly excluded and is not a defect in this task.
+
+VALIDATION
+    Python 3.12 isolated environment: 167 focused tests passed; Project Memory
+    gate regression: 15 passed. Repository safety, Project Memory gate, 28/28
+    inverter freshness checks, and git diff --check passed. Full Python suite:
+    696 run, 77 skipped, one error in the known aiohttp.ClientSession weather
+    fixture. A same-environment run excluding all 19 new coordinator tests
+    reproduced that same error (677 run, 77 skipped, one error); the weather
+    production and test files match the planning commit. It is not established
+    by these results as a new Task 0080 regression. No PostgreSQL or production
+    database, hardware, DESS, Kubernetes or deployment access was performed.
+    HEAD e5fac972a254002a5048670aa04876ab17a647a0 on master; index empty.
+
+COMMIT READINESS: NO
+    Resolve blockers and obtain an independent precommit review. No implementation
+    files or tests were changed during this self-check; no staging, commit, push
+    or deployment occurred.

@@ -1,0 +1,173 @@
+TASK COMPLETE
+    0080 — Pure shadow grid-charge/output coordination, awaiting independent
+    precommit review. No runtime integration or active control.
+
+PRECONDITIONS
+    Initial HEAD 32a0fb00627a27a7e2cea9e9c2ea70d783519d73; master.
+    Only the approved PLAN.txt and reviews/PLAN_REVIEW.txt were staged.
+    Operator authorised a separate planning commit: e5fac97. Implementation
+    and this report remain uncommitted and unstaged.
+
+IMPLEMENTATION
+    The evaluator recomputes Task 0076 and calls Task 0078 with the same
+    snapshot-bound raw inputs and interlock=None. Precomputed decisions cannot
+    grant authority. It reports a Utility hold, current readback evidence,
+    charger and observed operating mode separately. SBU with verified active
+    grid recovery is an observed conflict, not proof of a physical switch.
+    Emergency recovery retains precedence; invalid evidence or unavailable
+    persistence fails closed; existing lockout and expiry remain authoritative.
+    Receipt and measurement timestamps have distinct continuity checks.
+    Repeated payloads cannot advance a cycle. A cycle requires observed grid
+    charge, Invert and later Line without gaps; this is diagnostic evidence,
+    not exact physical switch times. Voltage 28 V is research-only, and is
+    explicitly unnecessary when reported Utility already supplies the hold.
+    Current Task 0078 cannot validate independent reserve, so positive solar
+    candidates and SOLAR_OPERATION cannot be returned. Safety markers reject
+    command or physical-transition claims. No runtime wiring was added.
+
+FILES CHANGED
+    app/control/grid_charge_output_coordination.py (new)
+    tests/test_grid_charge_output_coordination.py (new)
+    .project-memory/pr/0080-grid-charge-output-coordination/CODER_REPORT.txt (new)
+
+VALIDATION RUN
+    Focused coordinator: 19 tests passed, Python 3.12 isolated environment.
+    Coordinator and existing interlock, winter, output policy and seasonal
+    suites: 167 tests passed after the final coordinator changes.
+    Project Memory gate: passed, zero rejected directories.
+    Project Memory gate regression suite: 15 tests passed.
+    Repository safety: passed, zero errors and warnings.
+    Inverter freshness script: 28/28 passed; pump-disabled check passed.
+    System Python 3.15 full suite: 504 run, 112 errors, 67 skipped; missing
+    dependencies including fastapi and logfmter. Not a successful run.
+    Existing Python 3.12 isolated environment full suite (before final test
+    additions): 693 run, 77 skipped, one known weather fixture error: a test
+    replaces aiohttp with a stub lacking ClientSession. No production weather
+    changes were made to conceal it. PostgreSQL integrations are skipped unless
+    explicitly configured; no database or production access occurred.
+    git diff --check: passed for tracked changes; new files also checked for
+    trailing whitespace independently.
+
+WARNINGS AND DEVIATIONS
+    The approved plan requests an exhaustive exact-boundary matrix. Focused
+    tests cover receipt gap 600/601, measurement gap 300/301, telemetry gap
+    900/901, 3600-second history boundary, unknown/equal/out-of-order samples,
+    duplicate payload, cycles and existing lockout. Existing policy/interlock
+    suites cover dwell, settling, failed trial and restart, but do not provide
+    a new exhaustive equality-boundary matrix for every plan-listed setting.
+    Independent review should assess this remaining coverage against the plan.
+    The current Task 0079 device-time provenance remains unverified: receipt
+    time is never promoted into measurement time, so actual runtime observations
+    cannot be assumed to provide cycle or positive eligibility evidence.
+    The evaluator accepts immutable normalized history snapshots with Task 0079
+    receipt/fingerprint fields. It is disconnected and contains no live event
+    adapter; wiring or proving live-data compatibility requires a separate plan.
+
+BOUNDARY CONFIRMATIONS
+    No DESS requests or output/charger/relay/pump commands; no charging changes,
+    database access, runtime wiring, deployment, push or implementation commit.
+    The synthetic values in tests are not approved hardware or BMS limits.
+
+NEXT REQUIRED ACTION
+    Independent PRECOMMIT_REVIEW of implementation, tests and noted coverage.
+    Do not enable active control or wire this layer into production from 0080.
+
+CORRECTIVE PASS 1 — PRECOMMIT_REVIEW FINDINGS (2026-11-19)
+    Basis: reviews/PRECOMMIT_REVIEW.txt (author self-check, CHANGES REQUIRED).
+    That review is left unchanged as the record of the original findings.
+    HEAD e5fac972a254002a5048670aa04876ab17a647a0 on master; index empty.
+    No redesign; PLAN.txt and PLAN_REVIEW.txt unchanged.
+
+    FIX 1 — stale telemetry cannot confirm a recovery cycle
+        _cycles() now requires each observation to have been fresh when it
+        was received: 0 <= received_at - observed_at <=
+        baseline.telemetry_max_age_seconds (inclusive, the same Task 0076
+        contract applied to the current snapshot). A stale arrival is
+        treated like any invalid sample: the partial sequence resets and
+        continuity_uncertain is set. Ordering/spacing checks, the 600 s
+        receipt rule, Task 0076 measurement gaps, the history window,
+        duplicate-payload handling and charger-readback freshness are
+        unchanged. Receipt time is still never substituted for measurement
+        time. recovery_cycles remains a historical diagnostic count inside
+        mode_change_window_seconds, not current physical evidence.
+        Reviewer reproduction (measured 30/29/28 min ago, received 2/1/0
+        min ago) now gives recovery_cycles=0, continuity_uncertain=True,
+        FAULT_HOLD.
+
+    FIX 2 — winter evaluator failure is FAULT_HOLD
+        The interlock and winter evaluations are now separate. If Task 0078
+        raises any Exception or returns anything other than a
+        WinterDecision, winter=None and the reasons
+        AUTHORITY_EVALUATION_UNAVAILABLE and WINTER_EVALUATION_UNAVAILABLE
+        are added; state selection treats winter=None as FAULT_HOLD. The
+        already computed interlock result is kept, so emergency precedence
+        (EMERGENCY_RECOVERY) still wins. The coordinator remains pure: no
+        charging-controller input is modified or called.
+        Interlock evaluation still catches only ValueError/TypeError/
+        OverflowError, as before.
+
+    FIX 3 — boundary matrix (below / at / above)
+        Added through the coordinator, with a direct evaluate_interlock
+        comparison asserting identical interlock state and lockout expiry
+        (delegation, no new thresholds). The fixture data stay fixed; the
+        supplied baseline limit moves by one unit, so the measured value is
+        limit+1 / limit / limit-1:
+          min_battery_dwell_seconds      2339/2340/2341 (Invert 2340 s)
+          min_mains_dwell_seconds        2939/2940/2941 (Line dwell 2940 s)
+          post_transition_settle_seconds 1019/1020/1021 (sag seen/seen/not)
+          failed_trial_max_seconds       299/300/301 (300 s trial)
+          failed_trial_lockout_seconds   899/900/901 (expiry exclusive)
+          max_failed_trial_escalation    1/2/3 with two failures (1h/2h/2h)
+          max_mode_changes               3/4/5 with four changes
+          mode_change_window_seconds     359/360/361 for churn counting
+          churn_lockout_seconds          239/240/241 (expiry exclusive)
+          preserved lockout expiry       NOON-1s/NOON/NOON+1s
+          current telemetry age          179/180/181 s
+          output-setting age             179/180/181 s
+          receipt age (new rule)         179/180/181 s at each position
+          recovery readback age          179/180/181 s at cycle start
+        Existing at/above checks gained their missing "below" case:
+        receipt gap 599, measurement gap 299, history window -3599,
+        telemetry gap 899. The telemetry-gap case now sets
+        telemetry_max_age_seconds=301 explicitly, because its first sample
+        arrives 300/301 s after measurement and would otherwise (correctly)
+        be rejected as stale by Fix 1.
+
+    PRE-FIX CONFIRMATION
+        A scratch copy of the module with the three fixes reverted (outside
+        the worktree) fails 10 of the 37 tests (7 failures, 3 errors): the
+        reviewer reproduction, receipt-age 181 s at each position, the
+        stale partial-sequence case and all winter-failure cases.
+
+    FILES MODIFIED IN THIS PASS
+        app/control/grid_charge_output_coordination.py
+        tests/test_grid_charge_output_coordination.py
+        .project-memory/pr/0080-grid-charge-output-coordination/CODER_REPORT.txt
+
+    VALIDATION (Python 3.12.16 isolated environment)
+        Coordinator: 37 tests passed (19 before).
+        Coordinator + interlock, winter, output policy, seasonal, winter
+        runtime diagnostics, adaptive telemetry: 230 passed.
+        Full suite from repo root: 714 run, 77 skipped, 1 error — the known
+        aiohttp.ClientSession stub error in test_shadow_output_monitor
+        (baseline, reported separately; not a Task 0080 regression).
+        (Running discovery from tests/ adds four cwd-relative path errors;
+        not a code defect.)
+        Project Memory gate passed; gate regression suite 15 passed.
+        Repository safety, command safety gate, pump-automation-disabled
+        and inverter freshness (28/28) checks passed.
+        compileall, git diff --check and trailing-whitespace checks passed.
+
+    REMAINING LIMITATIONS
+        SOLAR_RETURN_CANDIDATE / SOLAR_OPERATION remain unreachable by
+        design; no positive path was added. Boundary tests prove delegation
+        to Task 0076 semantics, not real device behaviour; values are
+        synthetic, not hardware/BMS limits. Live Task 0079 device time is
+        still unverified, so real runtime histories will usually be unable
+        to confirm cycles. No runtime wiring, DESS, database or hardware
+        access. A Task 0078 WINTER state of RECOVERY_OR_FAULT_HOLD is a
+        valid fail-closed result and is not reclassified as a failure.
+
+    READINESS
+        Ready for a fresh independent PRECOMMIT_REVIEW. Not staged, not
+        committed, not pushed, not deployed; no hardware command issued.
