@@ -356,6 +356,11 @@ class AdaptiveTelemetryRecorder:
         """Read-only view of the oldest queued events."""
         return tuple(list(self._events)[:max(0, limit)])
 
+    @property
+    def latest_fingerprint(self) -> str | None:
+        """Fingerprint of the latest accepted response, for read-only hand-off."""
+        return self._last_fingerprint
+
     def begin_write(self, limit: int = MAX_WRITE_BATCH) -> tuple[TelemetryEvent, ...]:
         """Hand the oldest events to the single writer and mark them in flight."""
         batch = self.pending(limit)

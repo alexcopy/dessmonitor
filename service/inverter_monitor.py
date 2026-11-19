@@ -10,7 +10,8 @@ from shared_state.shared_state import shared_state
 
 class InverterMonitor:
     def __init__(self, dess_api: DessAPI, poll_sec: int = 60, solar_controller=None,
-                 charge_controller=None, shadow_monitor=None, observation_observer=None):
+                 charge_controller=None, shadow_monitor=None, observation_observer=None,
+                 post_charge_observer=None):
         self.api      = dess_api
         self.interval = poll_sec
         self.logger   = InverterLogger()                  # файл + Loki
@@ -21,8 +22,10 @@ class InverterMonitor:
         self.charge_controller = charge_controller
         self.shadow_monitor = shadow_monitor
         self.observation_observer = observation_observer
+        self.post_charge_observer = post_charge_observer
         self._shadow_last_error_log = None
         self._observer_last_error_log = None
+        self._post_charge_last_error_log = None
 
     async def run(self) -> None:
         while not self._stop.is_set():
@@ -61,6 +64,19 @@ class InverterMonitor:
                     except Exception as exc:
                         self.imp.warning("[INV_MON] charge tick failed: %s", exc,
                             extra={"type": "inverter", "evt": "charge_tick_fail"})
+                if self.post_charge_observer is not None:
+                    try:
+                        self.post_charge_observer(
+                            dd,
+                            received_at=received_at,
+                            evaluated_at=datetime.now(timezone.utc),
+                        )
+                    except Exception:
+                        now = time.monotonic()
+                        if (self._post_charge_last_error_log is None
+                                or now - self._post_charge_last_error_log >= 300):
+                            self.imp.exception("[WINTER_COORD] post-charge hand-off failed; monitoring continues")
+                            self._post_charge_last_error_log = now
                 if self.shadow_monitor is not None:
                     try:
                         await asyncio.to_thread(

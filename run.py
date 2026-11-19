@@ -36,6 +36,7 @@ from app.web_runtime_integration import (
     stop_runtime_read_only_web_host,
 )
 from service.inverter_monitor import InverterMonitor
+from shared_state.shared_state import shared_state
 
 
 _WATER_TEMP_CACHE_PROPERTIES = frozenset({
@@ -287,7 +288,12 @@ async def main() -> None:
     def _observe_dess_response(dd, *, received_at, sun_times=None) -> None:
         telemetry_recorder.observe(dd, received_at=received_at, sun_times=sun_times)
         try:
-            winter_diagnostics.observe(dd, received_at=received_at, sun_times=sun_times)
+            winter_diagnostics.observe(
+                dd,
+                received_at=received_at,
+                sun_times=sun_times,
+                fingerprint=telemetry_recorder.latest_fingerprint,
+            )
         except Exception:
             # observe() already records failures; this only guards the monitor loop.
             now_mono = __import__("time").monotonic()
@@ -295,12 +301,23 @@ async def main() -> None:
                 important_log.exception("[WINTER_DIAG] evaluation failed; monitoring continues")
                 _winter_error_logged_at[:] = [now_mono]
 
+    def _observe_post_charge_coordination(dd, *, received_at, evaluated_at) -> None:
+        """Attach post-charge runtime status to the exact already-recorded response."""
+        winter_diagnostics.observe_coordination(
+            dd,
+            received_at=received_at,
+            evaluated_at=evaluated_at,
+            fingerprint=telemetry_recorder.latest_fingerprint,
+            policy_status=shared_state.get("charge_policy_status"),
+        )
+
     inverter_mon = InverterMonitor(
         dess_api,
         poll_sec=60,
         charge_controller=charge_ctrl,
         shadow_monitor=shadow_monitor,
         observation_observer=_observe_dess_response,
+        post_charge_observer=_observe_post_charge_coordination,
     )
     inverter_task = asyncio.create_task(inverter_mon.run())
 

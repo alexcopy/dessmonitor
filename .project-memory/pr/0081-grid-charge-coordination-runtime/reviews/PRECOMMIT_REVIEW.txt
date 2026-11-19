@@ -1,0 +1,447 @@
+TASK 0081 — INDEPENDENT FINAL PRECOMMIT REVIEW
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW MODE
+
+Read-only independent review. No DESS, hardware, production, setter,
+configuration, deployment, Git-state or implementation changes were made.
+The only file written by this review is this artifact. The earlier review
+sections below are preserved verbatim as audit history; the current verdict
+is recorded in the FINAL REVIEW section at the end of this file.
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0081-grid-charge-coordination-runtime/PLAN.txt
+- .project-memory/pr/0081-grid-charge-coordination-runtime/reviews/PLAN_REVIEW.txt
+- .project-memory/pr/0081-grid-charge-coordination-runtime/CODER_REPORT.txt
+- the complete uncommitted diff and the surrounding runtime contracts in:
+  app/control/adaptive_telemetry.py
+  app/control/winter_runtime_diagnostics.py
+  app/web/static/dashboard.js
+  app/web/templates/index.html
+  run.py
+  service/inverter_monitor.py
+  tests/test_adaptive_telemetry.py
+  tests/test_shadow_output_monitor.py
+  tests/test_task0079_ui.cjs
+  tests/test_winter_runtime_diagnostics.py
+
+REPOSITORY PRECONDITION AND SCOPE
+
+- HEAD: 92348d9468943cd2e5b534b8dbe3e02c2faf4692
+- branch: master
+- Git index: empty
+- modified implementation/test files: exactly the ten runtime/UI/test files
+  listed in the approved Task 0081 allowlist
+- untracked Project Memory file: the approved CODER_REPORT.txt
+- no unrelated implementation, test, configuration or deployment files were
+  changed
+- no prior Task 0081 PRECOMMIT_REVIEW.txt existed, so there was no review
+  history to preserve in this artifact
+
+VALIDATION RESULTS
+
+- test_winter_runtime_diagnostics.py: 18 passed
+- test_adaptive_telemetry.py: 30 passed
+- test_grid_output_interlock.py: 42 passed
+- test_grid_charge_output_coordination.py: 37 passed
+- test_winter_energy_intelligence.py: 29 passed
+- test_web_runtime_integration.py: 9 passed
+- node --test tests/test_task0079_ui.cjs: 9 passed
+- Python compileall for changed Python runtime files: passed
+- git diff --check: passed
+- scripts/check-repo-safety.sh: passed, zero errors and zero warnings
+- scripts/check-project-memory.sh: passed; Task 0081 is CODER COMPLETE
+- test_shadow_output_monitor.py: 23 passed, one known baseline environment
+  error. The failing test imports an isolated aiohttp stub without
+  ClientSession in app/weather/openweather_service.py; it fails before any
+  Task 0081 behavior is exercised. This is not a new Task 0081 regression.
+
+SAFETY AND RUNTIME REVIEW
+
+The following are verified:
+
+- The existing single DESS polling loop is reused. No new polling, request,
+  setter, ctrlDevice, queryDeviceCtrlField or queryDeviceCtrlValue path was
+  added.
+- No output-priority, charger-priority, threshold, schedule or current write
+  was added. BatteryChargeController and the Task 0075/0076/0078/0080
+  implementation files are unchanged.
+- The callback source order is observer hand-off, solar tick, charger tick,
+  post-charge coordinator, then ShadowOutputMonitor. The callback is isolated
+  and rate-limited, so an exception cannot escape to the outer poll loop.
+- Ordinary DESS charger/output fields remain raw/unverified. The shared-state
+  charge-policy adapter uses RUNTIME_STATUS with verified=False and
+  evaluated_at=None, so it cannot satisfy the Task 0076 eligibility gates.
+- Device measurement time remains unverified and receipt time is separate.
+  The local history is bounded and appends one ReceiptObservation per
+  post-charge hand-off, including duplicates; Task 0080 consequently retains
+  conservative continuity uncertainty when timestamps or fingerprints are
+  unusable.
+- The existing Task 0080 evaluator remains shadow-only. Results cannot issue
+  commands or promote grid recovery, voltage rebound, reserve claims or
+  winter output decisions into hardware authority.
+- The dashboard uses the existing authenticated GET /control/state polling
+  path, textContent-only rendering and no new controls or write route.
+
+BLOCKERS
+
+1. Exact post-charge observation identity is not enforced.
+
+   In app/control/winter_runtime_diagnostics.py:447-465,
+   observe_coordination() accepts any data object when its received_at equals
+   the pending snapshot's received_at. It does not compare the source
+   response identity, normalized measurements or the fingerprint that is
+   passed to the post-charge callback. The ReceiptObservation is then built
+   from the pending telemetry but charger/output fields are read from the
+   potentially different data object.
+
+   Independent reproduction: after observe() with a Line Mode response at one
+   receipt time, a different Invert Mode/PV/output response at the same receipt
+   time and a different fingerprint was accepted and produced a coordination
+   payload instead of COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE. It stayed
+   FAULT_HOLD, but the plan requires exact identity binding and forbids mixing
+   metadata from different responses.
+
+   Minimal fix: retain a source identity/fingerprint binding when observe()
+   creates the pending inputs, and require the post-charge hand-off to match
+   it before attaching charger/policy metadata or appending history. Add a
+   regression test for same-receipt, different-payload/fingerprint input.
+
+2. The dashboard contract is incomplete and does not render the mandatory
+   shadow-only label.
+
+   The plan requires the authenticated panel to show the desired output
+   profile, coordinator blockers/reason codes and missing evidence, lockout
+   expiry when present, and the persistent label “SHADOW ONLY — NO HARDWARE
+   COMMANDS”. The implementation's renderWinterCoordination() in
+   app/web/static/dashboard.js:1000-1021 renders state, priority, charger,
+   policy, cycles, mode changes, continuity and a boolean conflict only. It
+   omits desired_profile, coordination reasons/blockers and
+   lockout_expires_at. The existing template note says “Shadow-only
+   diagnostic. It issues no commands...” but does not provide the mandated
+   persistent label. The UI test does not assert these required fields.
+
+   There is also a semantic conflict bug at
+   app/control/winter_runtime_diagnostics.py:426: conflict is set only for
+   OUTPUT_SETTING_CONTRADICTORY and not for the coordinator's explicit
+   GRID_CHARGING_ACTIVE_WITH_SBU reason. The payload must preserve that
+   conflict marker whenever the evaluator supplies it, while still keeping
+   the result advisory.
+
+   Minimal fix: render the omitted payload fields and add the exact static
+   shadow-only label; derive conflict from both approved conflict reason codes
+   and extend the UI assertions. Missing values must remain unavailable.
+
+3. The callback regression test does not prove the complete required order or
+   next-poll continuity.
+
+   tests/test_shadow_output_monitor.py:341-359 checks observer → charger →
+   coordinator → shadow, but its helper never supplies a solar_controller and
+   stops after one poll. It therefore does not independently prove
+   observer → solar → charger → coordinator → shadow, nor that a coordinator
+   exception permits the next inverter poll. The implementation's source order
+   is currently correct, but the approved plan explicitly requires event-marker
+   coverage for solar and exception isolation through the next poll.
+
+   Minimal fix: add a solar tick marker to the ordering test and run at least
+   two polls in the coordinator-failure test, asserting both subsequent fetch
+   and normal callbacks.
+
+RECOMMENDATION
+
+Do not commit the implementation yet. Correct the three concrete blockers,
+update the coder report with the actual rerun results, and request a fresh
+independent precommit review. No active control, DESS discovery, hardware
+test, charging-policy change or runtime deployment is authorized by this
+review.
+
+---
+
+FRESH FOLLOW-UP REVIEW — TARGETED CORRECTIONS
+
+REVIEW DATE
+
+2026-11-19. This section is the fresh independent review after the coder's
+targeted corrections. The earlier CHANGES REQUIRED findings above are retained
+as audit history; this section records the new evidence and current verdict.
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW MODE
+
+Read-only validation. No implementation or test files, configuration, DESS,
+hardware, production services, Git index, commit or deployment state were
+changed. Only this PRECOMMIT_REVIEW.txt artifact was updated.
+
+CURRENT REPOSITORY PRECONDITION
+
+- HEAD: 92348d9468943cd2e5b534b8dbe3e02c2faf4692
+- branch: master
+- Git index: empty
+- ten modified runtime/UI/test files are within the approved Task 0081
+  allowlist
+- untracked Project Memory files are CODER_REPORT.txt and this review artifact
+- no unrelated files are present in the worktree
+
+REQUIRED ARTIFACTS AND DIFF REVIEWED
+
+- Task 0081 PLAN.txt
+- Task 0081 PLAN_REVIEW.txt, including its preserved earlier review and
+  APPROVED amended-plan verdict
+- Task 0081 CODER_REPORT.txt
+- the complete current diff for adaptive telemetry, winter runtime diagnostics,
+  monitor wiring, run.py, dashboard files and their tests
+- inherited Task 0076, 0078 and 0080 implementation contracts and tests
+
+TARGETED RECHECKS
+
+1. SAME-RECEIPT IDENTITY BINDING — BLOCKER REMAINS
+
+The corrected path now rejects a different receipt or a different supplied
+fingerprint before appending coordination history. The new regression test for
+different payload plus different fingerprint passes, and that rejection does
+not append mixed metadata.
+
+However, app/control/winter_runtime_diagnostics.py still treats matching
+received_at plus a matching caller-supplied fingerprint as sufficient identity.
+It does not compare the post-charge data payload or a canonical normalized
+payload identity with the payload used by observe(). An independent read-only
+reproduction supplied a Line Mode response to observe(), then supplied a
+different Invert Mode/PV response at the same receipt time while reusing the
+same fingerprint. The callback was accepted, returned an ordinary FAULT_HOLD
+decision, and appended a ReceiptObservation whose telemetry came from the
+pending response while charger/output metadata came from the post-charge
+response. The mixed entry is observable in the diagnostic history.
+
+This violates the approved exact-response binding and the requirement that a
+same-receipt different-payload/fingerprint handoff fail closed without
+appending mixed metadata. A fingerprint is useful evidence, but accepting it
+as an unchecked caller claim leaves the stale/reused-fingerprint path open.
+
+Minimal correction: retain a canonical identity derived from the exact
+normalized response used by observe(), and require the post-charge response to
+match that identity before attaching charger/policy metadata or appending
+history. Add a regression test for same receipt, different payload, and a
+reused/identical fingerprint; assert both the identity reason and unchanged
+history length.
+
+2. DASHBOARD CONTRACT — VERIFIED
+
+The existing authenticated GET /control/state path is reused. The corrected
+dashboard renders the desired profile, reported output-priority quality,
+charger and policy provenance, coordinator reasons/blockers, lockout expiry,
+continuity/cycle history and the conflict marker. The exact persistent label
+“SHADOW ONLY — NO HARDWARE COMMANDS” is present in the template. Rendering is
+textContent-only and no command affordance or write route was added. The UI
+regression suite passes, including literal-text/XSS coverage and the required
+coordination fields.
+
+3. CALLBACK ORDER AND CONTINUATION — VERIFIED
+
+The monitor source order and regression test show:
+
+observer hand-off → solar tick → charger tick → post-charge coordinator →
+ShadowOutputMonitor.
+
+The coordinator exception-isolation test runs two polls and confirms the next
+fetch, observer, charger and shadow callbacks still execute; the coordinator
+failure is rate-limited to one logged exception. No second poller was added.
+
+VALIDATION RESULTS
+
+- winter runtime diagnostics: 19 passed
+- adaptive telemetry: 30 passed
+- inherited Task 0076 interlock: 42 passed
+- inherited Task 0078 winter intelligence: 29 passed
+- inherited Task 0080 coordination: 37 passed
+- read-only web runtime integration: 9 passed
+- Task 0079 UI: 9 passed
+- changed-runtime Python compileall: passed
+- git diff --check: passed
+- scripts/check-repo-safety.sh: passed with zero errors and warnings
+- scripts/check-project-memory.sh: passed
+- full test_shadow_output_monitor.py: 23 passed, one known inherited baseline
+  error in test_weather_source_preserves_exact_sun_times_and_clears_missing_data
+  because its isolated aiohttp stub lacks ClientSession during import. No
+  Task 0081 test failed and no Task 0081 behavior is exercised by that error.
+
+SAFETY AND SCOPE
+
+No ctrlDevice, queryDeviceCtrlField, queryDeviceCtrlValue or other setter path
+was introduced. No output-priority, charger-priority, threshold, schedule or
+current change was introduced. Existing charging, emergency behavior and
+Task 0075–0080 implementations remain unchanged. The integration reuses the
+existing DESS polling loop and authenticated read-only state endpoint, remains
+shadow-only, and does not issue hardware commands. These safety properties do
+not resolve the exact identity blocker above.
+
+RECOMMENDATION
+
+Do not commit. Apply only the minimal exact-payload identity binding and its
+regression test, update CODER_REPORT.txt with the actual results, then request
+another independent precommit review. No active control, DESS discovery,
+hardware testing, charging-policy change or deployment is authorized.
+
+---
+
+FINAL REVIEW — AFTER CANONICAL IDENTITY CORRECTION
+
+REVIEW DATE
+
+2026-11-19T12:27:07Z. Fresh independent review after the coder's final
+identity correction. The two earlier CHANGES REQUIRED sections above are
+retained verbatim as audit history. This section records the current evidence
+and the final verdict.
+
+VERDICT: APPROVED
+
+REVIEW MODE
+
+Read-only validation. No implementation or test file, configuration, DESS,
+hardware, production service, Git index, commit or deployment state was
+changed. The only file written by this review is this PRECOMMIT_REVIEW.txt.
+
+REPOSITORY PRECONDITION
+
+- HEAD: 92348d9468943cd2e5b534b8dbe3e02c2faf4692
+- branch: master
+- Git index: empty
+- modified files: the ten approved Task 0081 runtime/UI/test files plus
+  agents/precommit-review.yml (see NON-BLOCKING LIMITATIONS)
+- untracked files: CODER_REPORT.txt and this review artifact only
+- no untracked implementation or test files exist
+
+PREVIOUS FINDINGS AND RESOLUTION STATUS
+
+1. Exact post-charge observation identity — RESOLVED
+
+app/control/winter_runtime_diagnostics.py now computes an independent
+canonical identity from the exact normalized response fields consumed by the
+diagnostic (_IDENTITY_FIELDS at lines 78-82; _response_identity() at lines
+85-92). build_inputs() stores that identity in RuntimeWinterInputs.source_identity
+(line 258-259), and observe() stores the recorder fingerprint in
+source_fingerprint (lines 269-273). observe_coordination() (lines 466-486)
+rejects the hand-off unless ALL of the following match: the receipt time, a
+non-empty caller fingerprint equal to the stored fingerprint, and the
+independently recomputed canonical identity of the post-charge payload. A
+mismatch returns FAULT_HOLD with COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE
+and returns before any ChargerObservation, ReceiptObservation or history
+append (lines 478-486 precede the append at line 497). A reused fingerprint
+therefore cannot bypass identity validation, and rejected observations never
+grow history.
+
+Regression coverage:
+- test_same_receipt_different_post_charge_payload_fails_closed
+- test_reused_fingerprint_cannot_mix_payload_or_append_history (asserts
+  unchanged _coordination_history length)
+- test_coordination_identity_mismatch_fails_closed
+- test_post_charge_coordination_uses_exact_receipt_and_unverified_runtime_policy
+
+Measurement time remains distinct from receipt time: build_inputs() sets
+OutputTelemetry.observed_at=None (line 227) and the snapshot reports
+measurement_time=None with timestamp_quality="device_time_unverified"
+(lines 322-323). Unknown device time is never fabricated. Valid repeated
+responses are appended once per successful response and Task 0080's _cycles()
+handles duplicate fingerprints as continuity evidence without inventing
+cycles.
+
+2. Dashboard completeness — RESOLVED
+
+app/web/templates/index.html:284 carries the exact persistent label
+“SHADOW ONLY — NO HARDWARE COMMANDS”. The panel renders coordination state,
+desired output profile, reported output priority with quality, charger state
+and provenance, charge policy state/provenance/verified, coordination history
+(cycles, mode changes, continuity, conflict), lockout expiry and coordination
+blockers/reasons (index.html lines 290-308). renderWinterCoordination() in
+app/web/static/dashboard.js renders all of these via textContent-only helpers
+(safeText/setWinterText/setWinterList) and labels non-current data with
+“not current”. The conflict marker is derived from both
+OUTPUT_SETTING_CONTRADICTORY and GRID_CHARGING_ACTIVE_WITH_SBU
+(winter_runtime_diagnostics.py lines 451-452). The UI test asserts the
+rendered fields, the literal XSS probe and the exact shadow-only label.
+
+3. Callback ordering and two-poll isolation — RESOLVED
+
+service/inverter_monitor.py runs, in order: observation_observer → solar
+tick → charge tick → post_charge_observer → shadow_monitor.observe, each in
+its own exception boundary; the post-charge failure path is rate-limited to
+one log per 300 s. test_post_charge_callback_runs_after_charger_and_before_shadow
+asserts the exact event sequence ["observer", "solar", "charger",
+"coordination", "shadow"]. test_post_charge_failure_does_not_stop_shadow runs
+two polls and asserts two fetches, two charger ticks, two shadow observations,
+two observer calls and exactly one logged exception.
+
+VALIDATION RESULTS (independently executed this review)
+
+- test_winter_runtime_diagnostics.py: 20 passed
+- test_adaptive_telemetry.py: 30 passed
+- test_grid_output_interlock.py: 42 passed
+- test_grid_charge_output_coordination.py: 37 passed
+- test_winter_energy_intelligence.py: 29 passed
+- test_web_runtime_integration.py: 9 passed
+- node --test tests/test_task0079_ui.cjs: 9 passed
+- compileall of changed runtime Python files: passed
+- git diff --check: passed
+- scripts/check-repo-safety.sh: passed, 0 errors, 0 warnings
+- scripts/check-project-memory.sh: passed; Task 0081 PRECOMMIT COMPLETE
+- test_shadow_output_monitor.py: 24 tests, 23 passed, 1 error. The error is
+  the known inherited baseline failure
+  test_weather_source_preserves_exact_sun_times_and_clears_missing_data, which
+  fails at import of app/weather/openweather_service.py because its isolated
+  aiohttp stub lacks ClientSession. It is unrelated to Task 0081 and is not a
+  regression.
+
+SAFETY AND SCOPE CONFIRMATION
+
+- Task 0080 coordinator policy unchanged: git diff shows no change to
+  app/control/grid_charge_output_coordination.py, grid_output_interlock.py,
+  winter_energy_intelligence.py, battery_charge_controller.py,
+  web_control_state_provider.py, web_runtime_integration.py,
+  control_state_snapshot.py, web_ui_read_endpoint.py or web_host.py.
+- Active grid-assisted charging cannot authorize battery-output return: the
+  runtime adapter passes persistence_available=False and unverified
+  charger/policy evidence, so evaluate_coordination() remains FAULT_HOLD.
+- Voltage rebound is not treated as reserve; unknown reserve remains
+  fail-closed (RUNTIME_RESERVE_REASON appended; reserve quality suffixed
+  _UNVERIFIED).
+- Emergency and scheduled charging unchanged; BatteryChargeController is not
+  modified.
+- Task 0076 remains the only interlock authority; the adapter only supplies
+  inputs.
+- No new DESS polling loop; the existing single loop is reused.
+- No output-priority or threshold writes; no ctrlDevice,
+  queryDeviceCtrlField or queryDeviceCtrlValue call in the changed path.
+- No Tuya, relay or pump-control behavior modified.
+- No production actuator enabled; diagnostics remain advisory and read-only.
+
+NON-BLOCKING LIMITATIONS
+
+- agents/precommit-review.yml is modified (max_tokens 8000 → 10000). This is
+  outside the Task 0081 implementation allowlist and is not part of the
+  approved implementation. It is a reviewer-agent configuration change and
+  must be excluded from the Task 0081 implementation commit or committed
+  separately under its own authorization. It does not affect runtime safety.
+- app/docker/all_in_one/deployment.yaml uses the :latest image tag. This file
+  is unmodified by Task 0081 (last touched in commit 1157f17) and is a
+  pre-existing legacy manifest, not introduced by this task.
+- The known aiohttp ClientSession weather-fixture error is a pre-existing
+  environment issue, not a Task 0081 regression.
+
+HARDWARE WRITE CONFIRMATION
+
+No hardware write, DESS command, Tuya call, relay or pump action, deployment,
+staging, commit or push occurred during this review. All validation was
+read-only.
+
+FINAL DECISION
+
+APPROVED. All previously reported blockers are resolved, the implementation
+satisfies the approved Task 0081 plan, and it is ready for the
+operator-authorized implementation commit, provided agents/precommit-review.yml
+is excluded from that commit. No active control, DESS discovery, hardware
+test, charging-policy change or runtime deployment is authorized by this
+review.

@@ -1,0 +1,117 @@
+TASK 0081 — CODER REPORT
+
+STATUS
+
+Implementation complete for the approved read-only runtime/dashboard integration.
+Changes remain uncommitted and unstaged. No hardware, DESS, database, deployment
+or configuration access was performed.
+
+IMPLEMENTED
+
+- Added a read-only AdaptiveTelemetryRecorder.latest_fingerprint accessor. It
+  exposes the recorder's existing stable fingerprint without duplicating the
+  hashing implementation or changing recorder behavior.
+- Added a bounded, diagnostic-local ReceiptObservation deque to
+  WinterRuntimeDiagnostics. Each post-charge hand-off appends the exact
+  OutputTelemetry identity, receipt time, recorder fingerprint and conservative
+  charger/policy metadata once. Device measurement time remains unverified;
+  missing fingerprints and continuity gaps remain uncertain.
+- Added a typed read-only adapter for the existing shared_state
+  charge_policy_status mapping. Runtime status is labelled RUNTIME_STATUS but
+  remains verified=False with evaluated_at=None. Missing or malformed status is
+  unavailable. No BatteryChargeController code changed.
+- Added the post-charge observer hook to InverterMonitor. The callback order is
+  existing observation hand-off, solar tick, existing charger tick, Task 0080
+  coordination evaluation, then existing shadow-monitor handling. Its exception
+  boundary cannot stop charging, shadow monitoring or the next poll.
+- Wired run.py to pass the exact recorder fingerprint and existing shared-state
+  charge status to the post-charge diagnostic callback. No new polling or
+  network request was introduced.
+- Extended the existing read-only winter panel to display coordination state,
+  reported output-priority quality, charger state/provenance, charge-policy
+  provenance, conflict status, cycle/continuity diagnostics and explicit
+  shadow-only behavior. Rendering uses textContent only and adds no controls.
+
+SAFETY EVIDENCE
+
+- Task 0080 remains the only coordination evaluator; no output-priority,
+  charger-source, threshold or schedule setter is referenced by the new path.
+- All coordination results are forced through the existing advisory contract:
+  desired profile is diagnostic Utility, command_issued is false,
+  hardware_write_attempted is false and physical_transition_proven is false.
+- The runtime adapter reports FAULT_HOLD because the current charge-policy
+  mapping has runtime provenance but no independently verified metadata, and
+  ordinary DESS charger/output fields are not promoted to device readback.
+- Grid-recovery completion cannot become battery eligibility; no BMS/shunt
+  reserve or durable active-control authority was added.
+- The existing charging controller, emergency behavior, output-policy code and
+  Task 0075/0080 implementation files were not modified.
+
+REGRESSION TESTS ADDED
+
+- Recorder fingerprint accessor identity and bounded read-only behavior.
+- Exact receipt/post-charge coordination binding, conservative runtime policy
+  provenance and unknown charger provenance.
+- Coordination identity mismatch fails closed.
+- InverterMonitor callback order and post-charge exception isolation.
+- Dashboard rendering of coordination values as literal text, including an XSS
+  probe and no added controls.
+
+VALIDATION
+
+- 18 Task 0079 runtime diagnostics tests: PASS.
+- 30 adaptive telemetry tests: PASS.
+- New callback-order and callback-failure tests: PASS.
+- Task 0079 dashboard UI tests: PASS (9 tests).
+- Python compilation of all changed runtime Python files: PASS.
+- git diff --check: PASS.
+- Full test_shadow_output_monitor suite: 23 passed, 1 pre-existing environment
+  error in test_weather_source_preserves_exact_sun_times_and_clears_missing_data.
+  The error occurs while importing an isolated aiohttp stub without
+  ClientSession, before Task 0081 behavior is exercised; no Task 0081 test
+  failed.
+
+SCOPE
+
+Modified files are limited to the approved Task 0081 implementation/test
+allowlist:
+
+app/control/adaptive_telemetry.py
+app/control/winter_runtime_diagnostics.py
+app/web/static/dashboard.js
+app/web/templates/index.html
+run.py
+service/inverter_monitor.py
+tests/test_adaptive_telemetry.py
+tests/test_shadow_output_monitor.py
+tests/test_task0079_ui.cjs
+tests/test_winter_runtime_diagnostics.py
+
+No active control was enabled. Requesting fresh independent precommit review.
+
+FOLLOW-UP CORRECTIONS AFTER INDEPENDENT REVIEW
+
+- The pending runtime input now retains the recorder fingerprint. The
+  post-charge callback must supply the same non-empty fingerprint and receipt
+  identity before charger/policy metadata can be attached or history appended.
+  A same-receipt, different-payload/fingerprint callback fails closed. A
+  canonical normalized identity of all response fields consumed by the
+  diagnostic is also compared, so a caller cannot reuse a fingerprint to mix
+  payload metadata; rejected callbacks do not grow history.
+- The dashboard now renders desired profile, coordination blockers/reasons,
+  lockout expiry, conflict state and the exact persistent label
+  “SHADOW ONLY — NO HARDWARE COMMANDS”.
+- Callback regressions now cover observer → solar → charger → coordinator →
+  shadow order and prove a coordinator exception still permits the next poll,
+  charger and shadow callback.
+
+FOLLOW-UP VALIDATION
+
+- 20 winter runtime diagnostics tests: PASS.
+- Callback ordering and two-poll exception-isolation tests: PASS.
+- Task 0079 dashboard UI tests: PASS (9 tests).
+- Python compilation and git diff --check: PASS.
+
+The prior independent review artifact remains the audit record of the three
+findings; requesting a fresh independent precommit review after these targeted
+corrections.

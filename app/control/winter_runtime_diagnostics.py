@@ -11,6 +11,7 @@ no trusted BMS/shunt reserve integration exists.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -22,12 +23,21 @@ from app.control.adaptive_output_policy import (
 )
 from app.control.adaptive_telemetry import validate_sun_times
 from app.control.grid_output_interlock import (
+    ChargePolicyProvenance,
+    ChargePolicyStatus,
+    ChargerObservation,
+    ChargerProvenance,
     DurableInterlockState,
     InterlockBaseline,
     InterlockSnapshot,
     PvContext,
     StateSource,
     evaluate_interlock,
+)
+from app.control.grid_charge_output_coordination import (
+    ReceiptObservation,
+    SettingObservation,
+    evaluate_coordination,
 )
 from app.control.winter_energy_intelligence import (
     InterlockEvaluationInputs,
@@ -49,6 +59,7 @@ _HISTORICAL_FIELDS = (
     "interlock_decision", "interlock_state", "received_at", "last_successful_evaluation",
 )
 _PERSISTENCE_STATES = frozenset({"available", "degraded", "unavailable", "disabled"})
+_COORDINATION_HISTORY_SIZE = 256
 
 
 def _utc(value: object) -> datetime | None:
@@ -62,6 +73,23 @@ def _number(value: object) -> float | None:
         return None
     number = float(value)
     return number if number == number and number not in (float("inf"), float("-inf")) else None
+
+
+_IDENTITY_FIELDS = (
+    "working_state", "output_power", "pv_total_power", "battery_voltage",
+    "battery_charging_current", "battery_discharging_current", "battery_capacity",
+    "charger_priority", "output_priority",
+)
+
+
+def _response_identity(data: object) -> tuple[object, ...]:
+    """Canonical identity for the response fields consumed by diagnostics."""
+    result: list[object] = []
+    for name in _IDENTITY_FIELDS:
+        value = getattr(data, name, None)
+        result.append(_number(value) if name not in ("working_state", "charger_priority", "output_priority")
+                      else value if isinstance(value, str) else None)
+    return tuple(result)
 
 
 @dataclass(frozen=True)
@@ -100,6 +128,7 @@ class WinterDiagnosticSnapshot:
     shadow_only: bool = True
     command_issued: bool = False
     hardware_write_path: bool = False
+    coordination: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         result = {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -119,6 +148,8 @@ class RuntimeWinterInputs:
     interlock_inputs: InterlockEvaluationInputs
     context: WinterContext
     history: tuple[OutputTelemetry, ...]
+    source_fingerprint: str | None = None
+    source_identity: tuple[object, ...] = ()
 
 
 class WinterRuntimeDiagnostics:
@@ -134,6 +165,8 @@ class WinterRuntimeDiagnostics:
         # None whenever the current result holds no evaluated data.
         self._received_at: datetime | None = None
         self._last_success: WinterDiagnosticSnapshot | None = None
+        self._pending_inputs: RuntimeWinterInputs | None = None
+        self._coordination_history: deque[ReceiptObservation] = deque(maxlen=_COORDINATION_HISTORY_SIZE)
         self._latest = WinterDiagnosticSnapshot(
             status="no_observation",
             decision=UNAVAILABLE,
@@ -160,6 +193,14 @@ class WinterRuntimeDiagnostics:
             diagnostic_failure=None,
             failure_count=0,
             persistence_status=self.persistence_status,
+            coordination={
+                "state": UNAVAILABLE,
+                "shadow_only": True,
+                "command_issued": False,
+                "hardware_write_attempted": False,
+                "physical_transition_proven": False,
+                "reasons": ["NO_COORDINATION_EVALUATION"],
+            },
         )
 
     # -- inputs -----------------------------------------------------------
@@ -214,15 +255,22 @@ class WinterRuntimeDiagnostics:
             independent_reserve_evidence=None,
             pv_context=pv_context,
         )
-        return RuntimeWinterInputs(snapshot, interlock_inputs, context, history)
+        return RuntimeWinterInputs(snapshot, interlock_inputs, context, history,
+                                   source_identity=_response_identity(data))
 
     # -- evaluation -------------------------------------------------------
 
     def observe(self, data: Any, *, received_at: datetime, sun_times: object | None = None,
-                evaluated_at: datetime | None = None) -> WinterDiagnosticSnapshot:
+                evaluated_at: datetime | None = None,
+                fingerprint: str | None = None) -> WinterDiagnosticSnapshot:
         now = _utc(evaluated_at) or datetime.now(timezone.utc)
         try:
             inputs = self.build_inputs(data, received_at=received_at, sun_times=sun_times, evaluated_at=now)
+            self._pending_inputs = replace(
+                inputs,
+                source_fingerprint=fingerprint if isinstance(fingerprint, str) else None,
+            )
+            inputs = self._pending_inputs
             result = evaluate_winter_intelligence(
                 inputs.snapshot, self.baseline, inputs.history, evaluated_at=now,
                 energy=None, bands=None, interlock=None, context=inputs.context,
@@ -279,6 +327,14 @@ class WinterRuntimeDiagnostics:
                 failure_count=self.failure_count,
                 persistence_status=self.persistence_status,
                 explanation=result.explanation,
+                coordination={
+                    "state": UNAVAILABLE,
+                    "shadow_only": True,
+                    "command_issued": False,
+                    "hardware_write_attempted": False,
+                    "physical_transition_proven": False,
+                    "reasons": ["COORDINATION_PENDING_POST_CHARGE_STATUS"],
+                },
             )
             self._last_success = self._latest
         except Exception as exc:
@@ -331,7 +387,146 @@ class WinterRuntimeDiagnostics:
             explanation=("Evaluation of the latest DESS response failed%s; no current winter diagnostic "
                          "is available." % (" (receipt %s)" % failed_receipt.isoformat() if failed_receipt else "")),
             historical_last_success=historical,
+            coordination={
+                "state": UNAVAILABLE,
+                "shadow_only": True,
+                "command_issued": False,
+                "hardware_write_attempted": False,
+                "physical_transition_proven": False,
+                "reasons": ["COORDINATION_UNAVAILABLE_AFTER_EVALUATION_FAILURE"],
+            },
         )
+
+    @staticmethod
+    def _charger_mode(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = "_".join(value.strip().lower().split())
+        return {
+            "solar_only": "solar_only",
+            "only_solar": "solar_only",
+            "solar_and_mains": "solar_and_mains",
+            "solar_and_utility": "solar_and_mains",
+            "solar_priority": "solar_priority",
+            "solar_first": "solar_priority",
+        }.get(normalized)
+
+    @staticmethod
+    def _charge_policy_status(value: object) -> ChargePolicyStatus | None:
+        """Adapt shared_state status without promoting it to verified evidence."""
+        if not isinstance(value, dict):
+            return None
+        state = value.get("state") if isinstance(value.get("state"), str) else None
+        emergency = value.get("emergency_active") if type(value.get("emergency_active")) is bool else None
+        desired = value.get("desired_charger_mode")
+        if not isinstance(desired, str):
+            desired = value.get("desired_mode") if isinstance(value.get("desired_mode"), str) else None
+        try:
+            return ChargePolicyStatus(
+                state=state,
+                emergency_active=emergency,
+                desired_charger_mode=desired,
+                evaluated_at=None,
+                provenance=ChargePolicyProvenance.RUNTIME_STATUS,
+                verified=False,
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coordination_payload(decision: object, received_at: datetime) -> dict[str, Any]:
+        interlock = decision.interlock
+        charger = interlock and getattr(interlock, "observed_charger_mode", None)
+        reasons = list(decision.reason_codes)
+        return {
+            "state": decision.state.value,
+            "desired_profile": decision.desired_profile,
+            "reported_output_priority": decision.reported_priority,
+            "output_priority_quality": "verified_readback" if decision.priority_evidence.readback_verified else "unverified",
+            "charger_state": charger,
+            "charger_provenance": (interlock.charger_provenance.value if interlock is not None else "UNKNOWN"),
+            "charge_policy_state": None,
+            "charge_policy_provenance": "UNKNOWN",
+            "charge_policy_verified": False,
+            "conflict": bool({"OUTPUT_SETTING_CONTRADICTORY", "GRID_CHARGING_ACTIVE_WITH_SBU"}
+                              .intersection(reasons)),
+            "reasons": reasons,
+            "recovery_cycles": decision.recovery_cycles,
+            "continuity_uncertain": decision.continuity_uncertain,
+            "mode_changes": decision.mode_changes,
+            "lockout_expires_at": (decision.lockout_expires_at.isoformat()
+                                    if decision.lockout_expires_at is not None else None),
+            "received_at": received_at.isoformat(),
+            "shadow_only": decision.shadow_only,
+            "command_issued": decision.command_issued,
+            "hardware_write_attempted": decision.hardware_write_attempted,
+            "physical_transition_proven": decision.physical_transition_proven,
+        }
+
+    def observe_coordination(self, data: Any, *, received_at: datetime,
+                             evaluated_at: datetime | None = None,
+                             fingerprint: str | None = None,
+                             policy_status: object = None) -> WinterDiagnosticSnapshot:
+        """Evaluate Task 0080 after charging status publication for this response."""
+        now = _utc(evaluated_at) or datetime.now(timezone.utc)
+        received = _utc(received_at)
+        pending = self._pending_inputs
+        if (received is None or pending is None or pending.snapshot.received_at != received
+                or not isinstance(fingerprint, str)
+                or fingerprint != pending.source_fingerprint
+                or _response_identity(data) != pending.source_identity):
+            self._latest = replace(self._latest, coordination={
+                "state": "FAULT_HOLD",
+                "shadow_only": True,
+                "command_issued": False,
+                "hardware_write_attempted": False,
+                "physical_transition_proven": False,
+                "reasons": ["COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE"],
+            })
+            return self._latest
+        charger = ChargerObservation(
+            mode=self._charger_mode(getattr(data, "charger_priority", None)),
+            observed_at=received,
+            provenance=ChargerProvenance.UNKNOWN,
+        )
+        policy = self._charge_policy_status(policy_status)
+        interlock_snapshot = replace(pending.interlock_inputs.snapshot, charger=charger, policy=policy)
+        interlock_inputs = replace(pending.interlock_inputs, snapshot=interlock_snapshot)
+        receipt = ReceiptObservation(snapshot=interlock_snapshot, received_at=received,
+                                     fingerprint=fingerprint if isinstance(fingerprint, str) else None)
+        self._coordination_history.append(receipt)
+        priority = SettingObservation(
+            value=(getattr(data, "output_priority", None)
+                   if isinstance(getattr(data, "output_priority", None), str) else None),
+            observed_at=received,
+            catalogue_verified=False,
+            readback_verified=False,
+        )
+        try:
+            decision = evaluate_coordination(
+                pending.snapshot,
+                interlock_inputs,
+                evaluated_at=now,
+                receipt_history=tuple(self._coordination_history),
+                priority=priority,
+                persistence_available=False,
+            )
+            payload = self._coordination_payload(decision, received)
+            if policy is not None:
+                payload["charge_policy_state"] = policy.state
+                payload["charge_policy_provenance"] = policy.provenance.value
+                payload["charge_policy_verified"] = policy.verified
+            self._latest = replace(self._latest, coordination=payload)
+        except Exception as exc:
+            self._latest = replace(self._latest, coordination={
+                "state": "FAULT_HOLD",
+                "shadow_only": True,
+                "command_issued": False,
+                "hardware_write_attempted": False,
+                "physical_transition_proven": False,
+                "reasons": ["COORDINATION_EVALUATION_FAILED", type(exc).__name__],
+            })
+        return self._latest
 
     def set_persistence_status(self, status: str) -> None:
         self.persistence_status = status if status in _PERSISTENCE_STATES else "degraded"

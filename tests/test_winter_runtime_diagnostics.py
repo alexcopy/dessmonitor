@@ -58,7 +58,8 @@ class WinterRuntimeDiagnosticsTests(unittest.TestCase):
         self.assertIn(wrd.RUNTIME_RESERVE_REASON, snap.reasons)
 
     def test_observation_is_read_only_hold_with_specific_reasons(self):
-        snap = self.diag.observe(data(), received_at=NOW, sun_times=sun(), evaluated_at=NOW)
+        snap = self.diag.observe(data(), received_at=NOW, sun_times=sun(), evaluated_at=NOW,
+                                 fingerprint="abc123")
         self.assertEqual(snap.status, "ok")
         self.assertNotEqual(snap.decision, WinterState.BATTERY_USE_ELIGIBLE.value)
         self.assertEqual(snap.decision, WinterState.RECOVERY_OR_FAULT_HOLD.value)
@@ -72,6 +73,47 @@ class WinterRuntimeDiagnosticsTests(unittest.TestCase):
         self.assertTrue(snap.shadow_only)
         self.assertFalse(snap.command_issued)
         self.assertFalse(snap.hardware_write_path)
+
+    def test_post_charge_coordination_uses_exact_receipt_and_unverified_runtime_policy(self):
+        snap = self.diag.observe(data(), received_at=NOW, sun_times=sun(), evaluated_at=NOW,
+                                 fingerprint="abc123")
+        coordinated = self.diag.observe_coordination(
+            data(), received_at=NOW, evaluated_at=NOW, fingerprint="abc123",
+            policy_status={"state": "idle", "desired_charger_mode": "solar_only",
+                           "emergency_active": False},
+        )
+        self.assertEqual(coordinated.received_at, snap.received_at)
+        self.assertEqual(coordinated.coordination["state"], "FAULT_HOLD")
+        self.assertEqual(coordinated.coordination["charge_policy_provenance"], "RUNTIME_STATUS")
+        self.assertFalse(coordinated.coordination["charge_policy_verified"])
+        self.assertEqual(coordinated.coordination["charger_provenance"], "UNKNOWN")
+        self.assertFalse(coordinated.coordination["command_issued"])
+        self.assertFalse(coordinated.coordination["hardware_write_attempted"])
+
+    def test_coordination_identity_mismatch_fails_closed(self):
+        self.diag.observe(data(), received_at=NOW, evaluated_at=NOW, fingerprint="original")
+        snap = self.diag.observe_coordination(data(), received_at=NOW + timedelta(seconds=1),
+                                              evaluated_at=NOW + timedelta(seconds=1), fingerprint="x")
+        self.assertEqual(snap.coordination["state"], "FAULT_HOLD")
+        self.assertIn("COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE", snap.coordination["reasons"])
+
+    def test_same_receipt_different_post_charge_payload_fails_closed(self):
+        self.diag.observe(data(), received_at=NOW, evaluated_at=NOW, fingerprint="original")
+        changed = data(working_state="Invert Mode", pv_total_power=10.0)
+        snap = self.diag.observe_coordination(changed, received_at=NOW, evaluated_at=NOW,
+                                              fingerprint="different")
+        self.assertEqual(snap.coordination["state"], "FAULT_HOLD")
+        self.assertIn("COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE", snap.coordination["reasons"])
+
+    def test_reused_fingerprint_cannot_mix_payload_or_append_history(self):
+        self.diag.observe(data(), received_at=NOW, evaluated_at=NOW, fingerprint="original")
+        before = len(self.diag._coordination_history)
+        changed = data(output_power=123.0, charger_priority="Solar and mains")
+        snap = self.diag.observe_coordination(changed, received_at=NOW, evaluated_at=NOW,
+                                              fingerprint="original")
+        self.assertEqual(snap.coordination["state"], "FAULT_HOLD")
+        self.assertIn("COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE", snap.coordination["reasons"])
+        self.assertEqual(len(self.diag._coordination_history), before)
 
     def test_device_time_is_never_trusted_and_freshness_is_receipt_based(self):
         inputs = self.diag.build_inputs(data(), received_at=NOW, sun_times=sun(), evaluated_at=NOW)

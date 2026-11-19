@@ -61,6 +61,11 @@ const WINTER = {
     receipt_age_seconds: 42, measurement_time: null, timestamp_quality: 'device_time_unverified',
     last_successful_evaluation: '2026-12-10T12:00:00+00:00', last_failure_at: null, diagnostic_failure: null,
     failure_count: 0, persistence_status: 'degraded', shadow_only: true, command_issued: false,
+    coordination: {state: 'FAULT_HOLD', desired_profile: 'Utility', reported_output_priority: XSS, output_priority_quality: 'unverified',
+        charger_state: 'solar_only', charger_provenance: 'UNKNOWN', charge_policy_state: 'idle',
+        charge_policy_provenance: 'RUNTIME_STATUS', charge_policy_verified: false, recovery_cycles: 0,
+        mode_changes: 2, continuity_uncertain: true, conflict: true,
+        lockout_expires_at: '2026-12-10T12:30:00+00:00', reasons: ['GRID_CHARGING_ACTIVE_WITH_SBU', XSS]},
     telemetry: {responses: 10, repeated_responses: 7, changed_payloads: 3, mode_transitions_observed: 2,
         checkpoints: 4, verified_independent_observations: 0, queue_drops: 1, checkpoint_interval_seconds: 300,
         checkpoint_context: 'unknown_solar_context'},
@@ -97,6 +102,14 @@ test('winter panel renders decision, reasons and freshness as literal text', asy
     assert.equal(get('winter-persistence').textContent, 'degraded');
     assert.match(get('winter-telemetry').textContent, /repeats 7 .*verified 0 .*drops 1/);
     assert.match(get('winter-charging').textContent, /CHARGING_REPORTED/);
+    assert.match(get('winter-coordination').textContent, /FAULT_HOLD/);
+    assert.equal(get('winter-coordination-profile').textContent, 'Utility');
+    assert.ok(get('winter-output-priority').textContent.includes(XSS));
+    assert.match(get('winter-charge-policy').textContent, /RUNTIME_STATUS.*verified false/);
+    assert.match(get('winter-coordination-lockout').textContent, /2026/);
+    assert.deepEqual(get('winter-coordination-reasons').children.map(li => li.textContent),
+        ['GRID_CHARGING_ACTIVE_WITH_SBU', XSS]);
+    assert.match(read('app/web/templates/index.html'), /SHADOW ONLY — NO HARDWARE COMMANDS/);
     const reasons = get('winter-reasons').children.map(li => li.textContent);
     assert.deepEqual(reasons, ['BATTERY_RESERVE_UNVERIFIED', XSS]);  // literal text, not markup
     assert.ok(get('winter-charging').textContent.includes(XSS));

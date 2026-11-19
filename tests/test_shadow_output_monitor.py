@@ -264,7 +264,9 @@ class ShadowOutputMonitorTests(unittest.TestCase):
                 sys.modules.pop("service.inverter_monitor", None)
         asyncio.run(run())
 
-    def _run_monitor_once(self, *, observer, shadow=None, fetch_error=None, polls=1):
+    def _run_monitor_once(self, *, observer, shadow=None, post_observer=None,
+                          solar_side_effect=None, charge_side_effect=None,
+                          fetch_error=None, polls=1):
         """Run the real InverterMonitor loop with stubbed I/O for ``polls`` iterations."""
         result = {}
 
@@ -275,7 +277,9 @@ class ShadowOutputMonitorTests(unittest.TestCase):
             else:
                 api.fetch_device_data.return_value = data(self.now.isoformat())
             charge = Mock()
-            charge.tick = AsyncMock()
+            charge.tick = AsyncMock(side_effect=charge_side_effect)
+            solar = Mock()
+            solar.tick = AsyncMock(side_effect=solar_side_effect)
             stubs = {}
             for name, attrs in {
                 "app.api": {"DessAPI": object, "DeviceData": object},
@@ -290,8 +294,11 @@ class ShadowOutputMonitorTests(unittest.TestCase):
             with patch.dict(sys.modules, stubs):
                 sys.modules.pop("service.inverter_monitor", None)
                 module = importlib.import_module("service.inverter_monitor")
-                monitor = module.InverterMonitor(api, charge_controller=charge, shadow_monitor=shadow,
-                                                 observation_observer=observer)
+                monitor = module.InverterMonitor(api,
+                                                 solar_controller=solar if solar_side_effect is not None else None,
+                                                 charge_controller=charge, shadow_monitor=shadow,
+                                                 observation_observer=observer,
+                                                 post_charge_observer=post_observer)
                 monitor._process_business_metrics = Mock()
                 monitor.imp = Mock()
                 sleeps = []
@@ -303,7 +310,7 @@ class ShadowOutputMonitorTests(unittest.TestCase):
 
                 with patch.object(module, "smart_sleep", side_effect=sleep):
                     await monitor.run()
-                result.update(api=api, charge=charge, monitor=monitor, sleeps=sleeps)
+                result.update(api=api, solar=solar, charge=charge, monitor=monitor, sleeps=sleeps)
                 sys.modules.pop("service.inverter_monitor", None)
 
         asyncio.run(run())
@@ -335,6 +342,29 @@ class ShadowOutputMonitorTests(unittest.TestCase):
         out["charge"].tick.assert_awaited_once()
         shadow.observe.assert_called_once()
         out["monitor"].imp.exception.assert_called_once()
+
+    def test_post_charge_callback_runs_after_charger_and_before_shadow(self):
+        events = []
+        observer = Mock(side_effect=lambda *args, **kwargs: events.append("observer"))
+        shadow = Mock(side_effect=lambda *args, **kwargs: events.append("shadow"))
+        shadow.observe = Mock(side_effect=lambda *args, **kwargs: events.append("shadow"))
+        post = Mock(side_effect=lambda *args, **kwargs: events.append("coordination"))
+        out = self._run_monitor_once(observer=observer, shadow=shadow, post_observer=post,
+                                     solar_side_effect=lambda: events.append("solar"),
+                                     charge_side_effect=lambda **kwargs: events.append("charger"))
+        self.assertEqual(events, ["observer", "solar", "charger", "coordination", "shadow"])
+        post.assert_called_once()
+
+    def test_post_charge_failure_does_not_stop_shadow(self):
+        observer = Mock()
+        post = Mock(side_effect=RuntimeError("coordination failure"))
+        shadow = Mock()
+        out = self._run_monitor_once(observer=observer, shadow=shadow, post_observer=post, polls=2)
+        self.assertEqual(out["charge"].tick.await_count, 2)
+        self.assertEqual(out["api"].fetch_device_data.call_count, 2)
+        self.assertEqual(shadow.observe.call_count, 2)
+        self.assertEqual(observer.call_count, 2)
+        self.assertEqual(out["monitor"].imp.exception.call_count, 1)
 
     def test_dess_outage_does_not_call_observer(self):
         observer = Mock()

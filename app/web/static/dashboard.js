@@ -114,6 +114,13 @@
         dom.winterCharging = document.getElementById("winter-charging");
         dom.winterReserve = document.getElementById("winter-reserve");
         dom.winterInterlock = document.getElementById("winter-interlock");
+        dom.winterCoordination = document.getElementById("winter-coordination");
+        dom.winterCoordinationProfile = document.getElementById("winter-coordination-profile");
+        dom.winterOutputPriority = document.getElementById("winter-output-priority");
+        dom.winterChargerState = document.getElementById("winter-charger-state");
+        dom.winterChargePolicy = document.getElementById("winter-charge-policy");
+        dom.winterCoordinationHistory = document.getElementById("winter-coordination-history");
+        dom.winterCoordinationLockout = document.getElementById("winter-coordination-lockout");
         dom.winterReceipt = document.getElementById("winter-receipt");
         dom.winterMeasurement = document.getElementById("winter-measurement");
         dom.winterPersistence = document.getElementById("winter-persistence");
@@ -121,6 +128,7 @@
         dom.winterFailure = document.getElementById("winter-failure");
         dom.winterTelemetry = document.getElementById("winter-telemetry");
         dom.winterReasons = document.getElementById("winter-reasons");
+        dom.winterCoordinationReasons = document.getElementById("winter-coordination-reasons");
         dom.winterMissing = document.getElementById("winter-missing");
         /* Detect if we are on the analytics page (no dashboard-content) */
         dom.isAnalyticsPage = !dom.dashboardContent;
@@ -959,7 +967,9 @@
         RECEIPT_IN_FUTURE: "receipt time invalid",
         UNAVAILABLE: "unavailable"
     };
-    var WINTER_DERIVED_FIELDS = ["winterSolar", "winterCharging", "winterReserve", "winterInterlock", "winterReceipt"];
+    var WINTER_DERIVED_FIELDS = ["winterSolar", "winterCharging", "winterReserve", "winterInterlock", "winterCoordination",
+        "winterCoordinationProfile", "winterOutputPriority", "winterChargerState", "winterChargePolicy",
+        "winterCoordinationHistory", "winterCoordinationLockout", "winterReceipt"];
 
     function setWinterText(el, value) {
         if (el) { el.textContent = safeText(value); }
@@ -991,6 +1001,35 @@
         return parts.join(" \u00b7 ");
     }
 
+    function renderWinterCoordination(c, current) {
+        c = c && typeof c === "object" ? c : null;
+        var suffix = current ? "" : " \u00b7 not current";
+        if (!c) {
+            [dom.winterCoordination, dom.winterCoordinationProfile, dom.winterOutputPriority, dom.winterChargerState,
+             dom.winterChargePolicy, dom.winterCoordinationHistory, dom.winterCoordinationLockout].forEach(function (el) {
+                setWinterText(el, "unavailable");
+            });
+            setWinterList(dom.winterCoordinationReasons, []);
+            return;
+        }
+        setWinterText(dom.winterCoordination, safeText(c.state) + suffix);
+        setWinterText(dom.winterCoordinationProfile, safeText(c.desired_profile) + suffix);
+        setWinterText(dom.winterOutputPriority, safeText(c.reported_output_priority) + " / "
+            + safeText(c.output_priority_quality) + suffix);
+        setWinterText(dom.winterChargerState, safeText(c.charger_state) + " / "
+            + safeText(c.charger_provenance) + suffix);
+        setWinterText(dom.winterChargePolicy, safeText(c.charge_policy_state) + " / "
+            + safeText(c.charge_policy_provenance) + " / verified "
+            + safeText(c.charge_policy_verified) + suffix);
+        setWinterText(dom.winterCoordinationHistory, "cycles " + safeText(c.recovery_cycles)
+            + " · mode changes " + safeText(c.mode_changes)
+            + " · continuity " + (c.continuity_uncertain ? "uncertain" : "observed")
+            + (c.conflict ? " · conflict" : "") + suffix);
+        setWinterText(dom.winterCoordinationLockout,
+            (c.lockout_expires_at ? formatLondonTimestamp(c.lockout_expires_at) : "none") + suffix);
+        setWinterList(dom.winterCoordinationReasons, c.reasons);
+    }
+
     function renderWinterDiagnostics(snapshot) {
         if (!dom.winterPanel) { return; }
         var w = snapshot ? snapshot.winter_diagnostics : null;
@@ -999,7 +1038,10 @@
             if (dom.winterDecision) { dom.winterDecision.className = "dm-badge"; }
             setWinterText(dom.winterFreshness, "unavailable");
             if (dom.winterFreshness) { dom.winterFreshness.className = "dm-badge"; }
-            [dom.winterSolar, dom.winterCharging, dom.winterReserve, dom.winterInterlock, dom.winterReceipt,
+            [dom.winterSolar, dom.winterCharging, dom.winterReserve, dom.winterInterlock, dom.winterCoordination,
+             dom.winterCoordinationProfile, dom.winterOutputPriority, dom.winterChargerState, dom.winterChargePolicy,
+             dom.winterCoordinationHistory, dom.winterCoordinationLockout,
+             dom.winterReceipt,
              dom.winterMeasurement, dom.winterPersistence, dom.winterLastEval, dom.winterFailure,
              dom.winterTelemetry].forEach(function (el) { setWinterText(el, "unavailable"); });
             setWinterList(dom.winterReasons, ["WINTER_DIAGNOSTICS_UNAVAILABLE"]);
@@ -1016,6 +1058,7 @@
             setWinterText(dom.winterFreshness, w.status === "evaluation_failed" ? "evaluation failed" : "unavailable");
             if (dom.winterFreshness) { dom.winterFreshness.className = "dm-badge degraded"; }
             WINTER_DERIVED_FIELDS.forEach(function (key) { setWinterText(dom[key], label); });
+            setWinterList(dom.winterCoordinationReasons, []);
         } else {
             var current = w.freshness === "RECEIPT_CURRENT_MEASUREMENT_UNVERIFIED";
             var asOf = current ? "" : " \u00b7 as of " + (WINTER_FRESHNESS_LABELS[w.freshness] || "unavailable receipt") + ", not current";
@@ -1038,6 +1081,7 @@
                 receipt += " (" + Math.round(Number(w.receipt_age_seconds)) + " s ago)";
             }
             setWinterText(dom.winterReceipt, receipt);
+            renderWinterCoordination(w.coordination, current);
         }
         setWinterText(dom.winterMeasurement, w.measurement_time ? w.measurement_time : "unverified (" + safeText(w.timestamp_quality) + ")");
         setWinterText(dom.winterPersistence, w.persistence_status);

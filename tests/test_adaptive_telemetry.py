@@ -109,6 +109,17 @@ class ClassificationTests(unittest.TestCase):
 
 
 class ProvenanceTests(unittest.TestCase):
+    def test_latest_fingerprint_is_read_only_and_matches_response_identity(self):
+        rec = AdaptiveTelemetryRecorder()
+        self.assertIsNone(rec.latest_fingerprint)
+        first = dd()
+        rec.observe(first, received_at=T0)
+        fingerprint = rec.latest_fingerprint
+        self.assertIsInstance(fingerprint, str)
+        self.assertEqual(len(fingerprint), 16)
+        rec.observe(dd(timestamp="changed"), received_at=T0 + timedelta(minutes=1))
+        self.assertNotEqual(rec.latest_fingerprint, fingerprint)
+
     def test_changed_payload_with_unknown_device_time_is_observational_only(self):
         rec = recorder()
         rec.observe(dd(timestamp=None), received_at=T0)
