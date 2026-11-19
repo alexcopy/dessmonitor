@@ -1,0 +1,541 @@
+TASK
+    0080 — Coordinated Grid Charging and Output Priority
+
+AGENT
+    orchestrator
+
+MODE
+    planning only
+
+BRANCH
+    master
+
+PR
+    0080-grid-charge-output-coordination
+
+PRECONDITION
+    - HEAD is 32a0fb00627a27a7e2cea9e9c2ea70d783519d73 on master.
+    - git status --short --untracked-files=all is clean.
+    - git diff --cached --name-only is empty.
+    - Task 0076, Task 0078 and Task 0079 are committed and their approved
+      planning/review artifacts were read.
+    - Task 0079 is committed at 32a0fb0 and its implementation, CODER_REPORT,
+      and PRECOMMIT_REVIEW are immutable context for this task.
+    - This artifact is planning-only. No application code, test, script,
+      configuration, deployment or hardware file may be changed by Task 0080.
+
+CONTEXT AND CURRENT BEHAVIOR
+    BatteryChargeController owns charger-source policy and may request
+    solar_and_mains or solar_only. It does not own inverter output-source
+    priority. The current DESS observation path reports working mode, PV,
+    output demand, battery voltage/current, charger priority and raw output
+    priority, but a reported value is not proof that a setting was physically
+    applied.
+
+    Task 0076 already provides the shadow interlock boundary for recovery,
+    charger readback, failed trials, lockouts and advisory battery-return
+    eligibility. Task 0078 composes that result into fail-closed winter
+    diagnostics and does not authorize battery use from unverified reserve.
+    Task 0079 provides bounded receipt-time telemetry, repeated/changed
+    payload classification, observed Line/Invert transitions, adaptive
+    checkpoint history and read-only winter diagnostics. Its timestamp rule
+    remains authoritative: DESS Timestamp/gts and DeviceData.device_observed_at
+    are not independently verified measurement times.
+
+    Confirmed installation facts are observation inputs only:
+    - Output Source Priority reports SBU; catalogue values are Utility=0,
+      Solar=1 and SBU=2.
+    - Back to Battery reports 26.0 V.
+    - Back to Utility is in the 25.x V range, with the exact value masked.
+    - The installation is a 24 V system.
+    - Read-only queryDeviceCtrlField and queryDeviceCtrlValue are available.
+    - Charger Source Priority is independent from Output Source Priority.
+
+    Root-cause hypothesis, explicitly not a proven causal claim:
+    while Solar + Mains recovery raises battery voltage toward the reported
+    26.0 V SBU return threshold, the inverter remains configured to SBU and
+    may autonomously return its load to the battery. The resulting voltage sag
+    may return it to Line Mode, after which grid charging continues. Existing
+    telemetry can show the sequence, but cannot prove the physical transition
+    time, command causality or that any application write caused it.
+
+REQUIRED READS
+    - .project-memory/AGENT_STANDARD.txt
+    - .project-memory/ORCHESTRATOR_STANDARD.txt
+    - .project-memory/ADR/ADR-0001-agent-workflow.md
+    - .project-memory/ADR/ADR-0003-runtime-safety-before-ml-control.md
+    - .project-memory/ADR/ADR-0004-adaptive-inverter-telemetry-and-winter-shadow.md
+    - .project-memory/pr/0076-grid-charge-output-source-interlock/PLAN.txt
+    - .project-memory/pr/0076-grid-charge-output-source-interlock/reviews/PLAN_REVIEW.txt
+    - .project-memory/pr/0078-winter-energy-decision-integration/PLAN.txt
+    - .project-memory/pr/0078-winter-energy-decision-integration/reviews/PLAN_REVIEW.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/PLAN.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/reviews/PLAN_REVIEW.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/CODER_REPORT.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/reviews/PRECOMMIT_REVIEW.txt
+    - app/service/battery_charge_controller.py
+    - app/control/grid_output_interlock.py
+    - app/control/adaptive_output_policy.py
+    - app/control/seasonal_output_strategy.py
+    - app/control/winter_energy_intelligence.py
+    - app/control/easun_output_mapping.py
+    - app/control/easun_output_planner.py
+    - app/control/easun_output_actuator.py
+    - app/control/dess_control_discovery.py
+    - app/control/adaptive_telemetry.py
+    - app/control/winter_runtime_diagnostics.py
+    - app/control/command_arbitration.py
+    - app/control/command_safety_gate.py
+    - app/control/execution_eligibility.py
+    - tests/test_grid_output_interlock.py
+    - tests/test_winter_energy_intelligence.py
+    - tests/test_adaptive_telemetry.py
+    - tests/test_winter_runtime_diagnostics.py
+    - tests/test_easun_output_mapping.py
+    - tests/test_easun_output_planner.py
+    - tests/test_easun_output_actuator.py
+
+HARD RULES
+    - Planning only. Do not modify application code, tests, scripts,
+      configuration, Kubernetes manifests, deployment files or prior task
+      artifacts.
+    - Do not stage, commit, push, deploy or access production hardware.
+    - Do not send ctrlDevice commands, set output priority, set charger
+      priority, change voltage thresholds, disconnect a grid relay or invoke a
+      live actuator.
+    - Do not modify Task 0079 or any earlier approved implementation,
+      planning, coder-report or review artifact.
+    - Do not create a parallel charging controller, a new DESS polling loop,
+      a new reserve-verification mechanism, or a second battery eligibility
+      evaluator.
+    - Do not treat reported output-priority readback as proof of physical
+      application. Keep setting readback and observed Line/Invert operation as
+      separate evidence streams.
+    - Do not treat battery voltage recovery, grid charge current, reported SOC,
+      charger completion or sunrise alone as proof of usable battery reserve.
+    - Emergency charging and existing life-support, pump, solar-takeover and
+      charger behavior remain authoritative and unchanged.
+
+GOAL
+    Define a deterministic, read-only coordination policy that identifies the
+    conflict between active mains recovery and an SBU-reported output setting,
+    recommends GRID_HOLD while recovery or evidence is unsafe, and mirrors a
+    positive solar-return candidate only when the unchanged Task 0076 and
+    Task 0078 authority chain has already granted it. This evaluator is not a
+    reserve verifier or a second eligibility authority.
+
+    The plan must prevent a future implementation from interpreting a voltage
+    rise during grid charging as permission to return output to the battery.
+    It must also define the prerequisites and ordering for any separately
+    approved future hardware execution without enabling it here.
+
+CURRENT IMPLEMENTATION BOUNDARY
+    Task 0080 changes no files now. The planning artifact and its independent
+    review are the complete current scope.
+
+    If this plan is approved, the first future advisory implementation may
+    create or modify exactly these files only:
+    - app/control/grid_charge_output_coordination.py (new pure evaluator and
+      immutable input/output models; no runtime imports, I/O or commands).
+    - tests/test_grid_charge_output_coordination.py (new deterministic traces,
+      safety spies and fake read-only observations).
+    - .project-memory/pr/0080-grid-charge-output-coordination/CODER_REPORT.txt
+      (coder artifact for a later implementation stage only).
+    - .project-memory/pr/0080-grid-charge-output-coordination/reviews/PRECOMMIT_REVIEW.txt
+      (independent later review artifact only).
+
+    This future allowlist deliberately does not wire the evaluator into the
+    running application. A separate approved amendment is required before
+    modifying run.py, any Task 0079 runtime/UI file, web routes/templates,
+    shared state, database schema or deployment. That amendment must preserve
+    the same read-only and fail-closed contracts.
+
+FORBIDDEN FILES AND ACTIONS
+    - Every repository file is forbidden for this planning-only task except
+      .project-memory/pr/0080-grid-charge-output-coordination/PLAN.txt and,
+      for the independent reviewer, its reviews/PLAN_REVIEW.txt.
+    - The future advisory implementation must not modify:
+      app/service/battery_charge_controller.py,
+      service/inverter_monitor.py, run.py,
+      app/ml/timescale_data_collector.py,
+      app/control/grid_output_interlock.py,
+      app/control/winter_energy_intelligence.py,
+      app/control/adaptive_output_policy.py,
+      app/control/seasonal_output_strategy.py,
+      app/control/adaptive_telemetry.py,
+      app/control/winter_runtime_diagnostics.py,
+      app/control/easun_output_mapping.py,
+      app/control/easun_output_planner.py,
+      app/control/easun_output_actuator.py,
+      app/control/dess_control_discovery.py,
+      all Task 0076/0078/0079 Project Memory artifacts, configuration,
+      migrations, web/UI files, deployment files and production systems.
+    - No database migration or new table is proposed. No runtime storage is
+      required for the pure evaluator; restart inputs are supplied explicitly.
+    - No physical Utility/SBU transition, charger-source command, threshold
+      write, relay action, pump action, Tuya action or DESS control request is
+      permitted.
+
+PROPOSED STATE MACHINE
+    The future pure evaluator returns one recommendation state, a desired
+    profile label, observed facts, blockers, stable reason codes, cycle
+    counters, evidence provenance, and immutable safety markers:
+
+    - EMERGENCY_RECOVERY: the existing charger policy reports active emergency
+      recovery or a critical recovery condition. Preserve charging priority;
+      this state never waits for optional output optimization.
+    - GRID_HOLD: conservative preferred state while grid-assisted charging,
+      scheduled long-night recovery, insufficient/unverified reserve, weak or
+      unstable PV, sunset approach, stale data, or failed-trial lockout is
+      active.
+    - SOLAR_RETURN_CANDIDATE: a read-only rendering of an already-authorized
+      Task 0076/0078 chain after recovery has ended, measured PV is productive
+      relative to measured inverter demand, daylight is valid, charger status
+      and readback agree, and the existing dwell/settling rules pass. The
+      coordinator never turns a caller's reserve claim into this state.
+    - SOLAR_OPERATION: a stronger shadow rendering after the candidate remains
+      valid for the existing Task 0076 battery-dwell/settling rules. It is
+      still not an execution authorization and cannot issue or queue a write.
+      Under the current installation, committed Task 0078 has no trusted
+      BMS/shunt integration and therefore this state is unreachable in live
+      runtime; this plan does not add one.
+    - CHURN_LOCKOUT: repeated short recovery -> Invert -> Line cycles or an
+      existing Task 0076 failed-trial/lockout condition blocks voluntary solar
+      return until its explicit expiry and evidence requirements pass.
+    - FAULT_HOLD: required current data, readback, provenance, reconciliation,
+      interlock state or device capability is missing, stale, future-dated,
+      contradictory or unavailable.
+
+    Deterministic priority when several conditions apply:
+    1. EMERGENCY_RECOVERY and life-support/protection conditions;
+    2. FAULT_HOLD for invalid or unsafe evidence;
+    3. active CHURN_LOCKOUT;
+    4. active grid-assisted recovery or scheduled long-night charging;
+    5. manual Utility hold or another existing safety boundary;
+    6. GRID_HOLD for recovery completion without all return gates;
+    7. SOLAR_RETURN_CANDIDATE;
+    8. SOLAR_OPERATION.
+
+    A conflict marker is emitted independently of the recommendation:
+    GRID_CHARGING_ACTIVE_WITH_SBU when active recovery or charger readback is
+    solar_and_mains while reported output priority is SBU. This marker is an
+    observed configuration conflict, not proof that a physical output change
+    occurred and not a command request.
+
+TRANSITION AND CYCLE RULES
+    - A rising battery voltage while grid charging is active never changes
+      GRID_HOLD into a solar-return state.
+    - Recovery completion ends the recovery condition only. It does not create
+      reserve evidence, satisfy Task 0076, or immediately recommend SBU.
+    - Sunrise with weak/unstable PV remains GRID_HOLD. A valid daylight window
+      is necessary but not sufficient.
+    - The evaluator consumes Task 0079 receipt-time events and labels the first
+      observed response of a mode as detection time, never physical transition
+      time. A large sample gap is a gap/uncertain sequence, not a guaranteed
+      physical cycle.
+    - Count a recovery cycle only when ordered observations show a prior
+      grid-charging/recovery context, an observed Invert Mode interval, and a
+      subsequent Line Mode observation. Missing, stale or out-of-order samples
+      cannot create a cycle count.
+    - Receipt continuity uses Task 0079's existing SAMPLE_GAP_SECONDS=600:
+      consecutive receipt times must be strictly increasing and have a gap of
+      at most 600 seconds. Equal, decreasing, unknown or larger-gap times end
+      the current sequence; a mode difference across a gap is uncertain and
+      cannot count as a transition or cycle. Receipt time is never substituted
+      for OutputTelemetry.observed_at.
+    - Task 0076 remains authoritative for measurement-time continuity. Its
+      existing OutputPolicyBaseline.mode_continuity_max_gap_seconds (300 s)
+      segments modes; max_telemetry_gap_seconds (900 s) determines telemetry
+      freshness; mode_change_window_seconds (3600 s) bounds recent changes;
+      max_mode_changes (4) triggers churn protection; and
+      max_failed_trial_escalation (3) bounds failed-trial escalation. The
+      coordinator must use the values supplied in that baseline, with the
+      existing inclusive comparisons, and must not reconcile an unknown
+      observed_at by using receipt time. Thus a trace must satisfy both the
+      600-second receipt continuity rule and Task 0076's measurement-time
+      rules; otherwise it is uncertain/blocked.
+    - Count one recovery cycle only for one ordered sequence containing a
+      recovery/grid-charge observation, an observed Invert Mode interval, and a
+      later Line Mode observation, with no continuity break under either rule.
+      The Line observation closes that sequence. The next sequence starts only
+      at a later fresh recovery/grid-charge observation; duplicate payloads are
+      ignored for sequence progress, and equal/decreasing/unknown times or a
+      gap reset the partial sequence. Repeated cycles do not create a new
+      counter: Task 0076's existing `_mode_change_times`,
+      `_mode_change_count`, `_failed_trial_events`,
+      `_lockout_expiry` and `_churn_lockout_expiry` semantics determine the
+      lockout and expiry. The coordinator reports those results rather than
+      reimplementing them.
+    - Existing Task 0076 fields also own dwell and settling:
+      failed_trial_max_seconds, failed_trial_lockout_seconds,
+      min_mains_dwell_seconds, min_battery_dwell_seconds,
+      post_transition_settle_seconds, churn_lockout_seconds and
+      max_churn_lockout_seconds. No coordinator-only cycle window, dwell,
+      settling, promotion or anti-flap constant is permitted.
+    - A candidate_since value, if ever reached by a separately approved future
+      Task 0078 authority chain, is the observed_at of the first current
+      snapshot whose exact Task 0076 and Task 0078 evaluations are positive.
+      It is reset by any invalid, stale, future, unknown-time, contradictory,
+      mode-continuity or receipt-continuity sample; a duplicate payload does
+      not advance it or count as a settled sample. Promotion would require
+      the existing post_transition_settle_seconds and the existing Task 0076
+      settled-segment rules, including its minimum of three valid settled
+      samples, followed by min_battery_dwell_seconds. Because current Task
+      0078 is never positive, Task 0080 implements no candidate_since or
+      promotion path and emits no SOLAR_OPERATION result.
+    - Restart behavior is explicit: preserved/reconstructed lockout blocks,
+      unavailable restart state fails closed, and a missing history window
+      cannot reconstruct a cycle or promotion.
+    - A reported output setting, a confirmed read-back, an observed Line/Invert
+      mode and an application command are separate fields. No one substitutes
+      for another.
+
+COORDINATION INPUTS AND PROVENANCE
+    The future evaluator receives immutable values supplied by its caller:
+    - current OutputTelemetry and bounded Task 0079 event/history data;
+    - existing BatteryChargeController status, desired/observed charger mode,
+      emergency/seasonal flags and any fresh charger readback;
+    - reported output-priority setting and optional read-only catalogue/value
+      observations, each labelled as reported setting evidence only;
+    - raw inputs required to recompute Task 0076, plus any reported decision
+      only for diagnostics; a reported InterlockDecision is never authoritative;
+    - raw inputs required to invoke the unchanged Task 0078 evaluator itself:
+      EnergyInputs, ApprovedBands, WinterContext and WinterPolicyConfig. A
+      reported WinterDecision is diagnostics-only and is never an authority;
+      no reserve field, synthetic flag, verified flag, source label, scalar or
+      inspectable record is accepted as an override;
+    - explicit daylight/sun-times provenance, receipt age and timestamp
+      quality;
+    - independent reserve evidence only through the existing approved
+      Task 0076/0078 path. Missing or unverified reserve remains blocking;
+    - manual operator state from existing arbitration/safety boundaries;
+    - bounded restart/lockout state.
+
+    NULL, stale, future, contradictory or unavailable values remain distinct.
+    The output must include `shadow_only=True`, `command_issued=False`,
+    `hardware_write_attempted=False` and `physical_transition_proven=False`.
+    No caller-controlled boolean, source string, scalar reserve or inspectable
+    record may override the existing interlock or reserve verification.
+
+    Snapshot-binding contract is mandatory. The evaluator must construct one
+    exact current OutputTelemetry object, place that same object in
+    InterlockSnapshot.telemetry and InterlockEvaluationInputs.snapshot, then
+    call the existing Task 0076 evaluate_interlock with those exact inputs.
+    It must require `inputs.snapshot.telemetry is snapshot`; a supplied
+    InterlockDecision is diagnostic-only and must be rejected when absent,
+    stale or mismatched. The Task 0078 call must pass `interlock=None` and
+    the same exact InterlockEvaluationInputs so its own `_bound_interlock`
+    path invokes Task 0076; it may not fall back to a caller-supplied
+    decision. A mismatch produces FAULT_HOLD with
+    INTERLOCK_SNAPSHOT_MISMATCH and cannot produce either positive state.
+
+    Reserve boundary is also mandatory. Current Task 0078 output is always
+    fail-closed for live battery use because no trusted BMS/shunt integration
+    exists. Externally supplied BMS/shunt observations remain unverified,
+    including a structurally valid `synthetic=False` fixture. Task 0080 adds
+    no trusted-source flag, certificate, token, verification override or
+    reserve mechanism. The current unchanged Task 0078 call returns its
+    unverified-reserve result, so both positive coordinator states are
+    unreachable in this task. A future trusted integration and any positive
+    test require a separate approved amendment to the Task 0078 authority
+    chain; this evaluator must then call that amended evaluator from exact raw
+    inputs, not accept a precomputed positive fixture. No positive fixture or
+    positive battery-use result is part of Task 0080 acceptance.
+
+REQUIRED PROFILES
+    GRID_HOLD:
+    - Desired profile label: Utility.
+    - Keep mains available and preserve BatteryChargeController decisions.
+    - Block intentional battery-output return while grid-assisted charging is
+      active, even if voltage is at or above 26.0 V.
+    - Record actual reported priority separately; SBU plus active recovery is
+      a conflict, not a successful Utility setting.
+    - Never terminate emergency or scheduled charging to satisfy optimization.
+
+    SOLAR_OPERATION:
+    - Desired profile label: SBU, advisory only.
+    - Requires valid daylight, stable meaningful measured PV relative to
+      measured inverter load, ended grid recovery, consistent charger status
+      and readback, the existing Task 0078 eligible decision, the exact
+      Task 0076 eligibility recomputed for this snapshot, and the existing
+      dwell/settling gates. Current Task 0078 cannot provide that eligible
+      decision, so this profile is not reachable in the current runtime.
+    - The 26.0 V Back to Battery report is context, not an authorization
+      threshold. Voltage rise alone cannot enter this profile.
+    - Keep mains available as backup in the future design.
+
+    OPTIONAL PROTECTIVE VOLTAGE CANDIDATE:
+    - Model 28.0 V only as a labelled, non-executable comparison candidate.
+    - Validate it against the verified 24 V catalogue, approved battery/BMS
+      limits and read-only reported values before any future consideration.
+    - Explain charging-induced voltage elevation and later sag; do not treat a
+      higher threshold as reserve proof.
+    - If Utility priority already provides the intended hold, return
+      NOT_REQUIRED_WHILE_UTILITY rather than proposing a threshold write.
+    - Do not alter unrelated charger voltages or create a write plan in this
+      task. Any future controlled use needs separate read-before-write,
+      read-back, lock, journal, rollback and uncertain-state approval.
+
+READ-ONLY DESS OBSERVATIONS
+    The existing bounded diagnostic client is the only approved discovery
+    boundary. A separately approved diagnostic run may call
+    queryDeviceCtrlField once to inspect the catalogue and then call
+    queryDeviceCtrlValue at most once for a catalogue-advertised identifier.
+    It may inspect Output Source Priority, Back to Battery and Back to Utility
+    fields when returned. Candidate labels and reported values must be shown
+    as reported settings, not physical acknowledgements.
+
+    The coordinator must not add a polling loop or make DESS control requests.
+    Runtime observations reuse successful DESS telemetry already collected by
+    InverterMonitor and Task 0079. If catalogue/value data is absent, stale or
+    inconsistent, the result is FAULT_HOLD or GRID_HOLD; it is never filled by
+    a default, a guessed key, or an inferred voltage encoding.
+
+ARCHITECTURE PHASES
+    Phase 1 — Shadow coordination
+    - Implement only the future pure evaluator/input-output model named in the
+      future allowlist.
+    - Compose existing BatteryChargeController state, a freshly recomputed
+      Task 0076 interlock, Task 0078 explanations, Task 0079 receipt/event
+      history and read-only setting observations.
+    - Produce separate fields for actual output mode, reported priority,
+      charger state, desired profile, conflict markers, reserve quality,
+      blockers, cycle evidence, freshness and diagnostic failures.
+    - No runtime wiring, UI change or hardware action is part of this plan.
+
+    Phase 2 — Supervised validation, future separately authorized
+    - Validate the pure evaluator against historical and synthetic traces for
+      morning recovery, weak winter PV, productive midday PV, sunset, stale
+      telemetry, unavailable reserve, manual overrides and failed reads.
+    - Use FakeDessTransport and command spies only. Establish measurable
+      cycle-rate, hold-duration, charging-loss and false-return indicators.
+    - Validate ordering with fake transports: normal flow establishes the
+      compatible Utility output state before initiating grid-assisted charging
+      where technically possible; emergency recovery starts immediately when
+      required and reports unresolved output conflict instead of delaying
+      critical protection.
+
+    Phase 3 — Future controlled execution, not approved here
+    Before any output-priority write, require a separate hardware-specific
+    review approving all of the following: verified field/key mapping and
+    catalogue bounds; read-before-write; a shared coordination lock; command
+    journal and idempotency; explicit manual-override arbitration; rate limits;
+    read-back plus independent observed Line/Invert reconciliation; rollback;
+    uncertain-state/manual-intervention handling; battery/BMS/vendor limits;
+    emergency precedence; restart behavior; and an offline/fake validation
+    showing no blind retry after a failed or uncertain write.
+
+TEST MATRIX AND ACCEPTANCE
+    The future pure test file must include deterministic traces proving:
+    - nighttime discharge or reduced reserve followed by Solar + Mains and a
+      rising voltage produces GRID_HOLD, never a battery-return result;
+    - active grid recovery plus reported SBU produces the explicit conflict;
+    - sunrise with weak or unstable PV remains GRID_HOLD;
+    - ending grid charging does not immediately trigger SBU;
+    - the exact Task 0078 regression case—a structurally valid reserve fixture
+      with synthetic=False—remains unverified, never yields
+      BATTERY_USE_ELIGIBLE, and cannot produce a positive coordinator state;
+    - the coordinator invokes the unchanged Task 0078 evaluator with
+      `interlock=None` and exact raw inputs; a caller-supplied positive
+      WinterDecision is ignored and cannot promote either positive state;
+      current live inputs remain GRID_HOLD/FAULT_HOLD and never gain a
+      hardware authorization;
+    - a stale or mismatched reported Task 0076 decision cannot override a
+      recomputed result; identity mismatch yields FAULT_HOLD and neither
+      positive state;
+    - repeated ordered recovery/Invert/Line cycles trigger the existing
+      lockout behavior, while equal/decreasing/unknown timestamps, gaps over
+      600 seconds, duplicate payloads and mode changes across a gap do not
+      fabricate a cycle;
+    - exact boundary tests cover 600-second receipt continuity,
+      mode_continuity_max_gap_seconds, max_telemetry_gap_seconds,
+      mode_change_window_seconds, max_mode_changes,
+      failed_trial_max_seconds, max_failed_trial_escalation,
+      min_mains_dwell_seconds, post_transition_settle_seconds and
+      min_battery_dwell_seconds, including equal/decreasing/unknown times,
+      duplicate payloads, invalidation/reset and lockout expiry;
+    - unknown, stale, future or contradictory reserve/telemetry blocks return;
+    - emergency recovery takes precedence over solar optimization;
+    - manual Utility holds remain respected and a manual SBU request cannot
+      bypass safety gates;
+    - read-back setting evidence and observed mode evidence remain separate;
+    - 28.0 V is labelled a non-executable candidate and is not proposed when
+      Utility priority already provides the hold;
+    - failed DESS reads and unavailable database/event persistence do not
+      authorize return or issue retries/commands;
+    - restart with preserved/reconstructable lockout remains blocked and
+      unavailable restart state fails closed;
+    - fake transports, DESS/Tuya/relay/charger/output spies and static checks
+      show no production output write or physical control path;
+    - existing charger calls, thresholds, emergency handling, solar takeover,
+      pump and life-support behavior are unchanged because no existing
+      controller/runtime file is modified.
+
+    Acceptance for this planning task is an independently approved PLAN.txt,
+    not a positive battery-use result and not a physical prevention claim.
+    Future implementation acceptance requires all above tests and separate
+    precommit approval.
+
+DATA, MIGRATION AND ROLLBACK
+    No database migration, table, journal schema or runtime state store is
+    proposed. Task 0079 event/history data is read-only input; no new periodic
+    event stream is created. Future pure evaluation is deterministic and can
+    be rolled back by removing its new module and test without changing
+    existing data or device state.
+
+    Any future runtime integration must be a separate approved amendment with
+    an explicit read-only UI/API path, bounded storage behavior and a rollback
+    that disables only diagnostics. A database outage, stale telemetry or
+    uncertain DESS readback must degrade to unavailable/GRID_HOLD, never to a
+    solar-return recommendation.
+
+UNRESOLVED QUESTIONS AND REQUIRED HARDWARE EVIDENCE
+    - Does the installed firmware apply Output Source Priority changes
+      immediately, at the next cycle, or only after a separate mode refresh?
+    - Is Utility priority guaranteed to prevent battery output while charging,
+      or can another inverter state override it?
+    - What exact Back to Utility value is deployed, and which battery/BMS
+      limits authorize any candidate above 26.0 V?
+    - Does the read-back endpoint report a requested/configured value or a
+      physically applied value, and how can that be reconciled with observed
+      Line/Invert operation?
+    - What circuits are represented by inverter output demand versus
+      Tuya-managed load totals?
+    - What is the authoritative independent reserve source and freshness
+      contract, if any, for this installation?
+    - What command ordering and recovery behavior does the vendor document for
+      emergency charging during an unresolved output-priority conflict?
+
+    These questions remain unknown. The plan must not guess them or claim that
+    the shadow evaluator physically prevents the cycle.
+
+VALIDATION CHECKLIST FOR THIS PLANNING STAGE
+    - Required standards, ADRs, Task 0076/0078/0079 plans and reviews, and
+      current component files were read.
+    - HEAD, branch, status and empty index were verified.
+    - Only this PLAN.txt may be written before independent PLAN_REVIEW.
+    - No application code, tests, scripts, settings, hardware, database or
+      deployment was accessed for mutation.
+    - After this plan is independently reviewed, record the verdict in
+      reviews/PLAN_REVIEW.txt. Do not modify the locked prior task artifacts.
+
+NON-GOALS
+    - No implementation in Task 0080.
+    - No live DESS setting query from this planning action.
+    - No output-priority, charger-priority, voltage-threshold, relay, Tuya or
+      pump command.
+    - No change to BatteryChargeController, Task 0076, Task 0078, Task 0079,
+      nighttime charging, emergency protection, solar takeover or life support.
+    - No BMS hardware integration, new verification mechanism, new ML model,
+      threshold optimization, migration, deployment or production activation.
+
+OUTPUT FORMAT AND GATE
+    This task produces:
+    - .project-memory/pr/0080-grid-charge-output-coordination/PLAN.txt
+    - .project-memory/pr/0080-grid-charge-output-coordination/reviews/PLAN_REVIEW.txt
+      written only by an independent plan reviewer.
+
+    Do not create CODER_REPORT.txt or PRECOMMIT_REVIEW.txt during this
+    planning-only task. If the plan is approved, a later coder task must use
+    only the future allowlist, write its coder report, and obtain independent
+    precommit approval before any implementation commit or runtime integration.

@@ -1,0 +1,158 @@
+TASK 0080 — FINAL INDEPENDENT PLAN REVIEW
+
+VERDICT
+
+APPROVED — PLANNING-ONLY, SHADOW-ONLY SCOPE.
+
+The revised plan resolves the prior blockers. Approval is limited to the
+specified future pure evaluator/test allowlist and does not approve runtime
+wiring, DESS writes, inverter output-priority changes, charger changes,
+deployment, production use, or a positive battery-use result.
+
+REVIEW BASIS
+
+I read the current Task 0080 PLAN.txt, AGENT_STANDARD.txt,
+ORCHESTRATOR_STANDARD.txt, ADR-0001, ADR-0003, ADR-0004, the approved Task
+0076 and Task 0078 plans/reviews, and the approved Task 0079 plan, review,
+CODER_REPORT and PRECOMMIT_REVIEW. I inspected the committed Task 0076
+interlock, Task 0078 winter evaluator/runtime adapter, and Task 0079 telemetry
+contracts and focused tests. No tests were run and no device, hardware,
+database, or production system was accessed.
+
+REPOSITORY STATE
+
+HEAD: 32a0fb00627a27a7e2cea9e9c2ea70d783519d73
+Branch: master
+Index: empty
+
+The only worktree entries are the untracked Task 0080 PLAN.txt and this
+review artifact. No application file, test, prior artifact, configuration,
+deployment file, device, or hardware system was modified. No staging, commit,
+push, deployment, or test execution was performed.
+
+FINDINGS
+
+1. PLANNING-ONLY SCOPE — SATISFIED
+
+The current task changes only PLAN.txt and this independent review. The plan
+has a precise future allowlist consisting of one pure evaluator module, one
+focused test module, and the later coder/precommit artifacts. Runtime wiring,
+Task 0079 files, web/UI files, database/schema changes, migrations,
+deployment, prior artifacts, and all command paths are explicitly excluded.
+A separate amendment is required before any runtime integration. This matches
+the repository workflow and ADR-0001/ADR-0003 shadow-first requirements.
+
+2. TASK 0076 EXACT SNAPSHOT BINDING — SATISFIED
+
+The plan requires the future coordinator to construct one current
+OutputTelemetry object, place that same object in InterlockSnapshot.telemetry
+and InterlockEvaluationInputs.snapshot, assert exact object identity, and
+invoke the existing evaluate_interlock with those inputs. A caller-reported
+InterlockDecision is diagnostic-only; absent, stale, or mismatched authority
+must produce INTERLOCK_SNAPSHOT_MISMATCH and cannot produce a positive state.
+This preserves Task 0076 as the sole interlock authority and preserves its
+current-snapshot recomputation contract.
+
+3. TASK 0078 AUTHORITY AND RESERVE PROVENANCE — SATISFIED
+
+The plan requires invocation of the unchanged winter evaluator from raw
+EnergyInputs, ApprovedBands, WinterContext, WinterPolicyConfig, and the exact
+snapshot-bound interlock inputs, with interlock=None. Therefore Task 0078's
+own bound-interlock path recomputes Task 0076; a caller-supplied positive
+WinterDecision is diagnostics-only and cannot authorize or promote the
+coordinator. The plan explicitly rejects caller-controlled reserve,
+synthetic, verified, source, scalar, and inspectable-record overrides.
+
+The current absence of a trusted BMS/shunt integration is preserved as a
+hard fail-closed boundary. A structurally valid synthetic=False reserve
+fixture remains unverified, cannot yield BATTERY_USE_ELIGIBLE, cannot yield a
+positive coordinator state, and is not used as a positive fixture. No new
+trusted-source flag, certificate, token, or verification mechanism is
+introduced. SOLAR_RETURN_CANDIDATE and SOLAR_OPERATION are unreachable for
+current live inputs; any future trusted integration requires a separate
+approved amendment and an exact raw-input evaluator call.
+
+4. RECEIPT, MEASUREMENT, MODE, CYCLE, AND DUPLICATE SEMANTICS — SATISFIED
+
+The plan makes the two time domains explicit and does not substitute receipt
+time for an unverified device measurement time. Receipt continuity uses the
+existing Task 0079 SAMPLE_GAP_SECONDS=600 constant: receipt times must be
+strictly increasing, equal/decreasing/unknown times and gaps above 600 seconds
+break the sequence, and a mode change across a break cannot count as a
+transition or cycle. Measurement continuity remains governed by the supplied
+Task 0076 baseline, including mode_continuity_max_gap_seconds and
+max_telemetry_gap_seconds, with the existing inclusive comparisons.
+
+A cycle is deterministic: one ordered sequence must contain a prior
+recovery/grid-charge observation, an observed Invert interval, and a later
+Line observation, with continuity under both receipt and measurement rules.
+The Line observation closes the sequence; a later fresh recovery observation
+starts the next one. Missing, stale, future, out-of-order, or unknown-time
+samples cannot create a cycle. Duplicate payloads do not advance sequence
+progress or settled-sample progress. The plan delegates mode-change counting,
+failed-trial detection, escalation, lockout, and expiry to the existing Task
+0076 semantics and explicitly forbids coordinator-only anti-flap constants or
+a second lockout authority.
+
+5. DWELL, SETTLING, CANDIDATE RESET, AND LOCKOUT — SATISFIED
+
+The plan names and reuses the existing Task 0076 fields for failed-trial
+limits, failed-trial lockout, mains and battery dwell, post-transition
+settling, churn lockout, and maximum lockout. Candidate_since is precisely the
+observed_at of the first current snapshot whose exact Task 0076 and Task 0078
+raw-input evaluations are positive. It resets on invalid, stale, future,
+unknown-time, contradictory, mode-continuity, or receipt-continuity evidence;
+duplicates neither advance it nor count as settled samples. Promotion requires
+existing post-transition settling, the existing settled-segment rule with its
+minimum of three valid settled samples, and existing min_battery_dwell_seconds.
+Current Task 0078 has no positive reserve authority, so this task implements
+no live candidate/promotion path and emits no SOLAR_OPERATION result.
+
+The deterministic priority order places emergency/protection, invalid or
+unsafe evidence, existing lockout, active grid recovery, manual safety holds,
+GRID_HOLD, candidate, and operation in the stated order. The acceptance matrix
+requires exact boundary tests for receipt gaps, measurement gaps, mode-change
+windows and limits, failed trials/escalation, dwell, settling, duplicates,
+reset, and lockout expiry. This is sufficient to prevent a second
+interpretation of Task 0076 anti-flap behavior.
+
+6. SAFETY AND DATA BOUNDARIES — SATISFIED
+
+The output is explicitly shadow-only with no command issued, hardware write
+attempt, or physical-transition proof. Reported settings, readback, observed
+Line/Invert mode, and application commands remain separate evidence streams.
+The plan preserves BatteryChargeController, nighttime/emergency charging,
+pumps, life support, solar takeover, Task 0076, Task 0078, and Task 0079
+behavior. Read-only DESS discovery remains bounded and is not a polling or
+control path. No migration, runtime state store, or unbounded event stream is
+proposed.
+
+7. TEST AND ACCEPTANCE GATE — SATISFIED
+
+The planned focused tests include the exact synthetic=False regression,
+caller-supplied positive WinterDecision rejection, exact interlock snapshot
+mismatch handling, rising-voltage grid hold, conflict reporting, weak
+sunrise, completion without immediate SBU, cycle/duplicate/gap cases,
+failed-trial and lockout behavior, stale/unknown/future evidence, emergency
+precedence, manual holds, readback/mode separation, failed DESS/database
+reads, restart fail-closed behavior, and hardware-write spies. The plan
+correctly states that Task 0080 acceptance is an approved plan, not a positive
+battery-use result or a physical-prevention claim.
+
+NON-BLOCKING IMPLEMENTATION NOTES
+
+- The future test must spy on the Task 0078 call and assert interlock=None and
+  raw-input recomputation, rather than merely inspecting the final state.
+- The future coder must keep the conceptual positive states unreachable under
+  the current committed reserve boundary and must obtain a separate approved
+  amendment before adding runtime/UI integration or any trusted reserve path.
+- This review approves no implementation commit and no precommit review until
+  a later coder produces only the approved future allowlist and validation.
+
+GATE DECISION
+
+APPROVED for the planning scope and the explicitly bounded future advisory
+implementation described in PLAN.txt. Do not stage, commit, push, deploy,
+wire runtime behavior, query live DESS settings, or issue any hardware command
+as part of Task 0080 planning.
+
