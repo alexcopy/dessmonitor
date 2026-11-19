@@ -1312,6 +1312,11 @@
         scheduleRefreshTick();
     }
 
+    /* The Controls page hosts the winter diagnostic panel; reuse this renderer there. */
+    if (typeof window !== "undefined") {
+        window.dessmonitorWinterDiagnostics = { render: renderWinterDiagnostics };
+    }
+
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", start);
     } else {

@@ -1,0 +1,180 @@
+TASK
+    0082 — Restore Main Dashboard and Relocate Winter Intelligence /
+    Grid-Battery Coordination Diagnostics to Controls
+
+AGENT
+    plan
+
+MODE
+    planning only (retrospective documentation)
+
+BRANCH
+    master
+
+PR
+    0082-dashboard-winter-panel-relocation
+
+DOCUMENTATION STATUS — READ CAREFULLY
+
+    This PLAN.txt is being written AFTER the implementation already exists in
+    the working tree. It is a retrospective reconciliation document created to
+    close the governance gap identified by the Task 0082 PRECOMMIT_REVIEW
+    (CHANGES REQUIRED: missing PLAN.txt, reviews/PLAN_REVIEW.txt and
+    CODER_REPORT.txt).
+
+    This document does NOT claim that planning preceded implementation. It
+    does NOT fabricate an earlier planning approval. It records the scope that
+    the original Task 0082 instruction authorized and that the actual
+    implementation diff already satisfies, so that the canonical four-artifact
+    chain can be completed honestly.
+
+    The implementation was performed under the original Task 0082 instruction
+    ("restore the main Dashboard by relocating the complete Winter Intelligence
+    / Grid-Battery Coordination diagnostic panel to Controls"). This plan
+    documents that same scope; it does not expand it.
+
+PRECONDITION (observed at documentation time)
+
+    HEAD: 5759e24eb833e20b1aaf63c9d39d83a3a261e41e
+    branch: master
+    Git index: empty
+    Working tree: six modified files (the implementation) plus the untracked
+    Task 0082 Project Memory directory.
+
+    The six modified files are exactly the files this plan authorizes:
+      app/web/templates/index.html
+      app/web/templates/controls.html
+      app/web/static/controls.js
+      app/web/static/controls.css
+      app/web/static/dashboard.js
+      tests/test_task0079_ui.cjs
+
+GOAL
+
+    Restore the main Dashboard (/) as the pond's operational interface by
+    removing the large Winter Intelligence / Grid-Battery Coordination
+    diagnostic panel from it, and relocate that complete read-only diagnostic
+    panel to the Controls page (/controls), where it is rendered by the
+    existing shared renderer and refreshed through the Controls page's own
+    polling lifecycle.
+
+    All operational dashboard functionality must remain intact, and all
+    Task 0076–0081 safety boundaries must remain unchanged.
+
+SCOPE — AUTHORIZED CHANGES
+
+1. DASHBOARD RESTORATION (app/web/templates/index.html)
+
+    - Remove the entire winter diagnostic panel block
+      (id="winter-diagnostics-panel" and all winter-* children) from the main
+      Dashboard template.
+    - Preserve all existing operational markup: inverter readings and energy
+      KPIs, loads table, sensors panel, device controls and modal, navigation,
+      warnings strip, and the dashboard-patch.js include.
+    - No other dashboard markup is changed.
+
+2. CONTROLS INTEGRATION (app/web/templates/controls.html,
+   app/web/static/controls.css)
+
+    - Add the complete winter diagnostic panel to the Controls template,
+      including: coordination state, desired output profile, reported output
+      priority, charger state / provenance, charge policy, coordination
+      history / conflicts, coordination lockout, and an expandable <details>
+      block containing DESS receipt, measurement time, persistence, last
+      evaluation, diagnostic failure, telemetry, HOLD/BLOCK reasons,
+      coordination blockers and missing evidence.
+    - Preserve the exact persistent label
+      "SHADOW ONLY — NO HARDWARE COMMANDS" and the advisory-versus-observed
+      distinction ("no physical inverter switch is claimed").
+    - Add only the CSS needed to style the <details> disclosure.
+    - Do not add any button, form, input, select, textarea or command
+      affordance inside the panel.
+    - Do not alter existing charts, time-range selectors, charger history or
+      transition tables.
+
+3. SHARED RENDERER REUSE (app/web/static/dashboard.js)
+
+    - Expose the existing renderWinterDiagnostics function as a read-only
+      export (window.dessmonitorWinterDiagnostics = { render: ... }) so the
+      Controls page can reuse it without duplicating rendering logic.
+    - Do not change dashboard polling behavior. On Controls there is no
+      #dashboard-content element, so the dashboard's start() returns before
+      executePoll(); no competing polling loop is introduced.
+
+4. CONTROLS POLLING AND FAILURE HANDLING (app/web/static/controls.js)
+
+    - Integrate a read-only GET /control/state fetch into the Controls page's
+      existing DOMContentLoaded + REFRESH_MS lifecycle.
+    - Guard against overlapping requests (winterLoading), use a per-call
+      AbortController with a bounded timeout, redirect to /login on 401, and
+      render the explicit unavailable state on non-OK or invalid responses.
+    - Release the controller and timer in a finally block.
+    - Render only through the shared textContent-based renderer.
+
+5. TESTS (tests/test_task0079_ui.cjs)
+
+    - Update the winter panel markup assertions to target controls.html.
+    - Add assertions that the panel is absent from index.html and present
+      exactly once on controls.html.
+    - Add a regression test that the dashboard initialises without any winter
+      diagnostic DOM.
+    - Add tests that Controls fetches /control/state and renders the panel, and
+      that a missing snapshot renders as unavailable.
+
+SAFETY INVARIANTS
+
+    - No backend, service, shared_state, API, web-host, charging-controller,
+      inverter-actuator, Tuya, relay, pump or deployment file is changed.
+    - Task 0081 runtime integration (winter_runtime_diagnostics, inverter
+      monitor post-charge callback, run.py wiring) is unchanged.
+    - Task 0076 interlock, Task 0078 winter eligibility and Task 0080
+      coordination remain the only authorities; this task only relocates
+      display markup and reuses the existing renderer.
+    - The diagnostic remains shadow-only and read-only; no hardware command
+      path is added or enabled.
+    - The authenticated GET /control/state endpoint is reused; no new endpoint
+      or write route is added.
+
+FUTURE IMPLEMENTATION ALLOWLIST
+
+    - app/web/templates/index.html
+    - app/web/templates/controls.html
+    - app/web/static/controls.js
+    - app/web/static/controls.css
+    - app/web/static/dashboard.js
+    - tests/test_task0079_ui.cjs
+
+    Project Memory artifacts:
+    - .project-memory/pr/0082-dashboard-winter-panel-relocation/PLAN.txt
+    - .project-memory/pr/0082-dashboard-winter-panel-relocation/reviews/PLAN_REVIEW.txt
+    - .project-memory/pr/0082-dashboard-winter-panel-relocation/CODER_REPORT.txt
+    - .project-memory/pr/0082-dashboard-winter-panel-relocation/reviews/PRECOMMIT_REVIEW.txt
+
+    No other files may be added or changed.
+
+TEST AND ACCEPTANCE PLAN
+
+    - Node UI tests for the winter panel, dashboard-without-winter, and
+      controls-winter rendering.
+    - Existing Controls, navigation, adaptive-decisions, journal, decision-log
+      and temperature-sensor UI suites remain green.
+    - JavaScript syntax checks (node --check) for dashboard.js, controls.js and
+      dashboard-patch.js.
+    - git diff --check, scripts/check-repo-safety.sh and
+      scripts/check-project-memory.sh.
+    - Python web integration tests are reported as not executed if FastAPI is
+      unavailable in the environment; they are not claimed as passing.
+
+NON-GOALS
+
+    - No redesign of the winter diagnostic content.
+    - No change to Task 0079–0081 runtime behavior.
+    - No new API endpoint, write route or command affordance.
+    - No deployment, Kubernetes, database or hardware change.
+
+GOVERNANCE NOTE
+
+    Because this plan is retrospective, the operator must decide whether a
+    separate planning commit is required before the implementation commit.
+    The plan-review and precommit-review gates still apply and must be genuine
+    independent reviews; this document does not self-approve.

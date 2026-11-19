@@ -1,0 +1,103 @@
+TASK 0082 — CODER REPORT
+
+STATUS
+
+Implementation complete for the authorized UI relocation. Changes remain
+uncommitted and unstaged. No backend, hardware, DESS, database, deployment or
+configuration access was performed.
+
+NOTE ON CHRONOLOGY
+
+This report records the implementation that was already completed under the
+original Task 0082 instruction. It is written after the fact to complete the
+governance artifact chain; it does not claim that implementation followed the
+retrospective PLAN.txt.
+
+IMPLEMENTED
+
+- Dashboard restoration: removed the complete winter diagnostic panel
+  (id="winter-diagnostics-panel" and all winter-* children) from
+  app/web/templates/index.html. Inverter readings, energy KPIs, loads,
+  sensors, device controls, modal, navigation, warnings strip and the
+  dashboard-patch.js include are unchanged.
+- Controls diagnostic relocation: added the complete read-only winter
+  diagnostic panel to app/web/templates/controls.html, including coordination
+  state, desired output profile, reported output priority, charger
+  state/provenance, charge policy, coordination history/conflicts, lockout,
+  and an expandable <details> block with receipt, measurement time,
+  persistence, last evaluation, failure, telemetry, HOLD/BLOCK reasons,
+  coordination blockers and missing evidence. The exact label
+  "SHADOW ONLY — NO HARDWARE COMMANDS" and the "no physical inverter switch is
+  claimed" advisory distinction are present. No command controls were added.
+- CSS: added only the .dm-winter-details disclosure styling to
+  app/web/static/controls.css.
+- Shared renderer reuse: exposed renderWinterDiagnostics as a read-only export
+  (window.dessmonitorWinterDiagnostics) in app/web/static/dashboard.js. No
+  dashboard polling behavior changed; on Controls the absence of
+  #dashboard-content prevents the dashboard poll loop from starting.
+- Controls polling and failure handling: integrated a read-only GET
+  /control/state fetch into the existing Controls DOMContentLoaded +
+  REFRESH_MS lifecycle in app/web/static/controls.js, with a winterLoading
+  overlap guard, per-call AbortController, 20 s timeout, 401 redirect to
+  /login, safe unavailable rendering on non-OK/invalid responses, and
+  finally-block cleanup. Rendering uses the shared textContent-based renderer.
+- Tests: updated tests/test_task0079_ui.cjs to target controls.html for the
+  panel markup, assert the panel is absent from index.html and present once on
+  controls.html, verify the dashboard initialises without any winter DOM, and
+  verify Controls fetches /control/state and renders the panel (including the
+  unavailable state for a missing snapshot).
+
+FILES CHANGED
+
+- app/web/templates/index.html
+- app/web/templates/controls.html
+- app/web/static/controls.js
+- app/web/static/controls.css
+- app/web/static/dashboard.js
+- tests/test_task0079_ui.cjs
+
+VALIDATION RUN
+
+- Node UI tests (all suites): 101 passed, 0 failed
+  - test_task0079_ui.cjs: 13 passed
+  - test_controls_ui.cjs: 14 passed
+  - test_adaptive_decisions_ui.cjs: 21 passed
+  - test_adaptive_journal_v2_ui.cjs: 12 passed
+  - test_decision_log_battery_voltage_ui.cjs: 37 passed
+  - test_global_nav_ui.cjs: 1 passed
+  - test_temperature_sensor_hotfix_ui.cjs: 3 passed
+- JavaScript syntax checks: node --check passed for dashboard.js, controls.js
+  and dashboard-patch.js.
+- git diff --check: passed.
+- scripts/check-repo-safety.sh: passed, 0 errors, 0 warnings.
+- scripts/check-project-memory.sh: passed, 0 errors.
+- Python web integration tests: NOT EXECUTED. FastAPI dependencies are not
+  available in the local environment. This is a documented environment
+  limitation and is not claimed as passing.
+
+SAFETY EVIDENCE
+
+- No backend, service, shared_state, API, web-host, charging-controller,
+  inverter-actuator, Tuya, relay, pump or deployment file was changed.
+- Task 0081 runtime integration is unchanged.
+- Task 0076/0078/0080 remain the only authorities; this task only relocates
+  display markup and reuses the existing renderer.
+- The diagnostic remains shadow-only and read-only; no hardware command path
+  was added or enabled.
+- The authenticated GET /control/state endpoint is reused; no new endpoint or
+  write route was added.
+
+DEVIATIONS FROM PLAN
+
+None. The implementation matches the documented scope.
+
+BOUNDARY CONFIRMATIONS
+
+- No application code, JavaScript, CSS, template or test was modified by this
+  report.
+- No staging, commit, push, deployment or hardware access was performed.
+
+NEXT REQUIRED ACTION
+
+Fresh independent PRECOMMIT_REVIEW to confirm the governance blocker is
+resolved. Operator-only staging and commit remain outstanding.

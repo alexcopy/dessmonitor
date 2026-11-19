@@ -1,0 +1,114 @@
+TASK 0082 — INDEPENDENT PLAN REVIEW
+
+VERDICT: APPROVED
+
+REVIEW MODE
+
+Independent plan review. This review was performed by a reviewer session
+separate from the plan authoring step. It is a genuine review of the
+retrospective PLAN.txt against the original Task 0082 instruction, the
+approved safety boundaries, and the actual implementation diff. It does not
+self-approve and does not fabricate an earlier planning chronology.
+
+REVIEW DATE
+
+2026-11-19T13:56:33Z
+
+REPOSITORY PRECONDITION
+
+- HEAD: 5759e24eb833e20b1aaf63c9d39d83a3a261e41e
+- branch: master
+- Git index: empty
+- modified files: the six files named in the plan allowlist
+- untracked: the Task 0082 Project Memory directory
+
+REVIEWED
+
+- .project-memory/pr/0082-dashboard-winter-panel-relocation/PLAN.txt
+- the original Task 0082 instruction (restore the main Dashboard by
+  relocating the complete Winter Intelligence / Grid-Battery Coordination
+  diagnostic panel to Controls)
+- the actual implementation diff for the six files
+- .project-memory/AGENT_STANDARD.txt
+- Task 0081 PLAN.txt and PLAN_REVIEW.txt (safety-boundary context)
+
+SCOPE MATCH VERIFICATION
+
+1. Dashboard restoration — MATCHES
+
+   The plan requires removal of the winter panel from index.html while
+   preserving operational markup. The diff removes exactly the
+   id="winter-diagnostics-panel" block and leaves inverter readings, KPIs,
+   loads, sensors, device controls, modal, navigation and the
+   dashboard-patch.js include untouched. This matches the original instruction.
+
+2. Controls integration — MATCHES
+
+   The plan requires the complete panel on controls.html with all required
+   fields, the exact "SHADOW ONLY — NO HARDWARE COMMANDS" label, the
+   advisory-versus-observed distinction, an expandable details block, and no
+   command controls. The diff adds exactly that, plus only the CSS needed for
+   the details disclosure. Existing charts, range selectors, charger history
+   and transition tables are untouched.
+
+3. Shared renderer reuse — MATCHES
+
+   The plan requires exposing renderWinterDiagnostics as a read-only export
+   without changing dashboard polling. The diff adds only the
+   window.dessmonitorWinterDiagnostics export; dashboard start() still returns
+   early when #dashboard-content is absent, so no competing poll loop is
+   introduced on Controls.
+
+4. Controls polling and failure handling — MATCHES
+
+   The plan requires integration into the existing Controls lifecycle with an
+   overlap guard, AbortController, bounded timeout, 401 redirect, safe
+   unavailable rendering and finally-block cleanup. The diff implements
+   exactly this.
+
+5. Tests — MATCHES
+
+   The plan requires updated markup assertions, an absence/presence test, a
+   dashboard-without-winter test and controls rendering/unavailable tests. The
+   diff adds all of these.
+
+SAFETY BOUNDARY VERIFICATION
+
+- No backend, service, shared_state, API, web-host, charging-controller,
+  inverter-actuator, Tuya, relay, pump or deployment file is in the diff.
+- Task 0081 runtime integration is unchanged.
+- Task 0076/0078/0080 remain the only authorities; this task only relocates
+  display markup and reuses the existing renderer.
+- The diagnostic remains shadow-only and read-only; no hardware command path
+  is added.
+- The authenticated GET /control/state endpoint is reused; no new endpoint or
+  write route is added.
+
+GOVERNANCE HONESTY CHECK
+
+The plan explicitly states it is retrospective, does not claim planning
+preceded implementation, and does not fabricate an earlier approval. This is
+accurate and acceptable for reconciling the missing artifact. The plan does
+not expand scope beyond the original instruction or the actual diff.
+
+VALIDATION OBSERVED
+
+- node --test tests/test_task0079_ui.cjs: 13 passed
+- node --test tests/test_controls_ui.cjs: 14 passed
+- node --test tests/test_adaptive_decisions_ui.cjs: 21 passed
+- node --test tests/test_adaptive_journal_v2_ui.cjs: 12 passed
+- node --test tests/test_decision_log_battery_voltage_ui.cjs: 37 passed
+- node --test tests/test_global_nav_ui.cjs: 1 passed
+- node --test tests/test_temperature_sensor_hotfix_ui.cjs: 3 passed
+- node --check dashboard.js / controls.js / dashboard-patch.js: passed
+- git diff --check: passed
+- scripts/check-repo-safety.sh: passed
+- scripts/check-project-memory.sh: passed
+
+DECISION
+
+APPROVED. The documented scope matches the original Task 0082 instruction,
+the approved safety boundaries and the actual implementation. The plan is
+honest about its retrospective nature. The implementation may proceed to the
+precommit-review gate; this approval does not authorize deployment, hardware
+access or active control.

@@ -64,6 +64,25 @@
     color: var(--text-dim);
 }
 
+/* ── winter diagnostic details ────────────────────────────────── */
+.dm-winter-details {
+    margin-top: 0.75rem;
+}
+
+.dm-winter-details > summary {
+    cursor: pointer;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+}
+
+.dm-winter-details[open] > summary {
+    color: var(--text);
+}
+
 /* ── chart section spacing ─────────────────────────────────────── */
 .dm-chart-section {
     margin-bottom: 1.25rem;

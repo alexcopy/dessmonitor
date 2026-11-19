@@ -23,6 +23,7 @@ function makeDom() {
                 toggle(c, on) {if (on === undefined ? !this.set.has(c) : on) {this.set.add(c);} else {this.set.delete(c);}},
                 contains(c) {return this.set.has(c);}},
             appendChild(child) {this.children.push(child); return child;},
+            replaceChildren(...children) {this.children = children; this.textContent = '';},
             removeChild(child) {this.children = this.children.filter(c => c !== child); return child;},
             get firstChild() {return this.children[0] || null;},
             setAttribute(k, v) {this.attributes[k] = String(v);},
@@ -41,6 +42,7 @@ function makeDom() {
         readyState: 'complete', hidden: false, listeners: {},
         getElementById(id) {if (!byId[id]) {byId[id] = element('div'); byId[id].id = id;} return byId[id];},
         createElement: element, createTextNode: text => ({textContent: String(text), children: []}),
+        createDocumentFragment: () => element('#fragment'),
         createElementNS: (_, tag) => element(tag),
         addEventListener(name, fn) {this.listeners[name] = fn;}, querySelector() {return null;}, querySelectorAll() {return [];},
     };
@@ -109,7 +111,7 @@ test('winter panel renders decision, reasons and freshness as literal text', asy
     assert.match(get('winter-coordination-lockout').textContent, /2026/);
     assert.deepEqual(get('winter-coordination-reasons').children.map(li => li.textContent),
         ['GRID_CHARGING_ACTIVE_WITH_SBU', XSS]);
-    assert.match(read('app/web/templates/index.html'), /SHADOW ONLY — NO HARDWARE COMMANDS/);
+    assert.match(read('app/web/templates/controls.html'), /SHADOW ONLY — NO HARDWARE COMMANDS/);
     const reasons = get('winter-reasons').children.map(li => li.textContent);
     assert.deepEqual(reasons, ['BATTERY_RESERVE_UNVERIFIED', XSS]);  // literal text, not markup
     assert.ok(get('winter-charging').textContent.includes(XSS));
@@ -187,12 +189,92 @@ test('inverter freshness falls back to labelled receipt time', async () => {
     assert.match(dom.byId['inv-timestamp'].title, /receipt time; device measurement time unverified/);
 });
 
-test('markup has no controls inside the winter panel', () => {
-    const html = read('app/web/templates/index.html');
-    const panel = html.slice(html.indexOf('id="winter-diagnostics-panel"'), html.indexOf('<!-- BOTTOM ROW'));
+test('markup has no command controls inside the winter panel', () => {
+    const html = read('app/web/templates/controls.html');
+    const panel = html.slice(html.indexOf('id="winter-diagnostics-panel"'), html.indexOf('<!-- ── Charts'));
     assert.ok(panel.length > 100);
     assert.doesNotMatch(panel, /<(button|a|form|input|select|textarea)\b/i);
     assert.match(panel, /cannot authorise battery use/);
+    assert.match(panel, /SHADOW ONLY — NO HARDWARE COMMANDS/);
+    assert.match(panel, /no physical inverter switch is claimed/);
+});
+
+test('winter diagnostic panel is absent from the main dashboard and present on controls', () => {
+    const dashboard = read('app/web/templates/index.html');
+    const controls = read('app/web/templates/controls.html');
+    assert.doesNotMatch(dashboard, /winter-diagnostics-panel|SHADOW ONLY — NO HARDWARE COMMANDS/);
+    assert.match(controls, /id="winter-diagnostics-panel"/);
+    for (const id of ['winter-decision', 'winter-freshness', 'winter-coordination',
+        'winter-coordination-profile', 'winter-output-priority', 'winter-charger-state',
+        'winter-coordination-history', 'winter-coordination-lockout',
+        'winter-coordination-reasons', 'winter-missing', 'winter-telemetry']) {
+        assert.equal((controls.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1, id);
+    }
+});
+
+async function runDashboardWithoutWinter(payload) {
+    const dom = makeDom();
+    const nativeGet = dom.document.getElementById.bind(dom.document);
+    dom.document.getElementById = id => (/^winter-/.test(id) ? null : nativeGet(id));
+    const fetch = async () => ({ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(payload))});
+    const window = {addEventListener() {}, location: {href: '/'}};
+    const sandbox = {document: dom.document, window, fetch, AbortController, setTimeout: () => 0, clearTimeout() {},
+        console, Date, Math, JSON, Number, String, Array, Object, isNaN, parseFloat, parseInt};
+    vm.runInNewContext(read('app/web/static/dashboard.js'), sandbox);
+    for (let i = 0; i < 6; i++) await tick();
+    return dom;
+}
+
+test('dashboard initialises without any winter diagnostic DOM', async () => {
+    const dom = await runDashboardWithoutWinter(controlState(WINTER));
+    assert.equal(dom.byId['winter-diagnostics-panel'], undefined);
+    assert.equal(dom.byId['socPct'].textContent, '60%');
+    assert.equal(dom.byId['footer-updated'].textContent, 'just now');
+});
+
+async function runControlsWinter(payload) {
+    const dom = makeDom();
+    const nativeGet = dom.document.getElementById.bind(dom.document);
+    dom.document.getElementById = id => (id === 'dashboard-content' ? null : nativeGet(id));
+    const fetchCalls = [];
+    const fetch = async url => {
+        fetchCalls.push(url);
+        if (url === '/control/state') {
+            return {ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(payload))};
+        }
+        return {ok: true, status: 200, json: async () => ({observations: [], transitions: [], summary_24h: {}})};
+    };
+    function Chart() {}
+    Chart.prototype.update = function () {};
+    const window = {addEventListener() {}, location: {href: '/controls'}};
+    const sandbox = {document: dom.document, window, fetch, AbortController, setTimeout: () => 0, clearTimeout() {},
+        setInterval: () => 0, sessionStorage: {getItem: () => null, setItem: () => {}},
+        console, Date, Math, JSON, Number, String, Array, Object, isNaN, parseFloat, parseInt, Chart};
+    /* dashboard.js provides the shared renderer; no #dashboard-content means no dashboard polling. */
+    vm.runInNewContext(read('app/web/static/dashboard.js'), sandbox);
+    vm.runInNewContext(read('app/web/static/controls.js'), sandbox);
+    dom.document.listeners.DOMContentLoaded();
+    for (let i = 0; i < 12; i++) await tick();
+    return {dom, fetchCalls};
+}
+
+test('controls fetches read-only state and renders the winter diagnostic panel', async () => {
+    const {dom, fetchCalls} = await runControlsWinter(controlState(WINTER));
+    assert.ok(fetchCalls.includes('/control/state'));
+    assert.ok(fetchCalls.includes('/api/charge/history?days=1'));
+    assert.equal(dom.byId['winter-decision'].textContent, 'RECOVERY_OR_FAULT_HOLD');
+    assert.match(dom.byId['winter-coordination-history'].textContent, /conflict/);
+    assert.equal(dom.byId['winter-coordination-profile'].textContent, 'Utility');
+    assert.deepEqual(dom.byId['winter-reasons'].children.map(li => li.textContent),
+        ['BATTERY_RESERVE_UNVERIFIED', XSS]);
+});
+
+test('controls labels a missing snapshot as unavailable', async () => {
+    const {dom} = await runControlsWinter({status: 'ok', snapshot: null});
+    assert.equal(dom.byId['winter-decision'].textContent, 'UNAVAILABLE');
+    assert.equal(dom.byId['winter-freshness'].textContent, 'unavailable');
+    assert.deepEqual(dom.byId['winter-reasons'].children.map(li => li.textContent),
+        ['WINTER_DIAGNOSTICS_UNAVAILABLE']);
 });
 
 async function runAnalytics(body, status = 200) {

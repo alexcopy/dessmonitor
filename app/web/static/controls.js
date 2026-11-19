@@ -15,6 +15,8 @@
     var hasData = false;
     var activeController = null;
     var pendingRangeLoad = false;
+    var winterController = null;
+    var winterLoading = false;
 
     function fmtDT(value) {
         if (value == null) return '—';
@@ -422,10 +424,60 @@
             }
         }
     }
+    /* Winter intelligence is rendered by dashboard.js; this page only supplies fresh state. */
+    function winterRenderer() {
+        if (typeof window === 'undefined' || !window.dessmonitorWinterDiagnostics) return null;
+        var render = window.dessmonitorWinterDiagnostics.render;
+        return typeof render === 'function' ? render : null;
+    }
+
+    function winterPanelPresent() {
+        return !!(document.getElementById && document.getElementById('winter-diagnostics-panel'));
+    }
+
+    function renderWinterUnavailable() {
+        var render = winterRenderer();
+        if (render) render(null);
+    }
+
+    async function loadWinterDiagnostics() {
+        if (!winterPanelPresent() || !winterRenderer() || winterLoading) return;
+        winterLoading = true;
+        var controller = new AbortController();
+        winterController = controller;
+        var timeout = setTimeout(function () { controller.abort(); }, 20000);
+        try {
+            var response = await fetch('/control/state', {
+                method: 'GET', cache: 'no-store', credentials: 'same-origin',
+                headers: { Accept: 'application/json' }, signal: controller.signal
+            });
+            if (response.status === 401) {
+                if (typeof window !== 'undefined' && window.location) window.location.href = '/login';
+                return;
+            }
+            if (!response.ok) throw new Error('Request failed');
+            var payload = await response.json();
+            if (!payload || typeof payload !== 'object') throw new Error('Invalid response');
+            var render = winterRenderer();
+            if (render) render(payload.snapshot || null);
+        } catch (error) {
+            renderWinterUnavailable();
+        } finally {
+            clearTimeout(timeout);
+            if (winterController === controller) winterController = null;
+            winterLoading = false;
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         bindRangeButtons();
         load();
-        setInterval(function () { if (!document.hidden) load(); }, REFRESH_MS);
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
+        loadWinterDiagnostics();
+        setInterval(function () {
+            if (!document.hidden) { load(); loadWinterDiagnostics(); }
+        }, REFRESH_MS);
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) { load(); loadWinterDiagnostics(); }
+        });
     });
 }());

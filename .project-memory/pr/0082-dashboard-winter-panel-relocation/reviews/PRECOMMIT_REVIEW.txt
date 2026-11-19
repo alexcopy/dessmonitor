@@ -1,0 +1,175 @@
+TASK 0082 — INDEPENDENT FINAL UI PRECOMMIT REVIEW
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW MODE
+
+Read-only independent review. No application code, test, configuration,
+deployment, Git index, commit or hardware state was changed. The only file
+written by this review is this artifact.
+
+REPOSITORY PRECONDITION
+
+- HEAD: 5759e24eb833e20b1aaf63c9d39d83a3a261e41e
+- branch: master
+- Git index: empty
+- modified files: exactly the six files named in the task scope
+  (app/web/templates/index.html, app/web/templates/controls.html,
+  app/web/static/controls.js, app/web/static/controls.css,
+  app/web/static/dashboard.js, tests/test_task0079_ui.cjs)
+- untracked files: none
+- no backend, service, shared_state, API, web-host or deployment file changed
+
+REVIEWED
+
+- app/web/templates/index.html (diff)
+- app/web/templates/controls.html (diff)
+- app/web/static/controls.js (diff + load()/loadWinterDiagnostics() bodies)
+- app/web/static/controls.css (diff)
+- app/web/static/dashboard.js (diff + cacheDom, renderWinterDiagnostics,
+  renderSnapshot, executePoll, start)
+- tests/test_task0079_ui.cjs (diff)
+- app/web/static/dashboard-patch.js (winter references: none)
+- tests/test_controls_ui.cjs, tests/test_global_nav_ui.cjs,
+  tests/test_temperature_sensor_hotfix_ui.cjs,
+  tests/test_adaptive_decisions_ui.cjs, tests/test_adaptive_journal_v2_ui.cjs,
+  tests/test_decision_log_battery_voltage_ui.cjs,
+  tests/benchmark_controls_render.cjs
+- .project-memory/AGENT_STANDARD.txt
+- scripts/check-project-memory.sh (canonical directory state machine)
+
+VALIDATION RUN (independently executed)
+
+- node --test tests/test_task0079_ui.cjs: 13 passed, 0 failed
+- node --test tests/test_controls_ui.cjs: 14 passed, 0 failed
+- node --test tests/test_adaptive_decisions_ui.cjs: 21 passed, 0 failed
+- node --test tests/test_adaptive_journal_v2_ui.cjs: 12 passed, 0 failed
+- node --test tests/test_decision_log_battery_voltage_ui.cjs: 37 passed, 0 failed
+- node --test tests/test_global_nav_ui.cjs: 1 passed, 0 failed
+- node --test tests/test_temperature_sensor_hotfix_ui.cjs: 3 passed, 0 failed
+- node --test tests/benchmark_controls_render.cjs: 1 failed — this file is a
+  manual benchmark harness that requires argv (source.js payload.json 1|2|7)
+  and exits 2 with a usage message when run without arguments. It is not a
+  test suite and is unmodified by Task 0082. Not a regression.
+- node --check app/web/static/dashboard.js: passed
+- node --check app/web/static/controls.js: passed
+- node --check app/web/static/dashboard-patch.js: passed
+- git diff --check: passed
+- scripts/check-repo-safety.sh: passed, 0 errors, 0 warnings
+- scripts/check-project-memory.sh: passed, 0 errors, 20 canonical directories
+- Python web integration tests: NOT RUN. The local environment has no FastAPI
+  dependency available to this reviewer session; this is a documented
+  environment limitation, not a claimed pass.
+
+FUNCTIONAL VERIFICATION
+
+1. Dashboard restoration — VERIFIED
+
+The complete winter panel block (id="winter-diagnostics-panel" and all
+winter-* children) is removed from app/web/templates/index.html. The remaining
+dashboard markup (inverter readings, energy KPIs, loads, sensors, device
+controls, modal, navigation, dashboard-patch.js include) is untouched by the
+diff. dashboard-patch.js contains no winter references (grep exit 1), so it is
+unaffected.
+
+Missing winter DOM cannot break the dashboard: cacheDom() stores null for
+absent elements, renderWinterDiagnostics() returns immediately when
+dom.winterPanel is null (dashboard.js:1034), and every setWinterText/setWinterList
+helper null-guards its element. The new regression test
+"dashboard initialises without any winter diagnostic DOM" runs dashboard.js
+with all winter-* getElementById calls returning null and asserts the SOC KPI
+and footer still render.
+
+2. Controls integration — VERIFIED
+
+app/web/templates/controls.html now hosts the full panel with every required
+field: coordination state, desired profile, reported output priority,
+charger state/provenance, charge policy, coordination history/conflicts,
+lockout, plus an expandable <details> block containing receipt, measurement
+time, persistence, last evaluation, failure, telemetry, HOLD/BLOCK reasons,
+coordination blockers and missing evidence. The exact label
+"SHADOW ONLY — NO HARDWARE COMMANDS" is present, and the note explicitly
+states that desired profile and reported priority are telemetry-derived and
+"no physical inverter switch is claimed", preserving the advisory-versus-
+observed distinction. The panel contains no button/a/form/input/select/textarea
+elements (asserted by the updated markup test). Existing charts, range
+selectors, charger history and transition tables are untouched by the diff and
+their suite (test_controls_ui.cjs, 14 tests) passes.
+
+3. JavaScript and polling — VERIFIED
+
+dashboard.js exposes a read-only renderer via
+window.dessmonitorWinterDiagnostics = { render: renderWinterDiagnostics }.
+On Controls there is no #dashboard-content element, so dom.isAnalyticsPage is
+true and start() returns before executePoll()/scheduleRefreshTick(); the
+dashboard therefore starts no competing polling loop on Controls. controls.js
+integrates the diagnostic fetch into its existing DOMContentLoaded +
+REFRESH_MS (60 s) lifecycle, guarded by winterLoading so overlapping calls are
+skipped, with a per-call AbortController and a 20 s timeout, a 401 redirect to
+/login, non-OK and invalid-payload handling that renders the explicit
+unavailable state, and a finally block that clears the timer and releases the
+controller. Rendering reuses the textContent-only helpers. The new tests
+"controls fetches read-only state and renders the winter diagnostic panel" and
+"controls labels a missing snapshot as unavailable" pass.
+
+BLOCKER
+
+1. Mandatory Task 0082 governance artifacts are missing.
+
+   The repository's canonical governance contract
+   (.project-memory/AGENT_STANDARD.txt sections 1-2 and
+   scripts/check-project-memory.sh) requires every canonical PR directory
+   (numeric part >= 0034a) to carry the four-artifact chain:
+   PLAN.txt, reviews/PLAN_REVIEW.txt, CODER_REPORT.txt and
+   reviews/PRECOMMIT_REVIEW.txt. check-project-memory.sh explicitly fails a
+   directory that reaches PRECOMMIT_COMPLETE without PLAN.txt and
+   reviews/PLAN_REVIEW.txt (lines 407-421), and the only exemptions are the two
+   grandfathered operator-override directories 0038 and 0039.
+
+   Task 0082 currently has no Project Memory directory at all: there is no
+   .project-memory/pr/0082-* directory, no PLAN.txt, no reviews/PLAN_REVIEW.txt
+   and no CODER_REPORT.txt. The implementation is therefore not covered by an
+   approved plan or plan review, and the required coder report is absent.
+
+   Expected: an approved PLAN.txt and reviews/PLAN_REVIEW.txt for Task 0082,
+   plus a CODER_REPORT.txt, before a precommit approval can be recorded.
+   Actual: none of these artifacts exist; only this review artifact is being
+   created.
+
+   Minimal correction: run the plan and plan-review agents for Task 0082 to
+   produce .project-memory/pr/0082-dashboard-winter-panel-relocation/PLAN.txt
+   and reviews/PLAN_REVIEW.txt, and have the coder produce CODER_REPORT.txt.
+   This review artifact is written under that directory so the chain is
+   complete once those artifacts exist. No implementation change is required
+   by this blocker.
+
+NON-BLOCKING LIMITATIONS
+
+- Python web integration tests could not be executed because FastAPI is not
+  available in this reviewer environment. This is an environment limitation,
+  not a demonstrated failure; it is not claimed as passing.
+- tests/benchmark_controls_render.cjs is a manual benchmark harness, not a
+  test suite; running it without arguments exits 2 by design. It is unmodified
+  by Task 0082.
+- The winter panel's <details> disclosure starts collapsed; this is a
+  presentation choice and does not hide the mandatory shadow-only label,
+  which sits outside the disclosure.
+
+SCOPE AND GOVERNANCE CONFIRMATION
+
+- No backend, charging controller, inverter actuator, Tuya, pump or deployment
+  behavior was changed: git diff --name-only over app/control, app/service,
+  service, shared_state, app/api.py, app/web_host.py, app/web_routes.py,
+  app/web_control_state_provider.py and app/control/web_ui_read_endpoint.py
+  returned no files.
+- No untracked files exist.
+- No staging, commit, push, reset, deployment or hardware access was performed.
+
+FINAL DECISION
+
+CHANGES REQUIRED. The UI implementation itself is correct, safe and within
+scope, and all executable UI checks pass. Approval is withheld solely because
+the mandatory Task 0082 planning, plan-review and coder artifacts do not
+exist. Once those artifacts are produced and approved, this review can be
+re-run and the implementation is expected to be approvable without code
+changes.
