@@ -1,0 +1,139 @@
+TASK 0083 — CODER REPORT
+
+STATUS
+
+Implementation prepared for independent precommit review. Changes remain
+uncommitted and unstaged. The feature is disabled, unwired to runtime, and no
+DESS request, hardware write, production access or charging-policy change was
+performed.
+
+IMPLEMENTED
+
+- Added a narrow LiveDessTransport with exact read actions and one exact
+  los_output_source_priority ctrlDevice request shape. It uses the pinned
+  existing DESS API boundary directly and never calls the generic ctrl_device
+  setter. It is disabled unless explicitly enabled and refuses keys not seen in
+  the read catalogue.
+- Added UtilityHoldAuthorization, disabled by default, requiring explicit
+  operator authorization, 24 V installation class, exact model and firmware
+  verification, exact Utility/Solar/SBU catalogue verification, backup-loss
+  behavior verification, rollback acknowledgement and a stable device digest.
+- Added a one-way UtilityHoldCoordinator. Verified fresh solar_and_mains plus
+  verified SBU may produce one Utility request; reported Utility is a zero-write
+  no-op. There is no restore-to-SBU operation and no BatteryChargeController
+  call.
+- Added deterministic command-key idempotency, durable INTENT/WRITE_ATTEMPT/
+  POST_WRITE_READBACK auditing, post-write local-receipt verification, and
+  non-retryable handling for mismatch, unknown, unresolved and ambiguous
+  outcomes. Results explicitly do not claim Line/Invert physical behavior.
+- Added only a read-only PostgresJournal command-key lookup. Existing fake-only
+  actuator behavior and its safety barrier are unchanged.
+
+REGRESSION TESTS
+
+- Verified Solar + Mains/SBU performs exactly one Utility write and records the
+  expected audit events.
+- Repeated logical events return the previous verified result without another
+  write; write failures remain non-retryable.
+- Already Utility, unverified/stale inputs, incomplete authorization, invalid
+  catalogue mappings, manual override and disabled transport perform no write.
+- Mismatch readback never restores SBU.
+- The emergency/charger-controller test confirms this path does not invoke
+  BatteryChargeController behavior.
+- The live transport test uses an injected fake request function only and
+  verifies the exact field, advertised key and request action sequence.
+
+VALIDATION
+
+- Focused actuator and Utility-hold tests: 24 passed.
+- Coordination, interlock, winter and runtime integration tests with the
+  documented PYTHONPATH: 66 passed.
+- Python 3.12 compileall for all changed implementation and test files: passed.
+- Repository safety check: passed, zero errors and warnings.
+- Project-Memory structure check: passed, including Task 0083 planning state.
+- git diff --check: passed.
+- Git index: empty; no staging, commit, push, reset, restore or stash performed.
+
+SCOPE AND LIMITATIONS
+
+- Modified files are limited to the Task 0083 implementation/test allowlist,
+  plus this report and the already-created plan/review artifacts.
+- No runtime startup wiring, production configuration, schema migration,
+  polling loop, charger-source control or active enablement was added.
+- Device-specific model, firmware, exact catalogue and Utility-backup behavior
+  remain commissioning prerequisites. The implementation does not establish
+  that a reported setting caused Line/Invert operation.
+- Live commissioning remains a separate operator-authorized step requiring
+  read-only identity/catalogue/readback verification, explicit enablement,
+  request quiescence, one supervised Utility hold, post-write readback and
+  audit inspection. Automatic SBU restoration is not supported.
+
+NEXT REQUIRED ACTION
+
+Fresh independent PRECOMMIT_REVIEW. Do not enable, wire, stage, commit or push
+from this task.
+
+CORRECTIVE PASS 1 — PRECOMMIT FINDINGS
+
+- The live transport now records the unique advertised Utility key and refuses
+  Solar, SBU and any other key even when those keys are present in the
+  catalogue. The coordinator still requires the complete exact catalogue map.
+- The transport's default request path now uses the existing API signing and
+  parameter helpers with a dedicated opener that rejects redirects. The
+  endpoint remains the literal approved public endpoint; alternate endpoints,
+  redirects and fallback request paths are not accepted.
+- Catalogue, pre-write and post-write receipts are checked against a clock
+  captured after each corresponding response. The existing inclusive age rule
+  remains 0 <= age <= telemetry_max_age_seconds. The gated charger/output
+  observations remain anchored to evaluated_at.
+- After the journal lock and unresolved-intent check, the coordinator performs
+  a second current-setting readback. A changed, stale or unavailable value
+  blocks the write before INTENT is recorded.
+- Added regression coverage for direct SBU refusal, redirect refusal, future
+  and post-evaluation receipts, pre-write races, and concurrent calls.
+
+CORRECTIVE VALIDATION
+
+- Focused actuator and Utility-hold tests: 28 passed.
+- No DESS endpoint, credential environment, hardware, production service or
+  real request function was accessed.
+- A fresh independent PRECOMMIT_REVIEW is required; this report is not an
+  approval.
+
+CORRECTIVE PASS 2 — REQUEST BOUNDARY AND UNCERTAIN AUDIT
+
+- Applied the independently reviewed plan amendment: app/api.py now has only
+  an optional reject_redirects parameter on _do_api_request. Default callers
+  retain existing behavior; LiveDessTransport calls the shared signed request
+  boundary with redirect rejection enabled. The duplicate signing/HTTP path
+  was removed from the new transport.
+- A write exception or cancellation after WRITE_ATTEMPT now performs a
+  shielded read-only reconciliation, appends POST_WRITE_READBACK when
+  possible, leaves the durable intent unresolved, and never marks the result
+  VERIFIED. Cancellation during post-write readback is also audited and
+  re-raised.
+- Added fake-only tests for shared request-boundary parameters and redirect
+  rejection, cancellation audit, future and exact post-write freshness,
+  post-write mismatch/unknown non-retryability, concurrency and race safety.
+
+CORRECTIVE PASS 2 VALIDATION
+
+- Focused actuator and Utility-hold tests: 32 passed.
+- The plan amendment received a fresh independent PLAN_REVIEW approval before
+  the app/api.py boundary correction.
+- No live request, DESS endpoint, credential environment, service or hardware
+  access was performed. A fresh independent PRECOMMIT_REVIEW is required.
+
+CORRECTIVE PASS 3 — JOURNAL FAILURE COVERAGE
+
+- Extended the fake journal with controlled event and finalization failures.
+- Added regression tests proving POST_WRITE_READBACK event failure, final
+  journal finalization failure, and cancellation reconciliation failure leave
+  the intent unresolved, never report VERIFIED, and prevent a repeat write.
+
+CORRECTIVE PASS 3 VALIDATION
+
+- Focused actuator and Utility-hold tests: 35 passed.
+- No DESS, hardware, production service or credential access occurred.
+- Requesting the final independent PRECOMMIT_REVIEW; implementation remains
+  uncommitted and unstaged.

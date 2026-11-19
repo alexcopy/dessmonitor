@@ -1,0 +1,631 @@
+TASK 0083 — INDEPENDENT FINAL PRECOMMIT REVIEW
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW MODE
+
+Independent read-only precommit review. No implementation, test, configuration,
+DESS, hardware, production, staging, commit, push, or Git-state mutation was
+performed. This artifact is the first Task 0083 PRECOMMIT_REVIEW and therefore
+has no earlier review text to preserve.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Git index: empty
+
+The complete uncommitted inventory at review time was:
+
+ M app/control/easun_output_actuator.py
+?? .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+?? .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+?? .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt
+?? app/control/easun_live_output_transport.py
+?? app/control/easun_utility_hold.py
+?? tests/test_easun_utility_hold.py
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt,
+  including the earlier CHANGES REQUIRED history and fresh APPROVED review
+- .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+- app/control/easun_output_actuator.py
+- app/control/easun_live_output_transport.py
+- app/control/easun_utility_hold.py
+- tests/test_easun_output_actuator.py
+- tests/test_easun_utility_hold.py
+- app/control/easun_output_mapping.py
+- app/api.py request boundary
+- relevant Task 0076, 0080 and 0081 plans and existing coordination tests
+
+POSITIVE FINDINGS
+
+- The existing EASUNOutputActuator still rejects every transport except the
+  exact FakeDessTransport. Its fake execute path was not broadened.
+- The only production-shaped module is unwired from runtime startup and no
+  BatteryChargeController, InverterMonitor, charger policy, threshold,
+  schedule, current, relay, dashboard, configuration, or deployment file was
+  changed.
+- The live module pins the literal DESS public endpoint, uses the existing
+  signed request boundary directly, does not call DessAPI.ctrl_device(), and
+  limits the constructed ctrlDevice request to
+  los_output_source_priority.
+- Authorization is disabled by default and requires the stated voltage,
+  model, firmware, catalogue, backup-behavior, rollback, and device-identity
+  markers. The coordinator has no SBU restore operation.
+- The coordinator requires Solar + Mains, DEVICE_READBACK charger evidence,
+  verified SBU/Utility setting evidence, exact catalogue mapping, manual
+  override absence, and inclusive freshness checks before entering the write
+  path.
+- The stable command key, read-only journal lookup, INTENT row, WRITE_ATTEMPT
+  event, one transport call, POST_WRITE_READBACK event, and non-retryable
+  prior-status handling are present. The result does not claim a physical
+  Line/Invert transition.
+
+BLOCKERS
+
+1. Direct transport calls can write SBU, not only Utility.
+
+Location: app/control/easun_live_output_transport.py:119-127.
+
+After read_catalogue(), _advertised_priority_keys contains every advertised
+key. write_output_priority() accepts any member of that set, including the
+SBU key "2". The approved plan requires the dedicated transport itself to
+construct only the exact advertised Utility request. The coordinator's exact
+catalogue check does not make the transport boundary safe when the transport
+is called directly.
+
+An isolated fake-only probe called read_catalogue() followed by
+write_output_priority("2") and observed a ctrlDevice request with
+id=los_output_source_priority and val=2.
+
+Minimal fix: retain the exact key whose catalogue label is Utility and reject
+every other key in write_output_priority(), with tests for SBU, Solar, charger,
+and voltage keys. Keep the coordinator's complete exact-map gate as a separate
+check.
+
+2. Live receipt freshness is anchored to a timestamp captured before the live
+   reads, making the successful live path impossible for normal network
+   responses.
+
+Location: app/control/easun_utility_hold.py:117-149 and 217-220.
+
+The method sets now from caller-supplied evaluated_at before calling the live
+transport. CatalogueRead and SettingRead receive local receipt timestamps
+after those calls, but _fresh() compares them with that earlier now and
+rejects any normal response that is even slightly newer as future data. A
+fake-only probe with receipt_at=evaluated_at+1 second returned
+CATALOGUE_MAPPING_UNVERIFIED and issued zero writes.
+
+Minimal fix: keep the gated charger/setting observations checked against the
+decision timestamp, but validate each live response against a fresh aware
+receipt-check time captured after that response (and validate post-write
+readback against its own post-read time). Add future, exact-boundary, and
+normal-after-evaluated_at tests without weakening the 0 <= age <= limit rule.
+
+3. The required pre-write state-race barrier is absent.
+
+Location: app/control/easun_utility_hold.py:147-211.
+
+The coordinator reads the current setting before acquiring the shared journal
+lock, then proceeds directly from the lock to intent and write. It never
+re-reads the output priority while holding the lock immediately before the
+intent. An external change from SBU to Solar after the first read therefore
+still permits a Utility write. The approved plan explicitly requires a
+readback race to block further writes.
+
+Minimal fix: after acquiring the lock and before intent, perform a fresh
+readback, require a fresh parsed SBU value matching the gated observation,
+and refuse with zero write if it is changed, stale, invalid, or unavailable.
+Add a fake transport/journal race regression test.
+
+4. The pinned request boundary does not enforce the plan's no-redirect
+   invariant.
+
+Location: app/control/easun_live_output_transport.py:80-85 and app/api.py:353-354.
+
+LiveDessTransport delegates to DessAPI._do_api_request(), whose
+urllib.request.urlopen() uses the default redirect handler. The transport
+pins the initial URL but cannot reject a redirect from that helper. The plan
+requires redirects and alternate endpoints to be rejected before any live
+request. This is not covered by the current fake adapter test.
+
+Minimal fix: provide a reviewed request boundary that disables/rejects
+redirects while preserving the exact endpoint and signing contract, or amend
+the approved plan before implementation if that cannot be done without a
+forbidden app/api.py change. Add a fake/request-boundary test proving a
+redirect is refused.
+
+REGRESSION COVERAGE GAPS
+
+The focused tests pass, but tests/test_easun_utility_hold.py does not actually
+assert all approved acceptance cases. In particular it lacks coordinator tests
+for concurrent calls, the post-lock race above, stale/future live catalogue
+and readback receipt handling, cancellation, journal/event failure,
+post-write UNKNOWN/MISMATCH non-retryability, and direct rejection of the SBU
+key. The emergency test creates an unused SimpleNamespace and therefore does
+not exercise an emergency charging or controller integration boundary; source
+inspection confirms no such integration was added. These tests must be added
+alongside the fixes before approval.
+
+VALIDATION
+
+Focused command:
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m unittest \
+  tests.test_easun_output_actuator tests.test_easun_utility_hold -v
+
+Result: PASSED — 24 tests.
+
+Broader command:
+
+PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest \
+  tests.test_grid_output_interlock tests.test_grid_charge_output_coordination \
+  tests.test_winter_energy_intelligence tests.test_web_runtime_integration -v
+
+Result: PASSED — 117 tests in this workspace. The CODER_REPORT says 66
+tests; that count does not match the documented command executed here and
+must not be treated as the independent result.
+
+Compile command:
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m compileall -q \
+  app/control/easun_output_actuator.py app/control/easun_live_output_transport.py \
+  app/control/easun_utility_hold.py tests/test_easun_output_actuator.py \
+  tests/test_easun_utility_hold.py
+
+Result: PASSED.
+
+scripts/check-repo-safety.sh: PASSED; 0 errors, 0 warnings.
+scripts/check-project-memory.sh: PASSED; Task 0083 is CODER COMPLETE.
+git diff --check: PASSED.
+
+No DESS endpoint, real request function, credential environment, hardware,
+production service, or command setter was accessed during this review. The
+additional probes used only injected fake request/transport objects.
+
+SCOPE AND COMMIT STATUS
+
+The implementation remains uncommitted and unstaged. No forbidden Task
+0075–0082 artifact, runtime wiring, charging controller, or configuration file
+was modified. The plan and plan-review artifacts are present as pre-existing
+uncommitted workflow artifacts and were not edited by this review.
+
+REQUIRED NEXT ACTION
+
+Return to the coder phase for the four blockers and the listed regression
+coverage. Then request a fresh independent precommit review. Do not enable,
+wire, stage, commit, push, commission, access DESS, or issue hardware writes.
+
+Skipped: live commissioning, endpoint/network verification, and production
+access remain intentionally unperformed. Risk: until the transport target,
+receipt-clock handling, pre-write race barrier, and redirect behavior are fixed
+and tested, this feature is not ready for commit or operator authorization.
+
+
+TASK 0083 — FRESH INDEPENDENT FINAL PRECOMMIT REVIEW
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW DATE
+
+2026-11-19
+
+REVIEW MODE
+
+Independent read-only final review. The preceding CHANGES REQUIRED review is
+preserved above as audit history. No implementation, test, configuration,
+DESS, hardware, production, staging, commit, push, or Git-state mutation was
+performed by this review.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Git index: empty
+
+The current complete uncommitted inventory is:
+
+- M app/control/easun_output_actuator.py
+- ?? .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/reviews/PRECOMMIT_REVIEW.txt
+- ?? app/control/easun_live_output_transport.py
+- ?? app/control/easun_utility_hold.py
+- ?? tests/test_easun_utility_hold.py
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt,
+  including both the earlier CHANGES REQUIRED history and the later APPROVED
+  plan review
+- .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+- app/control/easun_live_output_transport.py
+- app/control/easun_utility_hold.py
+- app/control/easun_output_actuator.py
+- tests/test_easun_output_actuator.py
+- tests/test_easun_utility_hold.py
+- app/control/easun_output_mapping.py and the app/api.py request boundary
+- relevant Task 0076, 0080 and 0081 coordination artifacts and tests
+
+RESOLVED REQUIREMENTS
+
+- Direct Solar and SBU writes are rejected after catalogue discovery. The
+  transport retains only the uniquely advertised Utility key and the focused
+  test asserts that both the SBU key and an unrelated charger key fail.
+- The coordinator requires the exact
+  los_output_source_priority mapping Utility=0, Solar=1, SBU=2, verified
+  charger/output evidence, disabled-by-default authorization prerequisites,
+  and no manual override.
+- Catalogue, initial, under-lock race, and post-write receipts use separate
+  local receipt timestamps and the inclusive 0 <= age <= limit rule. The
+  under-lock readback blocks changed, stale, or unavailable state before the
+  INTENT row and write.
+- No generic DessAPI.ctrl_device() call, charger/controller invocation,
+  runtime startup wiring, SBU restore operation, threshold/schedule/current
+  change, or production access was introduced. The existing actuator remains
+  fake-transport-only apart from the read-only journal lookup.
+- Stable command-key lookup, durable INTENT/WRITE_ATTEMPT events, duplicate
+  suppression, the unresolved-intent guard, mismatch handling, and concurrent
+  at-most-one-write behavior are present.
+
+BLOCKERS
+
+1. The live request implementation does not use the approved request boundary.
+
+   Location: app/control/easun_live_output_transport.py:52-73.
+
+   The approved PLAN requires LiveDessTransport to use the existing narrow
+   _do_api_request boundary directly. The implementation instead duplicates
+   signing, URL construction, response parsing, and HTTP execution with
+   urllib.request.build_opener(). Although the duplicate path currently pins
+   API_BASE and rejects redirects, it is a second authentication/request
+   implementation outside the approved boundary and can drift from the
+   existing API behavior. The constructor only checks for an _do_api_request
+   attribute; the live path does not call it.
+
+   Minimal fix: provide a reviewed redirect-rejecting wrapper at the approved
+   request boundary and have this transport call that boundary, or amend the
+   approved plan and obtain independent plan approval before adopting the
+   duplicate transport. The current implementation is not ready for commit
+   under the approved plan.
+
+2. Ambiguous write failures and cancellation do not record the required
+   post-write audit observation.
+
+   Location: app/control/easun_utility_hold.py:227-256.
+
+   If write_output_priority() raises after the request may have reached the
+   device, control jumps directly to WRITE_OR_AUDIT_UNCERTAIN and leaves the
+   INTENT row unresolved without a POST_WRITE_READBACK event. Cancellation
+   is re-raised at line 251 with the same missing reconciliation record. The
+   approved audit contract requires the write attempt and the post-write
+   observation/status to remain durable for UNKNOWN, timeout, cancellation
+   and other fault outcomes; the current code only records POST_WRITE_READBACK
+   when the write call returns normally or when the later readback catches an
+   exception.
+
+   Minimal fix: make the ambiguous-write/cancellation recovery path perform a
+   shielded read-only reconciliation and append a POST_WRITE_READBACK value
+   such as UNAVAILABLE or CANCELLED, while retaining an unresolved intent and
+   never retrying or marking VERIFIED. If the event cannot be recorded, retain
+   the unresolved intent and make that failure explicit.
+
+3. Required fault and freshness regression coverage is incomplete.
+
+   The focused suite has 28 passing tests, but it does not exercise the
+   post-write receipt boundary (fresh, exactly-at-limit, stale, or future),
+   cancellation after INTENT/write attempt, journal/event failure during
+   reconciliation, or the non-retryable idempotency result after a post-write
+   UNKNOWN/MISMATCH. The implementation's static branches are not an
+   independent substitute for those required acceptance tests, especially
+   while blocker 2 leaves one of the fault paths without its required audit
+   event.
+
+   Minimal fix: add fake-only tests for those boundaries and assert the
+   durable row status, reconciliation event sequence, zero retry writes, and
+   inclusive age behavior. Do not use a live endpoint or relax the safety
+   gates.
+
+VALIDATION
+
+- Focused command:
+  /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest
+  tests.test_easun_output_actuator tests.test_easun_utility_hold -v
+  Result: PASSED — 28 tests.
+- Broader command:
+  PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m
+  unittest tests.test_grid_output_interlock
+  tests.test_grid_charge_output_coordination
+  tests.test_winter_energy_intelligence tests.test_web_runtime_integration -v
+  Result: PASSED — 117 tests. This independently observed count differs from
+  the 66-test count in CODER_REPORT.txt; the command completed successfully.
+- Python 3.12 compileall for the changed implementation and test files:
+  PASSED.
+- scripts/check-repo-safety.sh: PASSED; zero errors and warnings.
+- scripts/check-project-memory.sh: PASSED; Task 0083 PRECOMMIT COMPLETE
+  before this new review entry was appended.
+- git diff --check: PASSED.
+- git diff --cached --name-only: empty.
+- Static scan found no runtime wiring, BatteryChargeController change,
+  generic ctrl_device() call, or production request invocation outside the
+  uncalled transport boundary. All request tests used injected fakes; no
+  endpoint, credential environment, service, inverter, or charger was
+  accessed.
+
+SCOPE AND COMMIT STATUS
+
+The implementation remains uncommitted and unstaged. The only file changed by
+this review is this PRECOMMIT_REVIEW.txt artifact. No Task 0075–0082 artifact,
+runtime code, configuration, deployment, charging policy, or hardware state
+was changed.
+
+REQUIRED NEXT ACTION
+
+Return to targeted coder correction for the three blockers, then request a
+fresh independent precommit review. Do not enable, wire, stage, commit, push,
+commission, access DESS, or issue hardware writes.
+
+Skipped: live commissioning, endpoint/network verification, and production
+access remain intentionally unperformed. The feature is not ready for commit
+or operator authorization until the approved request boundary, fault audit
+semantics, and regression coverage are corrected.
+
+
+TASK 0083 — FINAL INDEPENDENT PRECOMMIT REVIEW AFTER APPROVED AMENDMENT
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW DATE
+
+2026-11-19
+
+REVIEW MODE
+
+Independent read-only final review. All prior PRECOMMIT_REVIEW findings and
+verdicts are preserved above. No implementation, test, configuration, DESS,
+hardware, production, staging, commit or push action was performed.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Git index: empty
+
+COMPLETE CURRENT INVENTORY
+
+- M app/api.py
+- M app/control/easun_output_actuator.py
+- ?? .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/reviews/PRECOMMIT_REVIEW.txt
+- ?? app/control/easun_live_output_transport.py
+- ?? app/control/easun_utility_hold.py
+- ?? tests/test_easun_utility_hold.py
+
+The cached inventory is empty. No files outside the approved Task 0083
+implementation, test and workflow-artifact scope are present in the current
+inventory.
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0083-controlled-utility-hold/PLAN.txt, including the
+  redirect-safe request-boundary amendment
+- .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt,
+  including the prior blockers and both amendment approvals
+- .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+- app/api.py
+- app/control/easun_live_output_transport.py
+- app/control/easun_utility_hold.py
+- app/control/easun_output_actuator.py
+- tests/test_easun_output_actuator.py
+- tests/test_easun_utility_hold.py
+- relevant existing mapping, charging, coordination and runtime tests
+
+VERIFIED
+
+- app/api.py contains only the approved optional keyword-only
+  reject_redirects parameter and its redirect-rejecting opener. The default is
+  False, so existing callers retain the previous request behavior. Signing,
+  authentication, URL construction, HTTP execution and response handling
+  remain in _do_api_request.
+- LiveDessTransport calls _do_api_request(..., reject_redirects=True) and has
+  no duplicate signing, URL or HTTP path. It does not call DessAPI.ctrl_device.
+  The default transport is disabled; all review tests use injected fake
+  adapters and no endpoint or credential environment was accessed.
+- The only public write operation constructs ctrlDevice for the exact
+  los_output_source_priority field and the uniquely advertised Utility key.
+  The coordinator additionally requires the exact Utility=0, Solar=1,
+  SBU=2 catalogue, verified charger/output observations, fresh receipts and
+  complete explicit authorization. SBU and unrelated keys are rejected.
+- Catalogue, pre-write, under-lock race and post-write receipts are local,
+  timezone-aware receipt times. Freshness is inclusive at
+  0 <= age <= telemetry_max_age_seconds, and future/stale/missing receipts
+  fail closed. The under-lock readback prevents a changed SBU state from
+  reaching INTENT or the write.
+- Successful, mismatch, unknown, write-error and cancellation paths create the
+  intended audit sequence when the journal is available: INTENT,
+  WRITE_ATTEMPT and POST_WRITE_READBACK. Failed or ambiguous outcomes do not
+  become VERIFIED and retain unresolved/non-retryable state. Stable command
+  keys, the journal lookup, advisory lock and concurrent tests limit the
+  action to one write. There is no SBU restore path.
+- No charger/controller call, runtime startup wiring, charging-policy change,
+  threshold/schedule/current change or production command path was added.
+  Results distinguish reported setting readback from physical Line/Invert
+  behavior.
+
+REMAINING BLOCKER
+
+1. Required journal/event-failure regression coverage is still incomplete.
+
+   Location: tests/test_easun_utility_hold.py:24-63 and :179-219. The fake
+   Journal has no failure injection for record_observation() or finish(), and
+   the suite does not exercise a post-write reconciliation-event failure or a
+   finalization failure. The implementation's catch paths at
+   app/control/easun_utility_hold.py:274-290 appear conservative, but static
+   inspection is not sufficient for the approved plan's requirement to prove
+   journal failure leaves the intent unresolved, never reports VERIFIED and
+   prevents a second write. Cancellation is tested only through a transport
+   CancelledError; the event/journal failure variant remains untested.
+
+   Minimal fix: add fake-only failure switches and regression tests for
+   POST_WRITE_READBACK record failure and finish failure, plus cancellation
+   reconciliation failure. Assert the durable row remains INTENT/unknown,
+   the result is not VERIFIED, and a repeat logical event performs zero
+   additional writes. Do not weaken the fail-safe handling or use DESS.
+
+VALIDATION
+
+- Focused command:
+  /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest
+  tests.test_easun_output_actuator tests.test_easun_utility_hold -v
+  Result: PASSED — 32 tests.
+- Broader command:
+  PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m
+  unittest tests.test_grid_output_interlock
+  tests.test_grid_charge_output_coordination
+  tests.test_winter_energy_intelligence tests.test_web_runtime_integration -v
+  Result: PASSED — 117 tests.
+- Compileall for app/api.py, the changed actuator, both new implementation
+  modules and their focused tests: PASSED.
+- scripts/check-repo-safety.sh: PASSED; zero errors and warnings.
+- scripts/check-project-memory.sh: PASSED; zero errors.
+- git diff --check: PASSED.
+- git diff --cached --name-only: empty.
+- Static path scan found no generic ctrl_device() call from the new transport,
+  no charger/controller/runtime wiring and no production request invocation.
+
+SCOPE AND SAFETY
+
+The implementation remains disabled-by-default, unwired and uncommitted.
+No DESS access, hardware command, charging change, service restart, staging,
+commit or push occurred. Exact model, firmware, catalogue and Utility First
+backup behavior remain separate operator-authorized commissioning evidence;
+they are not established by this review.
+
+REQUIRED NEXT ACTION
+
+Add only the missing fake journal/event-failure regression coverage, rerun the
+same validation set, and request another independent precommit review. Do not
+enable, wire, commission, access DESS, issue hardware writes, stage, commit or
+push.
+
+Skipped: live commissioning and production access remain intentionally
+unperformed. The implementation is not ready for commit or operator
+authorization until the audit-failure regression coverage is complete.
+
+
+TASK 0083 — FINAL INDEPENDENT PRECOMMIT REVIEW AFTER TEST-ONLY CORRECTION
+
+VERDICT: APPROVED
+
+REVIEW DATE
+
+2026-11-19
+
+REVIEW MODE
+
+Independent read-only final review. All preceding PRECOMMIT_REVIEW findings
+and verdicts are preserved above. No implementation, test, configuration,
+DESS, hardware, production, staging, commit or push action was performed.
+Only this review artifact was updated.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Git index: empty
+
+Complete current inventory:
+
+- M app/api.py
+- M app/control/easun_output_actuator.py
+- ?? .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/reviews/PLAN_REVIEW.txt
+- ?? .project-memory/pr/0083-controlled-utility-hold/reviews/PRECOMMIT_REVIEW.txt
+- ?? app/control/easun_live_output_transport.py
+- ?? app/control/easun_utility_hold.py
+- ?? tests/test_easun_utility_hold.py
+
+The cached inventory is empty. No files outside the existing Task 0083
+implementation, test and workflow-artifact scope are present.
+
+FINAL VERIFICATION
+
+- app/api.py has the approved optional keyword-only reject_redirects argument
+  on _do_api_request. Its default remains False, preserving existing callers.
+  The redirect-rejecting opener is used only when explicitly requested.
+- LiveDessTransport uses the shared _do_api_request boundary with the pinned
+  public endpoint and reject_redirects=True. It does not call the generic
+  DessAPI.ctrl_device setter or duplicate signing/HTTP logic.
+- The transport accepts a write only for los_output_source_priority and the
+  uniquely advertised Utility key. Direct Solar, SBU and unrelated keys are
+  rejected. The coordinator separately requires the exact Utility=0,
+  Solar=1, SBU=2 catalogue.
+- Charger and output readbacks require the verified source/provenance, exact
+  values, local timezone-aware receipt timestamps and inclusive freshness.
+  Catalogue, pre-write, under-lock race and post-write receipts are checked
+  against clocks captured at the corresponding stage; stale, future, missing,
+  invalid or changed values fail closed.
+- The journal lock, stable command key, read-only idempotency lookup, INTENT
+  row, WRITE_ATTEMPT event, one write, POST_WRITE_READBACK event and final
+  status are present. VERIFIED duplicates perform zero writes. Mismatch,
+  unknown, write-error, cancellation, post-readback event failure and finish
+  failure remain unresolved or non-retryable and cannot trigger a retry.
+- The feature is disabled by default, has no SBU restore operation, does not
+  invoke BatteryChargeController or other charger/controller paths, and does
+  not claim that a setting readback proves physical Line/Invert operation.
+  No runtime startup wiring, polling loop, charging-policy, threshold,
+  schedule, current, relay, configuration or deployment change was found.
+
+VALIDATION
+
+- Focused command:
+  /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest
+  tests.test_easun_output_actuator tests.test_easun_utility_hold -v
+  Result: PASSED — 35 tests.
+- Broader command:
+  PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m
+  unittest tests.test_grid_output_interlock
+  tests.test_grid_charge_output_coordination
+  tests.test_winter_energy_intelligence tests.test_web_runtime_integration -v
+  Result: PASSED — 117 tests.
+- Compileall for app/api.py, the changed actuator, both new implementation
+  modules and focused tests: PASSED.
+- scripts/check-repo-safety.sh: PASSED; zero errors and warnings.
+- scripts/check-project-memory.sh: PASSED; zero errors.
+- git diff --check: PASSED.
+- git diff --cached --name-only: empty.
+- Static inspection found no production request invocation during review, no
+  DESS access, no credentials, no service restart and no hardware command.
+
+SCOPE AND COMMISSIONING LIMITS
+
+The implementation is ready for the operator-controlled commit workflow, but
+it is not activated or commissioned. Exact device model, firmware, catalogue
+mapping, Utility First backup behavior, operator authorization and a supervised
+live commissioning procedure remain prerequisites before any production write.
+The review does not establish that Utility readback causes a physical
+Line/Invert transition or that automatic SBU restoration is safe.
+
+FINAL OUTCOME
+
+APPROVED for the separate operator-controlled commit step. Do not activate,
+wire, commission, access DESS, issue hardware writes, stage, commit or push as
+part of this review.
+
+Skipped: live commissioning, endpoint/network verification and production
+access remain intentionally unperformed. Risk is confined to unverified
+device-specific behavior until the separately authorized commissioning step.

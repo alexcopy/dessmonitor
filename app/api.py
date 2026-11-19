@@ -129,6 +129,13 @@ class DessAuthError(DessAPIError):
     pass
 
 
+class _RejectRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Leave redirect rejection to urllib without following another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, new):
+        return None
+
+
 class DessTimeoutError(DessAPIError):
     pass
 
@@ -332,6 +339,7 @@ class DessAPI:
         need_auth: bool = True,
         base_url: str | None = None,
         transport: str = "api",
+        reject_redirects: bool = False,
     ) -> dict:
         action = str(params.get("action", ""))
         action_str = self._serialize_action_pairs(self._build_action_pairs(params.copy()))
@@ -351,7 +359,10 @@ class DessAPI:
         self.logger.info("[%s] Request: %s", transport.upper(), self._redact_url(url))
 
         try:
-            with urllib.request.urlopen(url, timeout=self.REQUEST_TIMEOUT) as resp:
+            opener = (urllib.request.build_opener(_RejectRedirectHandler())
+                      if reject_redirects else None)
+            open_url = opener.open if opener is not None else urllib.request.urlopen
+            with open_url(url, timeout=self.REQUEST_TIMEOUT) as resp:
                 raw_data = resp.read()
             data = json.loads(raw_data.decode("utf-8"))
             if data.get("err") != 0:

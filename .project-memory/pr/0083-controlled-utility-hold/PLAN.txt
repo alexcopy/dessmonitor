@@ -1,0 +1,257 @@
+TASK 0083 — CONTROLLED UTILITY HOLD DURING GRID CHARGING
+
+AGENT
+
+plan
+
+MODE
+
+planning only
+
+BRANCH
+
+master
+
+PR
+
+0083-controlled-utility-hold
+
+PRECONDITION
+
+Rerun these read-only commands before every phase:
+
+git rev-parse --verify HEAD
+git branch --show-current
+git status --short --untracked-files=all
+git diff --cached --name-only
+
+Do not stage, commit, push, reset, restore or stash. Preserve all operator
+changes, including unrelated Task 0082 and earlier artifacts.
+
+CONTEXT
+
+BatteryChargeController owns charger-source behavior and emergency charging.
+Task 0076–0081 provide fail-closed interlock, winter, coordination and runtime
+observation infrastructure. easun_output_mapping.py validates exact advertised
+Utility/Solar/SBU catalogue keys. easun_output_actuator.py currently accepts
+only FakeDessTransport and already supplies durable intent, readback, locking,
+duplicate and unresolved-outcome protections. app/api.py exposes the raw
+ctrlDevice primitive; dess_control_discovery.py has the separately guarded
+read-only catalogue/value protocol.
+
+The existing fake-only actuator is not production authorization. This task
+prepares a separately typed live transport and one-way Utility protection
+boundary, but does not wire, enable or invoke it in production.
+
+GOAL
+
+Implement a disabled-by-default, operator-controlled Utility output-priority
+hold. When verified Solar + Mains charging is active and verified output
+priority is SBU, it may issue exactly one Utility request through a dedicated
+authorized transport, durably journal the intent, and verify the reported
+setting afterward. A reported setting is not proof of Line/Invert operation.
+
+SAFETY INVARIANTS
+
+1. Do not change charger-source behavior, voltage thresholds, schedules,
+   currents, relays, life-support controls or emergency charging.
+2. Never automatically restore SBU, including after charging completion,
+   timeout, restart or a reported operating-mode change.
+3. Unknown, stale, contradictory or unverified charger/output/catalogue/model,
+   firmware or backup-behavior evidence blocks every write.
+4. Manual override, unresolved intent, lock failure, readback race, disabled
+   gate or uncertain outcome blocks further writes.
+5. One durable command intent has at most one write. Duplicate polls and
+   concurrent callers cannot duplicate commands.
+6. Only OutputField.PRIORITY and the exact advertised Utility key are writable;
+   charger and voltage fields are impossible through this path.
+7. Results distinguish VERIFIED reported setting, MISMATCH, UNKNOWN,
+   refused and no-op. None claims physical Line/Invert transition or battery
+   eligibility.
+
+REQUIRED READS
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0076-grid-charge-output-source-interlock/PLAN.txt
+- .project-memory/pr/0076-grid-charge-output-source-interlock/CODER_REPORT.txt
+- .project-memory/pr/0080-grid-charge-output-coordination/PLAN.txt
+- .project-memory/pr/0081-grid-charge-coordination-runtime/PLAN.txt
+- app/control/easun_output_mapping.py
+- app/control/easun_output_actuator.py
+- app/control/easun_output_planner.py
+- app/control/grid_output_interlock.py
+- app/control/grid_charge_output_coordination.py
+- app/control/dess_control_discovery.py
+- app/api.py
+- app/service/battery_charge_controller.py
+- service/inverter_monitor.py
+- tests/test_easun_output_actuator.py
+- tests/test_grid_output_interlock.py
+- tests/test_grid_charge_output_coordination.py
+
+PROPOSED ARCHITECTURE
+
+1. Add the mandatory new module
+app/control/easun_live_output_transport.py. Keep FakeDessTransport and the
+existing fake-only EASUNOutputActuator unchanged. LiveDessTransport must use
+the narrow _do_api_request boundary directly with an exact action allowlist:
+queryDeviceCtrlField, queryDeviceCtrlValue, and ctrlDevice only for id exactly
+los_output_source_priority and the exact catalogue-advertised Utility key. It
+must never call the generic DessAPI.ctrl_device() setter. It must pin the
+approved HTTPS endpoint, exact DessAPI device identity and request parameter
+set; reject unsupported actions, fields, values, redirects, alternate
+endpoints, fallback and retries before any network call; avoid credentials and
+raw responses; and never start polling. Its write operation is unavailable
+unless explicit live transport enablement is true.
+
+2. Add an immutable live Utility authorization object, disabled by default.
+Before a write require explicit operator enablement, verified 24 V installation
+class, verified exact inverter model and firmware, independently verified
+Output Source Priority catalogue with unique Utility/Solar/SBU keys, verified
+Utility First backup-on-utility-loss behavior for that model/firmware,
+manual_override=false, acknowledged rollback procedure, and no unresolved
+intent. Do not use implicit environment truthiness. Do not add production
+configuration or runtime startup wiring.
+
+3. Add a small Utility-hold coordinator consuming existing Task 0076/0080
+observations. Require fresh ChargerObservation(mode=solar_and_mains,
+provenance=DEVICE_READBACK) and fresh SettingObservation with both catalogue
+and readback verification. If reported output is Utility, return a zero-write
+no-op. If SBU, recheck current readback and enablement, journal intent, call
+the transport once, read back, and journal VERIFIED/MISMATCH/UNKNOWN. Solar,
+unknown, stale and contradictory evidence must refuse. Never invoke
+BatteryChargeController or change charger policy. An exception/timeout or
+missing post-write readback is UNKNOWN with an unresolved intent that blocks
+retries. Expose no restore-SBU operation.
+
+The coordinator may use a verified Task 0080 decision as a prerequisite, but
+must not treat a reported command result as physical mode proof or promote it
+to battery-use eligibility.
+
+4. Reuse PostgresJournal durable intent and append-only reconciliation events.
+Use a deterministic idempotency key, not a fresh UUID, derived from the
+versioned event identity digest, stable device identity digest, charger receipt
+timestamp, charger payload fingerprint, output readback receipt timestamp,
+reported old value and target Utility key. The digest must not contain or print
+secrets. Use the digest as command_key and command_id. Add only a read-only
+find-by-command-key journal method; do not add a schema migration or unique
+constraint. If more than one row has the key, refuse with an ambiguous-key
+reason. Before any new intent, lookup the key: VERIFIED returns the prior
+verified result with zero writes; MISMATCH, UNKNOWN or INTENT returns the prior
+non-retryable result with zero writes. The existing unresolved-intent guard
+also blocks unrelated unresolved writes.
+
+The audit event sequence is explicit: durable INTENT row; append-only
+WRITE_ATTEMPT event before the transport call; one transport write; a fresh
+local-receipt queryDeviceCtrlValue readback; append-only POST_WRITE_READBACK
+event containing only the parsed setting/status; then finish the row VERIFIED
+only when the fresh parsed value is Utility, otherwise MISMATCH or UNKNOWN.
+Write exceptions, readback timeout, cancellation or event/journal failure must
+never become VERIFIED; if finalization cannot be recorded, leave the intent
+unresolved. Recovery is operator-controlled: disable the live gate; inspect
+current readback and journal read-only; use the existing manual-intervention
+path only after independently established request quiescence; and never
+restore SBU automatically.
+
+The catalogue gate must require one read-only response with field id exactly
+los_output_source_priority and exactly the three label/key pairs from
+easun_output_mapping.PRIORITY_KEYS: Utility=0, Solar=1, SBU=2. Missing,
+additional, duplicated, aliased, case-folded or differently labelled enum
+items refuse. Reuse validate_catalogue_value() for the target, but do not infer
+numeric codes from display text.
+
+Every catalogue and value response receives a separate local timezone-aware
+receipt timestamp. Device timestamps are never treated as verification. The
+approved existing telemetry_max_age_seconds limit applies inclusively
+(0 <= age <= limit) to charger evidence, pre-write output readback and
+post-write readback. A future, stale, missing or unmatched receipt refuses;
+post-write missing/stale readback is UNKNOWN and leaves the intent unresolved.
+
+IMPLEMENTATION ALLOWLIST
+
+- app/control/easun_live_output_transport.py;
+- app/control/easun_utility_hold.py;
+- app/control/easun_output_actuator.py, only for the read-only journal lookup
+  required by the idempotency contract; no fake transport or execute behavior
+  may change;
+- app/api.py, only for the minimal optional redirect-rejection parameter on
+  the existing _do_api_request boundary. Its default behavior and all existing
+  callers must remain unchanged; no signing, endpoint, authentication or
+  response semantics may be duplicated in the new transport;
+- tests/test_easun_output_actuator.py;
+- tests/test_easun_utility_hold.py;
+- .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt;
+- .project-memory/pr/0083-controlled-utility-hold/reviews/PRECOMMIT_REVIEW.txt
+  for the independent reviewer only.
+
+FORBIDDEN FILES AND ACTIONS
+
+Do not modify BatteryChargeController, InverterMonitor, runtime startup,
+production configuration, deployment, database schema, dashboards or Task
+0075–0082 artifacts. Do not contact DESS, call ctrlDevice, test hardware,
+activate the feature, add a poll/retry loop, change charging/threshold/schedule
+behavior, or print secrets. Do not stage, commit, push, reset, restore or
+stash. The app/api.py exception above is the only permitted existing-runtime
+change.
+
+TEST PLAN
+
+Use only FakeDessTransport, fake journals and deterministic fake API adapters.
+Prove verified Solar + Mains plus verified SBU produces one Utility write,
+verified reported readback and an audit trail; already Utility is a zero-write
+no-op; stale/unknown/contradictory/unverified charger, output or catalogue
+evidence produces zero writes; missing model/firmware/backup verification,
+manual override or disabled enablement produces zero writes; emergency
+charging and the charger controller are untouched; duplicate/concurrent calls
+produce at most one write; races, mismatch, timeout, journal failure,
+cancellation and UNKNOWN/INTENT block retries; readback is separate from
+Line/Invert mode; and no test calls a real endpoint.
+
+VALIDATION CHECKLIST
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m unittest \
+  tests.test_easun_output_actuator tests.test_easun_utility_hold -v
+
+PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest \
+  tests.test_grid_output_interlock tests.test_grid_charge_output_coordination \
+  tests.test_winter_energy_intelligence tests.test_web_runtime_integration -v
+
+/private/tmp/dessmonitor-task0077-venv/bin/python -m compileall -q \
+  app/control/easun_output_actuator.py app/control/easun_live_output_transport.py \
+  app/control/easun_utility_hold.py tests/test_easun_output_actuator.py \
+  tests/test_easun_utility_hold.py
+
+scripts/check-repo-safety.sh
+scripts/check-project-memory.sh
+git diff --check
+git diff --name-only
+git diff --cached --name-only
+
+Review must scan the changed path for ctrlDevice and confirm no live request
+was made. Baseline/environment failures must be reported precisely.
+
+NON-GOALS
+
+No production activation or commissioning; no live discovery or model/firmware
+verification; no runtime integration; no automatic SBU restoration; no
+ML/optimization/voltage learning; no database migration or retention change.
+
+WORKFLOW AND GATES
+
+Plan → independent PLAN_REVIEW approval → coder implementation and
+CODER_REPORT → fresh independent PRECOMMIT_REVIEW. Stop before commissioning,
+activation, hardware writes, staging, commit or push. This plan makes no claim
+that live model, firmware, catalogue or backup behavior is verified.
+
+PLAN AMENDMENT — REDIRECT-SAFE REQUEST BOUNDARY
+
+The first implementation review identified that a duplicate signing/HTTP
+implementation would violate the approved request-boundary requirement. The
+minimal correction is to extend app/api.py's existing _do_api_request with an
+optional reject_redirects flag, defaulting to the current behavior for every
+existing caller. LiveDessTransport must call that existing method with the
+flag enabled and must not construct URLs, signs, tokens or HTTP requests
+itself. This amendment adds only that narrow app/api.py helper to the
+allowlist; it does not authorize live access, runtime wiring or any other API
+change. A fresh independent plan review is required before coder completion.

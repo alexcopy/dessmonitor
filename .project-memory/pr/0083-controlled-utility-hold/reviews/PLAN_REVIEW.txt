@@ -1,0 +1,364 @@
+TASK 0083 — INDEPENDENT PLAN REVIEW
+
+VERDICT: CHANGES REQUIRED
+
+REVIEW MODE
+
+Read-only plan review. No implementation, test, configuration, DESS, hardware,
+staging, commit or push actions were performed.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Index: empty
+Worktree: untracked Task 0083 PLAN.txt only before this review artifact
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- Task 0076, 0080 and 0081 plans/reviews relevant to the proposed boundary
+- app/control/easun_output_mapping.py
+- app/control/easun_output_actuator.py
+- app/control/easun_output_planner.py
+- app/control/dess_control_discovery.py
+- app/api.py
+- app/service/battery_charge_controller.py
+- relevant actuator, interlock and coordination tests
+
+POSITIVE FINDINGS
+
+The plan correctly preserves BatteryChargeController and emergency charging,
+forbids SBU restoration, prohibits runtime wiring and live calls during this
+task, requires verified Solar + Mains and SBU evidence, keeps the action
+disabled by default, distinguishes reported setting readback from physical
+Line/Invert operation, and requires fake-only tests. The proposed model,
+firmware, catalogue and backup-behavior prerequisites are appropriately
+commissioning blockers rather than facts asserted by this plan.
+
+BLOCKERS
+
+1. The command-identity and duplicate-write contract is not implementable
+   precisely enough against the existing journal.
+
+   The plan requires a “stable command identity” and says one intent has at
+   most one write, but it does not define how the identity is derived, how an
+   existing command_key is looked up, or how a duplicate evaluation returns
+   the existing result without issuing another write. The current
+   PostgresJournal schema has no unique command_key constraint, and the
+   current EASUNOutputActuator.execute() generates a fresh UUID for each call.
+   A database advisory lock serializes cooperating callers but does not itself
+   make repeated calls idempotent. Add an exact idempotency contract: the
+   stable key inputs, the journal lookup/ownership rules, the behavior for a
+   previously VERIFIED/MISMATCH/UNKNOWN/INTENT key, and the no-second-write
+   rule. If that requires a schema migration or new production provisioning,
+   the task must refuse the live path because those actions are forbidden.
+   Add tests for repeated calls after VERIFIED and for two calls using the
+   same logical event, not only concurrent calls that happen to share a lock.
+
+2. Durable audit requirements do not specify the reconciliation event for
+   the actual post-write readback.
+
+   PostgresJournal.intent() and finish() update the command row, while the
+   existing actuator's reconciliation-event method is used only by its
+   separate reconcile() path. The plan says to journal the readback but does
+   not require one append-only event for the write attempt and the exact
+   post-write observation, including MISMATCH, UNKNOWN, readback timeout,
+   cancellation, and journal failure. Specify the event sequence and
+   transaction/failure semantics, with no status that can be marked VERIFIED
+   without a fresh parsed Utility readback. The fake test must assert the
+   durable command row and reconciliation events, not merely an in-memory
+   transport call list.
+
+3. The live API transport boundary is too permissive and conflicts with the
+   existing generic setter surface.
+
+   app/api.py exposes DessAPI.ctrl_device(field_id, value), which can send
+   arbitrary ctrlDevice fields, including charger controls. The plan forbids
+   app/api.py changes and permits a LiveDessTransport “in the actuator module
+   or” a new module, but it does not require the implementation to avoid the
+   generic setter or define the exact signed request allowlist. Make the
+   separate transport module mandatory and require a narrow method that can
+   issue only action=ctrlDevice for id exactly
+   los_output_source_priority and val exactly the catalogue-advertised
+   Utility key, using the approved device identity and approved API endpoint;
+   reject every other field, value, endpoint, fallback and retry before any
+   network call. Read-only catalogue/value calls need the same identity and
+   endpoint pinning. The existing FakeDessTransport and fake-only actuator
+   behavior must remain unchanged. Add static and fake-adapter tests proving
+   charger/voltage fields and generic ctrl_device paths are unreachable.
+
+4. The catalogue acceptance gate does not state the exact mapping that must
+   be proven before a write.
+
+   The repository mapping defines OutputField.PRIORITY as
+   los_output_source_priority and PRIORITY_KEYS as Utility=0, Solar=1,
+   SBU=2. The plan says “unique Utility/Solar/SBU keys” but does not require
+   the complete exact label/key mapping, rejection of missing or extra enum
+   labels, or reuse of validate_catalogue_value() for the target. Require one
+   read-only catalogue response with the exact field id and exactly one
+   approved mapping for all three labels, then require the current readback to
+   parse as one of those exact labels. No inferred numeric code, alias,
+   case-folded label or sanitized display text may become a write key. If the
+   real catalogue differs, the result must be NO-GO with zero writes.
+
+5. “Fresh” output readback lacks an explicit receipt-time and boundary
+   contract for the live decision.
+
+   Task 0080 SettingObservation uses an aware observed_at and the existing
+   telemetry_max_age_seconds inclusive limit. The plan requires fresh
+   SettingObservation but does not say whether live query responses use local
+   receipt time, a device timestamp, or an unbounded cached value, nor which
+   approved age limit applies to the pre-write and post-write reads. Require
+   separate local receipt timestamps for every catalogue and value response,
+   prohibit treating an absent device timestamp as verified device time, use
+   the existing approved freshness limit with inclusive age <= semantics, and
+   refuse if the pre-write observation can no longer be matched to the
+   gated charger observation or if post-write readback is absent/stale.
+
+WORKFLOW AND SCOPE
+
+The plan correctly requires PLAN_REVIEW approval before coding, a coder report,
+then a fresh independent PRECOMMIT_REVIEW, and leaves activation/commissioning
+outside this task. The allowlist is broadly appropriate, but the live
+transport should be fixed to the new module as described above; modifying the
+existing fake-only actuator must require a stronger reason than the current
+“only if” wording. No runtime wiring, app/api.py change, BatteryChargeController
+change, schema migration, deployment change, live discovery, or hardware test
+is approved by this review.
+
+REQUIRED COMMISSIONING EVIDENCE AFTER IMPLEMENTATION
+
+Before any operator-authorized live enablement, obtain separately approved
+read-only evidence for exact device identity, model, firmware, installation
+voltage class, the complete output-priority catalogue mapping, current
+readback, and manufacturer/model-specific Utility First backup behavior on
+utility loss. Confirm a disabled-by-default gate, journal availability,
+request quiescence and rollback procedure. Commission at most the one-way
+Utility protection with an operator present, verify the reported setting in a
+separate read, and do not interpret it as proof of physical Line/Invert
+operation or authorize automatic SBU restoration.
+
+VALIDATION STATUS
+
+No implementation or runtime tests were run because this is an independent
+read-only PLAN_REVIEW and no live or fake execution was requested. Read-only
+repository inspection and git diff --check were completed. The plan must be
+amended for the blockers above, then reviewed again before implementation.
+
+TASK 0083 — FRESH INDEPENDENT PLAN REVIEW AFTER AMENDMENT
+
+VERDICT: APPROVED
+
+REVIEW DATE
+
+2026-11-19
+
+REVIEW MODE
+
+Read-only plan review. No implementation, tests, configuration, DESS access,
+hardware access, staging, commit or push actions were performed.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Index: empty
+Worktree: untracked Task 0083 PLAN.txt and PLAN_REVIEW.txt only
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+- The preceding CHANGES REQUIRED review in this file
+- app/control/easun_output_mapping.py
+- app/control/easun_output_actuator.py
+- app/control/easun_output_planner.py
+- app/control/dess_control_discovery.py
+- app/api.py
+- tests/test_easun_output_actuator.py
+- Project Memory plans for Tasks 0076, 0080 and 0081 as referenced by the plan
+
+AMENDMENT VERIFICATION
+
+1. Deterministic idempotency is now implementable. The plan defines a
+   versioned digest over the event identity, stable device identity, charger
+   receipt timestamp and payload fingerprint, output-readback receipt time,
+   reported old value and the exact Utility key. It uses the digest as both
+   command_key and command_id, requires a read-only command-key lookup without
+   a schema migration, refuses ambiguous duplicate rows, and specifies zero
+   additional writes for existing VERIFIED, MISMATCH, UNKNOWN or INTENT rows.
+   This closes the prior gap between the existing actuator's fresh UUIDs and
+   the required logical-event idempotency.
+
+2. Durable audit sequencing is explicit: an INTENT row, a WRITE_ATTEMPT
+   append-only event before the single transport write, one write, a fresh
+   local-receipt value read, a POST_WRITE_READBACK append-only event containing
+   only parsed setting/status, and finalization only to VERIFIED for a fresh
+   Utility readback. Write, readback, cancellation, timeout and journal/event
+   failures cannot become VERIFIED; failed finalization leaves the intent
+   unresolved. The plan also requires durable-event assertions in fake tests.
+
+3. The live boundary is mandatory and narrow. The required
+   easun_live_output_transport.py module must call the existing
+   _do_api_request boundary only through the exact allowlist of
+   queryDeviceCtrlField, queryDeviceCtrlValue and ctrlDevice. The latter is
+   restricted to field id los_output_source_priority and the exact advertised
+   Utility key. The plan explicitly forbids DessAPI.ctrl_device(), rejects
+   unsupported fields/values/endpoints/redirects/fallbacks/retries before a
+   network call, pins device identity and endpoint, and keeps the transport
+   disabled unless explicit live enablement is true.
+
+4. Catalogue acceptance is exact and closed. The plan requires field id
+   los_output_source_priority and exactly the mapping Utility=0, Solar=1,
+   SBU=2 from easun_output_mapping.PRIORITY_KEYS, with no missing, extra,
+   duplicate, aliased, case-folded or differently labelled items. It requires
+   reuse of validate_catalogue_value() and prohibits inferring keys from
+   display text.
+
+5. Freshness and provenance are separated. Every catalogue and value response
+   gets its own aware local receipt timestamp; device timestamps cannot serve
+   as verification. The approved telemetry_max_age_seconds bound is inclusive
+   (0 <= age <= limit) for charger evidence, pre-write output readback and
+   post-write readback. Future, stale, missing and unmatched receipts refuse;
+   missing or stale post-write readback is UNKNOWN and leaves the intent
+   unresolved.
+
+6. Scope and safety remain bounded. FakeDessTransport and fake-only actuator
+   behavior remain unchanged except for the explicitly limited journal lookup.
+   The plan forbids runtime wiring, live calls, production configuration,
+   schema changes, polling, charger/emergency/threshold/schedule changes,
+   automatic SBU restoration and hardware testing. It preserves the existing
+   manual-intervention recovery boundary and distinguishes setting readback
+   from physical Line/Invert operation.
+
+7. The implementation allowlist names only the new live transport, the
+   Utility-hold coordinator, the read-only journal lookup, focused tests,
+   CODER_REPORT and the future PRECOMMIT_REVIEW. The test plan covers the
+   verified Solar + Mains/SBU success path, no-op Utility path, all fail-closed
+   evidence gates, duplicate/concurrent calls, races, journal/write/readback
+   failures, unresolved outcomes, audit events and the absence of real
+   endpoints. The workflow requires this approval before coding and a fresh
+   independent precommit review afterward.
+
+REMAINING PREREQUISITES
+
+The plan correctly makes exact device identity, model, firmware, installation
+voltage class, catalogue mapping and model-specific Utility First backup
+behavior separate commissioning evidence. None is claimed as currently
+verified. This is an implementation prerequisite for any future live
+commissioning, not a blocker to the scoped disabled-by-default implementation.
+
+VALIDATION
+
+scripts/check-project-memory.sh: PASSED.
+scripts/check-repo-safety.sh: PASSED.
+git diff --check: PASSED.
+
+No live DESS request, setter, hardware test or production change was made.
+The amended plan is approved for the coder phase. Implementation must remain
+within its allowlist, and live activation/commissioning remains out of scope.
+
+TASK 0083 — FRESH INDEPENDENT PLAN REVIEW OF REDIRECT-SAFE AMENDMENT
+
+VERDICT: APPROVED
+
+REVIEW DATE
+
+2026-11-19
+
+REVIEW MODE
+
+Read-only plan review of the appended REDIRECT-SAFE REQUEST BOUNDARY
+amendment. No implementation, test, configuration, DESS access, hardware
+access, staging, commit or push action was performed. Prior review history is
+preserved above.
+
+REPOSITORY PRECONDITION
+
+HEAD: 8a577f6af96e4b5611b6d7b9842089076888ae58
+Branch: master
+Git index: empty
+
+REVIEWED
+
+- .project-memory/AGENT_STANDARD.txt
+- .project-memory/ORCHESTRATOR_STANDARD.txt
+- .project-memory/pr/0083-controlled-utility-hold/PLAN.txt, including the
+  REDIRECT-SAFE REQUEST BOUNDARY amendment
+- The complete preceding PLAN_REVIEW history
+- app/api.py _do_api_request and ctrl_device boundary
+- app/control/easun_live_output_transport.py
+- app/control/easun_utility_hold.py
+- Task 0083 CODER_REPORT.txt and PRECOMMIT_REVIEW.txt for current
+  implementation context
+
+AMENDMENT FINDING
+
+The amendment is sufficient and appropriately narrow. Adding one optional
+keyword-only reject_redirects parameter to the existing _do_api_request
+boundary, with the default preserving current behavior for every existing
+caller, allows the live transport to remain on the repository's shared
+request path. The shared method continues to own action serialization,
+signing, token handling, URL construction, HTTP execution, response parsing,
+and API error semantics. The new transport need only pass
+reject_redirects=True; it must not construct a URL, generate a signature,
+handle tokens, open HTTP connections, or call DessAPI.ctrl_device().
+
+When the flag is true, the existing boundary can select a redirect-rejecting
+HTTP handler/opener for that request only. This rejects an HTTP redirect
+before following an alternate endpoint while leaving the default behavior
+unchanged for existing callers. The plan already requires the transport to
+pin the approved endpoint and device identity, keep the exact action/field
+allowlist, reject fallback and retries, and remain disabled by default.
+Those requirements together avoid duplicated signing/HTTP and preserve the
+approved safety boundary.
+
+SCOPE AND SAFETY CONFIRMATION
+
+The amendment adds only app/api.py to the implementation allowlist for this
+single optional request-boundary parameter. It does not authorize runtime
+wiring, live access, credentials, configuration, schema changes, charger
+control, threshold changes, automatic SBU restoration, or hardware testing.
+The existing fake-only actuator boundary, Task 0076–0081 coordination,
+emergency charging behavior, manual override gates, durable idempotency and
+readback requirements remain unchanged.
+
+IMPLEMENTATION CONTEXT
+
+The current uncommitted implementation still contains a duplicate
+_strict_api_request path in easun_live_output_transport.py and therefore
+does not yet satisfy this amended plan. That is a coder/precommit blocker,
+not a defect in the amended plan and is not approved or waived by this
+review. The coder must replace that path with a call to _do_api_request(...,
+reject_redirects=True), then independently test redirect rejection through a
+fake request boundary without contacting DESS.
+
+VALIDATION
+
+- scripts/check-repo-safety.sh: PASSED; zero errors and warnings.
+- scripts/check-project-memory.sh: PASSED; zero errors.
+- git diff --check: PASSED.
+- git diff --cached --name-only: empty.
+- No current app/api.py diff was present during this review.
+
+No implementation tests were run because this review is limited to the
+amended plan and the user explicitly prohibited implementation changes and
+live access. The current PRECOMMIT_REVIEW blockers remain applicable until
+the coder completes the boundary correction and its required fault/audit
+tests.
+
+DECISION
+
+APPROVED for the targeted coder correction phase. This approval covers the
+plan amendment only; it is not approval of the current implementation, live
+activation, commissioning, staging, commit or hardware writes. A fresh
+independent PRECOMMIT_REVIEW remains required after implementation changes.
+
+Skipped: live endpoint and redirect behavior were not exercised. Risk remains
+until the implementation uses the shared _do_api_request boundary and proves
+the redirect-rejection, audit-failure and cancellation cases with fake-only
+tests.

@@ -82,6 +82,18 @@ class PostgresJournal:
     async def get_unresolved(self, command_id):
         return await self.conn.fetchrow("SELECT id,field,old_value,new_value,status FROM easun_output_command_journal WHERE id=$1 AND status IS DISTINCT FROM 'VERIFIED'", command_id)
 
+    async def find_by_command_key(self, key):
+        """Read-only idempotency lookup; schema and rows are never changed."""
+        rows = await self.conn.fetch(
+            "SELECT id,field,old_value,new_value,command_key,status "
+            "FROM easun_output_command_journal WHERE command_key=$1 "
+            "ORDER BY created_at, id",
+            key,
+        )
+        if len(rows) > 1:
+            return {"ambiguous": True, "rows": tuple(dict(row) for row in rows)}
+        return dict(rows[0]) if rows else None
+
     async def record_observation(self, event_id, command_id, kind, value):
         await self.conn.execute('INSERT INTO easun_output_reconciliation_events (id,command_id,kind,observed_value) VALUES ($1,$2,$3,$4)', event_id, command_id, kind, value)
 
