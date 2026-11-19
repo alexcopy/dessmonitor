@@ -8,7 +8,7 @@ metadata:
 models:
   coder_model:
     provider: openai
-    model: deepseek-chat
+    model: deepseek-flash
     base_url: https://api.deepseek.com
     token_key: DEEPSEEK_API_KEY
     max_tokens: 10000
