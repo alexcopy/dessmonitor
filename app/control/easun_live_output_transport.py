@@ -8,6 +8,7 @@ key. Unit tests inject a request function and never contact DESS.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -32,6 +33,12 @@ class CatalogueRead:
 
 @dataclass(frozen=True)
 class SettingRead:
+    value: str
+    received_at: datetime
+
+
+@dataclass(frozen=True)
+class ChargerSettingRead:
     value: str
     received_at: datetime
 
@@ -99,7 +106,7 @@ class LiveDessTransport:
                 "i18n": "en_US"}
 
     async def read_catalogue(self) -> CatalogueRead:
-        response = self._request({"action": "queryDeviceCtrlField", **self._common()})
+        response = await asyncio.to_thread(self._request, {"action": "queryDeviceCtrlField", **self._common()})
         fields = response.get("dat", {}).get("field") if isinstance(response.get("dat"), dict) else None
         if not isinstance(fields, list):
             raise LiveTransportRefused("catalogue unavailable")
@@ -118,12 +125,22 @@ class LiveDessTransport:
         return CatalogueRead({"id": selected["id"], "item": list(selected["item"])}, _now())
 
     async def read_setting(self) -> SettingRead:
-        response = self._request({"action": "queryDeviceCtrlValue", **self._common(),
-                                  "id": _PRIORITY_ID})
+        response = await asyncio.to_thread(
+            self._request, {"action": "queryDeviceCtrlValue", **self._common(), "id": _PRIORITY_ID})
         data = response.get("dat")
         if not isinstance(data, dict) or data.get("id") != _PRIORITY_ID or not isinstance(data.get("val"), str):
             raise LiveTransportRefused("output-priority readback unavailable")
         return SettingRead(data["val"], _now())
+
+    async def read_charger_setting(self) -> ChargerSettingRead:
+        response = await asyncio.to_thread(
+            self._request, {"action": "queryDeviceCtrlValue", **self._common(),
+                            "id": "bat_charger_source_priority"})
+        data = response.get("dat")
+        if not isinstance(data, dict) or data.get("id") != "bat_charger_source_priority" \
+                or not isinstance(data.get("val"), str):
+            raise LiveTransportRefused("charger-source readback unavailable")
+        return ChargerSettingRead(data["val"], _now())
 
     async def write_output_priority(self, key: str) -> None:
         if not isinstance(key, str) or not key:
@@ -134,8 +151,9 @@ class LiveDessTransport:
             raise LiveTransportRefused("only the advertised Utility key is writable")
         common = self._common()
         common.pop("i18n", None)
-        self._request({"action": "ctrlDevice", **common,
-                       "id": _PRIORITY_ID, "val": key}, write=True)
+        await asyncio.to_thread(self._request, {"action": "ctrlDevice", **common,
+                                                "id": _PRIORITY_ID, "val": key}, write=True)
 
 
-__all__ = ["API_BASE", "CatalogueRead", "LiveDessTransport", "LiveTransportRefused", "SettingRead"]
+__all__ = ["API_BASE", "CatalogueRead", "ChargerSettingRead", "LiveDessTransport",
+           "LiveTransportRefused", "SettingRead"]

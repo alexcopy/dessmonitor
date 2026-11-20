@@ -1,0 +1,58 @@
+TASK 0085 — INDEPENDENT PRECOMMIT REVIEW
+
+VERDICT: APPROVED
+
+REVIEW BASIS
+
+The independent reviewer inspected the current uncommitted diff, runtime
+callback path, Task 0083 transport/executor, Task 0084 coordination, fresh
+readback handling, reserve-fault boundary, tests and safety markers. No DESS
+endpoint, credential, production database, hardware, staging, Git mutation or
+deployment action was performed.
+
+SAFETY FINDINGS
+
+- BatteryChargeController remains first. InverterMonitor awaits an optional
+  bounded async post-charge callback only after the charger tick, and callback
+  failures are isolated from the monitor loop and shadow monitor.
+- Runtime output control is disabled unless DESS_UTILITY_HOLD_ENABLED and all
+  existing UtilityHoldAuthorization commissioning prerequisites are true,
+  including durable journal availability. Default runtime behavior is no live
+  executor.
+- One observation uses the existing signed DESS boundary for exactly one
+  catalogue read, charger-setting read and output-setting read. No second
+  polling loop was added.
+- Only UtilityHoldCoordinator can write. Its existing lock, idempotency,
+  durable intent, uncertain-outcome, readback and no-retry behavior remains
+  authoritative. No SBU restore exists.
+- Reserve-only winter/diagnostic faults may permit protective Utility hold when
+  charger and output readbacks are independently fresh and verified. Explicit
+  contradictory, stale, invalid, incomplete, unknown, authority, policy,
+  output-unverified and churn-lockout conditions remain blocked.
+- Solar-only does not create an SBU request. Emergency charging remains ahead
+  of optional output coordination.
+
+VALIDATION EVIDENCE
+
+- Focused runtime/coordination/diagnostic/monitor suite: 35 passed.
+- Affected interlock, coordination, winter, web-runtime, blocker-regression,
+  actuator, planner and new runtime tests: 197 passed, 5 expected local
+  PostgreSQL skips.
+- Python compileall for touched implementation and test files: passed.
+- git diff --check: passed.
+- Independent review re-check: APPROVED after the contradictory-evidence guard
+  was narrowed.
+
+KNOWN ENVIRONMENT LIMITATION
+
+One broader shadow-monitor test cannot import the repository's weather module
+under the available environment because the injected aiohttp module lacks
+ClientSession. This is unrelated to Task 0085; the affected runtime tests and
+all 197-test validation command pass.
+
+OPERATOR PREREQUISITES
+
+Do not enable from this task. Before commissioning, operator must independently
+verify model, firmware, exact live catalogue, Utility-loss backup behavior,
+24 V installation, rollback procedure, durable journal schema/database access
+and supervised request quiescence. No real write was issued here.

@@ -1,9 +1,8 @@
 """Coordinate existing charger and output-priority authorities.
 
-This module is deliberately transport-free.  It consumes the existing Task
-0080 shadow decision and can call the Task 0083 Utility holder only when an
-explicit executor is injected by a separately authorized caller.  Runtime
-startup supplies no executor, so this module cannot issue a DESS request.
+This module is deliberately transport-free. It consumes the existing Task
+0080 decision and can call the Task 0083 Utility holder only when an explicit
+executor is injected by a separately authorized caller.
 """
 
 from __future__ import annotations
@@ -92,6 +91,34 @@ def _charger_is_verified(charger: ChargerObservation, now: datetime, limit: floa
             and _fresh(charger.observed_at, now, limit))
 
 
+_UTILITY_PROTECTION_BLOCKERS = frozenset({
+    "OUTPUT_SETTING_CONTRADICTORY", "INTERLOCK_SNAPSHOT_MISMATCH",
+    "AUTHORITY_EVALUATION_UNAVAILABLE", "WINTER_EVALUATION_UNAVAILABLE",
+    "STALE_TELEMETRY", "FUTURE_TIMESTAMP", "CONTRADICTORY_TELEMETRY",
+    "INCOMPLETE_TELEMETRY", "INVALID_MEASUREMENT", "WORKING_MODE_UNKNOWN",
+    "CHARGER_STATE_UNVERIFIED", "CHARGE_POLICY_CONTRADICTORY",
+    "CHARGER_POLICY_MISMATCH", "OUTPUT_SETTING_UNVERIFIED",
+})
+_UTILITY_PROTECTION_DIAGNOSTIC_REASONS = frozenset({
+    "EVENT_PERSISTENCE_UNAVAILABLE", "OBSERVATION_CONTINUITY_UNCERTAIN",
+    "BATTERY_RESERVE_UNVERIFIED", "RESERVE_EVIDENCE_MISSING",
+    "RESERVE_VALIDATION_CONTEXT_MISSING", "RESERVE_EVIDENCE_STALE",
+    "RESERVE_TIMESTAMP_UNVERIFIED", "RESERVE_TRUSTED_INTEGRATION_UNAVAILABLE",
+    "POST_RECOVERY_EVIDENCE_DEADLOCK", "SUPERVISED_TRIAL_REQUIRES_SEPARATE_APPROVAL",
+    "FORECAST_UNVERIFIED", "PV_MEASUREMENT_UNVERIFIED", "DAYLIGHT_UNVERIFIED",
+    "TIMEZONE_UNVERIFIED", "PV_SOURCE_CONTEXT_UNVERIFIED", "EXTERNAL_CHARGING_UNKNOWN",
+})
+
+
+def _shadow_allows_utility_protection(shadow: CoordinationDecision) -> bool:
+    """Allow only reserve/diagnostic holds through the winter return fault state."""
+    reasons = set(shadow.reason_codes)
+    return (shadow.state is CoordinationState.FAULT_HOLD
+            and bool(reasons & _UTILITY_PROTECTION_DIAGNOSTIC_REASONS)
+            and not reasons & _UTILITY_PROTECTION_BLOCKERS
+            and reasons <= (_UTILITY_PROTECTION_DIAGNOSTIC_REASONS | {"GRID_CHARGING_ACTIVE_WITH_SBU"}))
+
+
 def evaluate_coordinated_control(
     shadow: CoordinationDecision,
     *,
@@ -140,10 +167,15 @@ def evaluate_coordinated_control(
     charger_valid = _charger_is_verified(charger, now, freshness_limit_seconds)
     priority_valid = _setting_is_verified(priority, now, freshness_limit_seconds)
 
-    if shadow.state in (CoordinationState.FAULT_HOLD, CoordinationState.CHURN_LOCKOUT):
+    if shadow.state is CoordinationState.FAULT_HOLD and not _shadow_allows_utility_protection(shadow):
         return CoordinatedControlDecision(
-            CoordinatedControlState.FAULT_HOLD if shadow.state is CoordinationState.FAULT_HOLD
-            else CoordinatedControlState.SOLAR_RETURN_BLOCKED,
+            CoordinatedControlState.FAULT_HOLD,
+            ("SHADOW_COORDINATION_BLOCKED",) + shadow.reason_codes,
+            return_blocked=True,
+        )
+    if shadow.state is CoordinationState.CHURN_LOCKOUT:
+        return CoordinatedControlDecision(
+            CoordinatedControlState.SOLAR_RETURN_BLOCKED,
             ("SHADOW_COORDINATION_BLOCKED",) + shadow.reason_codes,
             return_blocked=True,
         )

@@ -40,6 +40,7 @@ from app.control.grid_charge_output_coordination import (
     evaluate_coordination,
 )
 from app.control.coordinated_charger_output_priority import evaluate_coordinated_control
+from app.control.coordinated_charger_output_priority import execute_utility_hold
 from app.control.winter_energy_intelligence import (
     InterlockEvaluationInputs,
     WinterContext,
@@ -168,6 +169,7 @@ class WinterRuntimeDiagnostics:
         self._last_success: WinterDiagnosticSnapshot | None = None
         self._pending_inputs: RuntimeWinterInputs | None = None
         self._coordination_history: deque[ReceiptObservation] = deque(maxlen=_COORDINATION_HISTORY_SIZE)
+        self._last_control_context: tuple[Any, ...] | None = None
         self._latest = WinterDiagnosticSnapshot(
             status="no_observation",
             decision=UNAVAILABLE,
@@ -467,9 +469,12 @@ class WinterRuntimeDiagnostics:
     def observe_coordination(self, data: Any, *, received_at: datetime,
                              evaluated_at: datetime | None = None,
                              fingerprint: str | None = None,
-                             policy_status: object = None) -> WinterDiagnosticSnapshot:
+                             policy_status: object = None,
+                             charger_observation: ChargerObservation | None = None,
+                             priority_observation: SettingObservation | None = None) -> WinterDiagnosticSnapshot:
         """Evaluate Task 0080 after charging status publication for this response."""
         now = _utc(evaluated_at) or datetime.now(timezone.utc)
+        self._last_control_context = None
         received = _utc(received_at)
         pending = self._pending_inputs
         if (received is None or pending is None or pending.snapshot.received_at != received
@@ -485,24 +490,21 @@ class WinterRuntimeDiagnostics:
                 "reasons": ["COORDINATION_OBSERVATION_IDENTITY_UNAVAILABLE"],
             })
             return self._latest
-        charger = ChargerObservation(
+        charger = charger_observation or ChargerObservation(
             mode=self._charger_mode(getattr(data, "charger_priority", None)),
-            observed_at=received,
-            provenance=ChargerProvenance.UNKNOWN,
-        )
+            observed_at=received, provenance=ChargerProvenance.UNKNOWN)
         policy = self._charge_policy_status(policy_status)
         interlock_snapshot = replace(pending.interlock_inputs.snapshot, charger=charger, policy=policy)
         interlock_inputs = replace(pending.interlock_inputs, snapshot=interlock_snapshot)
         receipt = ReceiptObservation(snapshot=interlock_snapshot, received_at=received,
                                      fingerprint=fingerprint if isinstance(fingerprint, str) else None)
         self._coordination_history.append(receipt)
-        priority = SettingObservation(
+        priority = priority_observation or SettingObservation(
             value=(getattr(data, "output_priority", None)
                    if isinstance(getattr(data, "output_priority", None), str) else None),
             observed_at=received,
             catalogue_verified=False,
-            readback_verified=False,
-        )
+            readback_verified=False)
         try:
             decision = evaluate_coordination(
                 pending.snapshot,
@@ -519,6 +521,8 @@ class WinterRuntimeDiagnostics:
                 evaluated_at=now,
                 emergency_recovery=bool(policy is not None and policy.emergency_active is True),
             )
+            self._last_control_context = (control, charger, priority, now, fingerprint, data.working_state
+                                          if hasattr(data, "working_state") else None)
             payload = self._coordination_payload(decision, received)
             payload.update({
                 "control_state": control.state.value,
@@ -545,6 +549,28 @@ class WinterRuntimeDiagnostics:
                 "reasons": ["COORDINATION_EVALUATION_FAILED", type(exc).__name__],
             })
         return self._latest
+
+    async def execute_utility_hold(self, executor: Any | None, *, manual_override: bool = False) -> Any | None:
+        """Run the already-authorized holder for the latest readback-bound decision."""
+        context = self._last_control_context
+        if context is None:
+            return None
+        decision, charger, priority, evaluated_at, fingerprint, working_mode = context
+        result = await execute_utility_hold(
+            decision, executor, charger=charger, priority=priority,
+            evaluated_at=evaluated_at, observation_fingerprint=fingerprint or "",
+            working_mode=working_mode, manual_override=manual_override)
+        if result is not None:
+            payload = dict(self._latest.coordination)
+            payload.update({
+                "utility_hold_status": result.status,
+                "utility_hold_reason": result.reason,
+                "utility_hold_command_id": result.command_id,
+                "utility_hold_reported_priority": result.reported_priority,
+                "utility_hold_hardware_write_attempted": result.hardware_write_attempted,
+            })
+            self._latest = replace(self._latest, coordination=payload)
+        return result
 
     def set_persistence_status(self, status: str) -> None:
         self.persistence_status = status if status in _PERSISTENCE_STATES else "degraded"

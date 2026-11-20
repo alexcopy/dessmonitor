@@ -1,0 +1,48 @@
+TASK 0085 — CONNECT EXISTING DESS OUTPUT PRIORITY CONTROL TO RUNTIME
+
+SCOPE
+
+Reuse the Task 0083 LiveDessTransport/UtilityHoldCoordinator and Task 0084
+coordination state. Add only the runtime adapter needed to read fresh charger
+and output settings, pass them through the existing post-charge diagnostics
+callback, and invoke the existing audited hold executor once when all gates
+pass. BatteryChargeController remains authoritative for charging and is run
+before output coordination.
+
+ALLOWLIST
+
+- app/control/easun_live_output_transport.py
+- app/control/coordinated_charger_output_priority.py
+- app/control/winter_runtime_diagnostics.py
+- app/control/runtime_utility_hold.py
+- service/inverter_monitor.py
+- run.py
+- tests/test_runtime_utility_hold.py
+- tests/test_coordinated_charger_output_priority.py
+- tests/test_shadow_output_monitor.py
+- this PLAN.txt and the independent review artifact
+
+SAFETY CONTRACT
+
+- Runtime enablement is explicit and disabled by default.
+- Commissioning flags remain false unless separately supplied by an operator;
+  missing model, firmware, backup, catalogue, rollback, voltage or journal
+  prerequisites disable the live path.
+- Each successful inverter observation gets one bounded read-only catalogue,
+  charger-setting and output-setting read cycle. No second device polling loop
+  is created.
+- Only the existing UtilityHoldCoordinator may write. Its lock, journal,
+  idempotency, race, timeout, uncertain-outcome and post-write readback rules
+  remain authoritative.
+- Emergency charging completes before output coordination. Output failures
+  are isolated from monitoring and charging.
+- Solar-only never restores SBU. Missing reserve evidence blocks battery return
+  but does not suppress a separately verified protective Utility hold.
+
+VALIDATION
+
+- Focused Utility/coordination/runtime/monitor tests with fake transports.
+- Affected interlock, winter, web-runtime and actuator regressions.
+- Python compileall and git diff --check.
+- No DESS endpoint, device, production database, staging, Git mutation or
+  deployment action.

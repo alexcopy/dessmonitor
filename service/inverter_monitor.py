@@ -1,5 +1,5 @@
 # app/service/inverter_monitor.py
-import asyncio, logging, time
+import asyncio, inspect, logging, time
 from datetime import datetime, timezone
 from app.api import DessAPI, DeviceData
 from app.monitoring.inverter_logger import InverterLogger
@@ -66,11 +66,13 @@ class InverterMonitor:
                             extra={"type": "inverter", "evt": "charge_tick_fail"})
                 if self.post_charge_observer is not None:
                     try:
-                        self.post_charge_observer(
+                        post_charge_result = self.post_charge_observer(
                             dd,
                             received_at=received_at,
                             evaluated_at=datetime.now(timezone.utc),
                         )
+                        if inspect.isawaitable(post_charge_result):
+                            await asyncio.wait_for(post_charge_result, timeout=max(1.0, self.interval / 2))
                     except Exception:
                         now = time.monotonic()
                         if (self._post_charge_last_error_log is None

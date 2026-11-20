@@ -255,6 +255,27 @@ async def main() -> None:
                 __import__("time").monotonic() - t1, dess_exc,
             )
     charge_ctrl = BatteryChargeController(dess_api)
+    utility_hold_runtime = None
+    utility_hold_pool = None
+    if os.getenv("DESS_UTILITY_HOLD_ENABLED", "").lower() in ("1", "true", "yes", "on"):
+        try:
+            import asyncpg
+            from app.control.easun_output_actuator import PostgresJournal
+            from app.control.runtime_utility_hold import RuntimeUtilityHold, build_authorization
+            utility_auth = build_authorization(dess_api)
+            database_url = os.getenv("DATABASE_URL")
+            if not utility_auth.ready:
+                important_log.warning("[UTILITY_HOLD] disabled: commissioning authorization incomplete")
+            elif not database_url:
+                important_log.warning("[UTILITY_HOLD] disabled: DATABASE_URL unavailable for durable journal")
+            else:
+                utility_hold_pool = await asyncpg.create_pool(database_url, min_size=1, max_size=1,
+                                                              command_timeout=10)
+                utility_hold_runtime = RuntimeUtilityHold(
+                    dess_api, PostgresJournal(utility_hold_pool), utility_auth)
+                important_log.warning("[UTILITY_HOLD] enabled by explicit operator authorization")
+        except Exception:
+            important_log.exception("[UTILITY_HOLD] startup failed; charger control remains active")
     shadow_monitor = None
     if os.getenv("ADAPTIVE_OUTPUT_SHADOW_ENABLED", "false").lower() in ("1", "true", "yes", "on"):
         try:
@@ -301,15 +322,19 @@ async def main() -> None:
                 important_log.exception("[WINTER_DIAG] evaluation failed; monitoring continues")
                 _winter_error_logged_at[:] = [now_mono]
 
-    def _observe_post_charge_coordination(dd, *, received_at, evaluated_at) -> None:
+    async def _observe_post_charge_coordination(dd, *, received_at, evaluated_at) -> None:
         """Attach post-charge runtime status to the exact already-recorded response."""
+        if utility_hold_runtime is not None:
+            await utility_hold_runtime.tick(
+                winter_diagnostics, dd, received_at=received_at, evaluated_at=evaluated_at,
+                fingerprint=telemetry_recorder.latest_fingerprint or "",
+                policy_status=shared_state.get("charge_policy_status"),
+            )
+            return
         winter_diagnostics.observe_coordination(
-            dd,
-            received_at=received_at,
-            evaluated_at=evaluated_at,
+            dd, received_at=received_at, evaluated_at=evaluated_at,
             fingerprint=telemetry_recorder.latest_fingerprint,
-            policy_status=shared_state.get("charge_policy_status"),
-        )
+            policy_status=shared_state.get("charge_policy_status"))
 
     inverter_mon = InverterMonitor(
         dess_api,
@@ -646,6 +671,8 @@ async def main() -> None:
             *gather_tasks,
             return_exceptions=True
         )
+        if utility_hold_pool is not None:
+            await utility_hold_pool.close()
 
         important_log.info("Shutdown complete")
 

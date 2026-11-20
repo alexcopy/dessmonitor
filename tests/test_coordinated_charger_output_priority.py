@@ -21,7 +21,7 @@ from app.control.grid_output_interlock import ChargerObservation, ChargerProvena
 NOW = datetime(2026, 12, 10, 12, 0, tzinfo=timezone.utc)
 
 
-def shadow(state=CoordinationState.GRID_HOLD, *, reported_priority="SBU"):
+def shadow(state=CoordinationState.GRID_HOLD, *, reported_priority="SBU", reasons=None):
     return CoordinationDecision(
         state=state,
         desired_profile="Utility",
@@ -30,7 +30,8 @@ def shadow(state=CoordinationState.GRID_HOLD, *, reported_priority="SBU"):
         observed_charger="solar_and_mains",
         observed_at=NOW,
         priority_evidence=SettingObservation(reported_priority, NOW, True, True),
-        reason_codes=(),
+        reason_codes=tuple(reasons if reasons is not None else
+                           (("BATTERY_RESERVE_UNVERIFIED",) if state is CoordinationState.FAULT_HOLD else ())),
         recovery_cycles=0,
         continuity_uncertain=False,
         mode_changes=0,
@@ -116,9 +117,28 @@ class CoordinatedChargerOutputPriorityTests(unittest.TestCase):
     def test_unknown_shadow_or_caller_reserve_cannot_promote_return(self):
         result = evaluate_coordinated_control(
             shadow(CoordinationState.FAULT_HOLD), charger=charger(), priority=priority(), evaluated_at=NOW)
-        self.assertEqual(result.state, CoordinatedControlState.FAULT_HOLD)
+        # Reserve failure blocks battery return, but verified grid charging
+        # still permits the separately authorized protective Utility hold.
+        self.assertEqual(result.state, CoordinatedControlState.UTILITY_HOLD)
+        self.assertTrue(result.utility_hold_requested)
         self.assertNotIn(result.state, (CoordinatedControlState.SOLAR_RETURN_ELIGIBLE,
                                         CoordinatedControlState.SOLAR_OPERATION))
+
+    def test_missing_reserve_does_not_block_verified_utility_protection(self):
+        result = evaluate_coordinated_control(
+            shadow(CoordinationState.FAULT_HOLD), charger=charger(), priority=priority(), evaluated_at=NOW)
+        self.assertEqual(result.state, CoordinatedControlState.UTILITY_HOLD)
+        self.assertTrue(result.utility_hold_requested)
+
+    def test_contradictory_shadow_evidence_blocks_utility_protection(self):
+        result = evaluate_coordinated_control(
+            shadow(CoordinationState.FAULT_HOLD), charger=charger(), priority=priority(), evaluated_at=NOW)
+        blocked = evaluate_coordinated_control(
+            shadow(CoordinationState.FAULT_HOLD, reasons=("OUTPUT_SETTING_CONTRADICTORY",)),
+            charger=charger(), priority=priority(), evaluated_at=NOW)
+        self.assertEqual(result.state, CoordinatedControlState.UTILITY_HOLD)
+        self.assertEqual(blocked.state, CoordinatedControlState.FAULT_HOLD)
+        self.assertFalse(blocked.utility_hold_requested)
 
     def test_injected_executor_is_called_once_and_never_for_solar_return(self):
         executor = FakeExecutor()

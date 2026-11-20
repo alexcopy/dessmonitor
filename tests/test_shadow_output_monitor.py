@@ -333,6 +333,17 @@ class ShadowOutputMonitorTests(unittest.TestCase):
     def test_observer_runs_even_when_shadow_monitor_is_disabled(self):
         observer = Mock()
         self._run_monitor_once(observer=observer, shadow=None)
+
+    def test_async_post_charge_callback_runs_after_charger_tick(self):
+        events = []
+        observer = Mock(side_effect=lambda *args, **kwargs: events.append("observe"))
+        async def charge_tick(**kwargs):
+            events.append("charge")
+        async def post_charge(*args, **kwargs):
+            events.append("post")
+        self._run_monitor_once(observer=observer, shadow=None, post_observer=post_charge,
+                               charge_side_effect=charge_tick)
+        self.assertEqual(events, ["observe", "charge", "post"])
         observer.assert_called_once()
 
     def test_observer_failure_does_not_stop_charger_or_shadow(self):
