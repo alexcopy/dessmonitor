@@ -1,0 +1,306 @@
+TASK
+    0084 — Coordinated Charger and Output Priority Control
+
+AGENT
+    plan
+
+MODE
+    planning, independent review, and implementation
+
+BRANCH
+    master
+
+PR
+    0084-coordinated-charger-output-priority-control
+
+PRECONDITION
+    - HEAD is 86344665c236a6270a10176092b57ed588d6436b on master.
+    - git status --short --untracked-files=all is clean.
+    - git diff --cached --name-only is empty.
+    - Task 0080, Task 0081, Task 0082 and Task 0083 are committed context.
+    - Task 0083's independent precommit approval is read and its Utility-only
+      executor remains disabled and unwired to production startup.
+    - No Task 0084 implementation or report artifact exists yet.
+
+CONTEXT
+    BatteryChargeController remains the sole authority for charger-source
+    requests, recovery thresholds, schedules, emergency handling and charger
+    writes. Task 0080 is a pure shadow evaluator that reports a conservative
+    Utility profile and never commands hardware. Task 0081/0082 expose that
+    observation through the existing runtime/dashboard path. Task 0083 adds a
+    separately authorized, one-way UtilityHoldCoordinator and a disabled live
+    transport with durable intent, idempotency, readback and unresolved-outcome
+    protection; it has no restore-to-SBU operation.
+
+    Current runtime telemetry reports charger priority and output priority, but
+    ordinary DESS telemetry is not independently verified setting readback.
+    Runtime charge-policy status is not silently promoted to device readback.
+    Therefore the default Task 0084 runtime result must remain shadow-only and
+    blocked from a Utility write unless an explicitly injected, independently
+    authorized UtilityHoldCoordinator receives the required fresh evidence.
+
+    The design must coordinate existing capabilities, not create another
+    charging controller, polling loop, reserve verifier, output-priority
+    authority or SBU executor.
+
+REQUIRED READS
+    - .project-memory/AGENT_STANDARD.txt
+    - .project-memory/ORCHESTRATOR_STANDARD.txt
+    - .project-memory/ADR/ADR-0001-agent-workflow.md
+    - .project-memory/ADR/ADR-0003-runtime-safety-before-ml-control.md
+    - .project-memory/ADR/ADR-0004-adaptive-inverter-telemetry-and-winter-shadow.md
+    - .project-memory/pr/0076-grid-charge-output-source-interlock/PLAN.txt
+    - .project-memory/pr/0078-winter-energy-decision-integration/PLAN.txt
+    - .project-memory/pr/0079-adaptive-telemetry-winter-runtime/PLAN.txt
+    - .project-memory/pr/0080-grid-charge-output-coordination/PLAN.txt
+    - .project-memory/pr/0080-grid-charge-output-coordination/reviews/PLAN_REVIEW.txt
+    - .project-memory/pr/0080-grid-charge-output-coordination/CODER_REPORT.txt
+    - .project-memory/pr/0081-grid-charge-coordination-runtime/PLAN.txt
+    - .project-memory/pr/0081-grid-charge-coordination-runtime/CODER_REPORT.txt
+    - .project-memory/pr/0082-dashboard-winter-panel-relocation/PLAN.txt
+    - .project-memory/pr/0082-dashboard-winter-panel-relocation/CODER_REPORT.txt
+    - .project-memory/pr/0083-controlled-utility-hold/PLAN.txt
+    - .project-memory/pr/0083-controlled-utility-hold/CODER_REPORT.txt
+    - .project-memory/pr/0083-controlled-utility-hold/reviews/PRECOMMIT_REVIEW.txt
+    - app/service/battery_charge_controller.py
+    - app/control/grid_output_interlock.py
+    - app/control/grid_charge_output_coordination.py
+    - app/control/winter_energy_intelligence.py
+    - app/control/easun_utility_hold.py
+    - app/control/easun_live_output_transport.py
+    - app/control/easun_output_mapping.py
+    - app/control/easun_output_actuator.py
+    - app/control/winter_runtime_diagnostics.py
+    - service/inverter_monitor.py
+    - run.py
+    - tests/test_grid_charge_output_coordination.py
+    - tests/test_winter_runtime_diagnostics.py
+    - tests/test_easun_utility_hold.py
+
+HARD RULES
+    - Do not stage, commit, push, deploy, access production or issue hardware
+      commands. Git staging and commits remain operator-only.
+    - Do not modify BatteryChargeController behavior, charger thresholds,
+      current limits, schedules, emergency precedence, pumps, life support or
+      nighttime charging.
+    - Do not add a DESS polling loop. Consume the existing successful response
+      and existing post-charge observer only; control work must not delay the
+      monitor or charger protection.
+    - Do not add automatic SBU restoration. Solar-only charger state is not
+      battery-use eligibility. No reboot, timeout, charger release or missing
+      evidence may produce an SBU command.
+    - Do not weaken Task 0076/0078/0080 gates or add a reserve-verification
+      mechanism. Battery voltage, SOC, charge current, sunrise, charger
+      completion and caller-controlled flags remain insufficient reserve proof.
+    - Do not modify Task 0083's transport, journal, actuator or authorization
+      contract. Reuse its one-way UtilityHoldCoordinator only through an
+      injected dependency and preserve its at-most-one-write and unresolved
+      outcome rules.
+    - Do not treat a setting readback as proof of physical Line/Invert mode.
+      Keep requested/configured setting, readback, observed mode and command
+      outcome separate.
+    - Default runtime construction must have no live executor and must remain
+      disabled. Tests must use fakes and must not contact DESS or hardware.
+
+GOAL
+    Implement the smallest coordination adapter that combines the existing
+    Task 0080 shadow decision, fresh charger/output evidence and Task 0083's
+    one-way Utility hold boundary without competing control loops.
+
+    During confirmed or requested Solar + Mains recovery it must recommend or,
+    only when a separately injected authorized executor is supplied, request
+    one Utility hold. If evidence is incomplete, the safe result is a blocked
+    Utility hold decision; emergency charging remains authoritative and is not
+    delayed. When charging returns to Solar only, retain Utility until the
+    existing Task 0076/0078 authority chain, post-recovery settling, dwell,
+    anti-flap, manual-override and fresh setting evidence gates are satisfied.
+    The current installation has no trusted reserve path, so automatic SBU
+    restoration remains unreachable.
+
+ALLOWED FILES
+    - app/control/coordinated_charger_output_priority.py (new pure coordination
+      state machine and an injected-executor adapter; no polling or network).
+    - app/control/winter_runtime_diagnostics.py (only to publish the new
+      coordination/Utility-hold result from the existing response callback).
+    - run.py (only to construct the disabled-by-default shadow coordinator and
+      pass it through the existing observer path; no live executor, database
+      pool, environment-controlled authorization or hardware call).
+    - tests/test_coordinated_charger_output_priority.py (new deterministic
+      state, ordering, safety and fake-executor tests).
+    - tests/test_winter_runtime_diagnostics.py (runtime payload and failure
+      isolation regressions).
+    - tests/test_run.py (only if an existing run startup test can exercise the
+      disabled-by-default construction without starting services).
+    - .project-memory/pr/0084-coordinated-charger-output-priority-control/CODER_REPORT.txt
+      (coder artifact only).
+    - .project-memory/pr/0084-coordinated-charger-output-priority-control/reviews/PRECOMMIT_REVIEW.txt
+      (independent review artifact only).
+
+FORBIDDEN FILES
+    - app/service/battery_charge_controller.py
+    - service/inverter_monitor.py
+    - app/control/easun_utility_hold.py
+    - app/control/easun_live_output_transport.py
+    - app/control/easun_output_actuator.py
+    - app/control/easun_output_mapping.py
+    - app/control/grid_output_interlock.py
+    - app/control/grid_charge_output_coordination.py
+    - app/control/winter_energy_intelligence.py
+    - app/control/command_arbitration.py
+    - app/control/execution_eligibility.py
+    - all Task 0076–0083 PLAN, PLAN_REVIEW, CODER_REPORT and PRECOMMIT_REVIEW
+      artifacts
+    - database schema, migrations, deployment, configuration, DESS API,
+      dashboard templates/static files, hardware, production systems and any
+      unrelated file
+
+COORDINATION CONTRACT
+    The new pure module must accept immutable inputs containing:
+    - the Task 0080 CoordinationDecision and its exact current-snapshot-bound
+      Task 0076/0078 recomputation inputs;
+    - charger policy desired mode, observed mode, provenance and freshness;
+    - output-priority reported/readback value, catalogue/readback provenance
+      and freshness;
+    - manual Utility/SBU override state;
+    - emergency/recovery flags and current working mode;
+    - an optional injected UtilityHoldCoordinator-like executor.
+
+    A caller-reported positive decision is diagnostic-only. The adapter must
+    not accept `verified`, `reserve`, `source`, `synthetic`, scalar or record
+    fields as authority. Current Task 0078 unverified reserve forces the
+    return side to remain blocked.
+
+    The output must distinguish:
+    - GRID_RECOVERY_REQUESTED: policy requests Solar + Mains but device
+      readback is not yet verified;
+    - UTILITY_HOLD: confirmed Solar + Mains with SBU or unknown output setting;
+    - RECOVERY_SETTLING: charger release observed but post-recovery gates have
+      not elapsed;
+    - SOLAR_RETURN_BLOCKED: Solar-only charger state with weak PV, missing
+      reserve, stale evidence, interlock hold, manual Utility or lockout;
+    - SOLAR_RETURN_ELIGIBLE: advisory only, and unreachable with current 0078
+      reserve authority;
+    - SOLAR_OPERATION: not executable and unreachable in this task;
+    - FAULT_HOLD: contradictory, unavailable, failed or unknown evidence;
+    - MANUAL_OVERRIDE: operator hold takes precedence and no automatic change
+      is attempted.
+
+    Every result carries `shadow_only=True`, `command_issued=False`,
+    `hardware_write_attempted=False` and `physical_transition_proven=False`.
+    Emergency recovery has precedence over optional Utility coordination. A
+    failed or unavailable output control path is reported but never blocks the
+    charger controller's emergency tick.
+
+EXECUTION ADAPTER CONTRACT
+    The only permitted execution call is the existing Task 0083
+    UtilityHoldCoordinator.hold(), supplied by dependency injection. Invoke it
+    only after the pure decision requires Utility hold, the caller explicitly
+    supplies the executor, and all Task 0083 evidence/authorization gates are
+    passed. The adapter must never call LiveDessTransport directly, never call
+    ctrlDevice, never retry an UNKNOWN/MISMATCH/INTENT result, and never expose
+    restore-SBU. Already Utility is a zero-write no-op. The runtime path in
+    this task supplies no executor, so production startup cannot write.
+
+    Command ordering remains explicit: observe policy/readback, evaluate
+    emergency and manual precedence, produce the shadow decision, then (only
+    in an injected fake/authorized execution test) call UtilityHoldCoordinator
+    once. Charger policy is not changed by this adapter. If the executor
+    raises, times out or returns uncertain, retain Utility hold and surface the
+    unresolved result without retry.
+
+RUNTIME INTEGRATION
+    Reuse the existing InverterMonitor observation and post-charge callbacks.
+    Do not alter its polling interval or await a control request on the monitor
+    path. run.py may construct the coordinator in shadow mode and pass it to
+    WinterRuntimeDiagnostics. The diagnostic callback must remain failure
+    isolated: a coordinator exception cannot prevent telemetry persistence,
+    charger ticks or emergency handling.
+
+    Runtime charge-policy status is labelled runtime status, not device
+    readback. The current ordinary DESS output/charger fields remain
+    unverified unless supplied through a separately verified observation object.
+    The dashboard payload continues to show the result as diagnostics; no new
+    control endpoint, UI command or production setting is added.
+
+STATE AND ORDERING RULES
+    - Active emergency recovery wins over all optional output coordination.
+    - Manual Utility wins over solar-return consideration; manual SBU cannot
+      bypass interlock, reserve, freshness, dwell or authorization gates.
+    - Solar + Mains policy request without verified charger readback is
+      GRID_RECOVERY_REQUESTED/FAULT_HOLD, never an execution authorization.
+    - Verified Solar + Mains plus SBU output readback yields UTILITY_HOLD and a
+      conflict diagnostic. If output is already Utility, no write is proposed.
+    - A voltage rise during charging never advances return eligibility.
+    - Solar-only charger state begins RECOVERY_SETTLING or
+      SOLAR_RETURN_BLOCKED; it never immediately requests SBU.
+    - Only the existing Task 0076/0078/0080 authority chain could produce a
+      future advisory return. This task cannot produce battery-use eligibility
+      or an SBU command.
+    - Unknown, stale, contradictory, future or unavailable evidence fails
+      closed. Restart begins in hold/fault unless durable existing authority
+      explicitly reconstructs safe state; no automatic SBU follows restart.
+
+TEST MATRIX
+    Deterministic offline tests must cover:
+    - Solar + Mains requested, output SBU, no verified charger readback:
+      shadow hold/requested state, zero writes.
+    - Confirmed Solar + Mains and verified SBU: one injected UtilityHold call,
+      no duplicate call for repeated observation, and no charger-controller
+      invocation.
+    - Already Utility: zero-write no-op.
+    - Battery voltage 25.5/26.0/27.0/28.0 V during charging: no return/SBU.
+    - Solar-only with weak PV, missing/unverified reserve or post-recovery
+      settling: Utility hold/blocked return.
+    - Strong PV with a synthetic=False or otherwise caller-supplied reserve:
+      still unverified and no positive return.
+    - Existing Task 0076 churn lockout, stale/future/contradictory evidence,
+      manual Utility and manual SBU requests.
+    - Output readback mismatch/timeout, interrupted executor, UNKNOWN,
+      MISMATCH, unresolved INTENT and restart: no retry and no SBU.
+    - Emergency charging while output coordination is unavailable: emergency
+      state wins and the charger input snapshot is unchanged.
+    - Duplicate observations and repeated control requests are bounded.
+    - Runtime observer failure isolation and disabled-by-default startup.
+    - Static AST/import checks prove no new polling loop, ctrlDevice call,
+      LiveDessTransport direct call, charger write or SBU executor.
+
+VALIDATION CHECKLIST
+    - Run the focused Task 0084 tests with the repository Python environment.
+    - Run existing Task 0076, Task 0078, Task 0079/0080, Task 0083 and runtime
+      diagnostics tests.
+    - Compile all changed Python files.
+    - Run scripts/check-repo-safety.sh.
+    - Run scripts/check-project-memory.sh.
+    - Run git diff --check and git diff --name-only.
+    - Confirm no DESS endpoint, credentials, database production service or
+      hardware is contacted.
+    - Record actual results and any baseline failures in CODER_REPORT.txt.
+    - Obtain independent PRECOMMIT_REVIEW approval before any operator commit.
+
+ROLLBACK AND LIMITATIONS
+    No migration, schema, persistent state store, deployment or production
+    configuration is introduced. Rollback is removal/revert of the new adapter,
+    its runtime shadow construction and tests; existing charger, telemetry,
+    Task 0080 and Task 0083 behavior remains intact. If runtime construction
+    fails, diagnostics degrade to unavailable while monitoring and charging
+    continue.
+
+    Live commissioning remains outside this task and requires separate operator
+    approval after verifying the actual inverter model/firmware, DESS catalogue
+    mapping, Utility-loss backup behavior, request quiescence, rollback and
+    supervised audit. Automatic SBU restoration is not delivered.
+
+NON-GOALS
+    - No production hardware command, live commissioning, deployment, staging,
+      commit or push.
+    - No automatic SBU restoration or voltage-threshold adjustment.
+    - No charger-policy redesign, new polling loop, reserve integration,
+      database migration, web command endpoint or unrelated refactor.
+    - No claim that Utility readback proves physical Line/Invert operation.
+
+OUTPUT FORMAT
+    Planning phase produces PLAN.txt and an independent reviews/PLAN_REVIEW.txt.
+    After approval, coder produces only the allowlisted implementation files
+    and CODER_REPORT.txt. A fresh independent reviewer produces only
+    reviews/PRECOMMIT_REVIEW.txt. All artifacts must report actual commands and
+    no agent may stage, commit or push.

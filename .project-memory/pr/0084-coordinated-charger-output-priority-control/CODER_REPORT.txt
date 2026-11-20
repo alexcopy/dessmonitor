@@ -1,0 +1,119 @@
+TASK COMPLETE
+
+Task 0084 implementation is complete for the approved disabled-by-default,
+shadow-only scope. The new adapter coordinates Task 0080's shadow decision
+with fresh charger/output evidence and exposes a conservative Utility-hold
+control result through the existing winter diagnostics callback. It does not
+create a polling loop, charger controller, reserve authority, DESS transport,
+SBU executor or production hardware path.
+
+BLOCKERS
+
+No implementation blocker remains. Automatic SBU restoration remains
+intentionally unavailable because the committed Task 0078 runtime has no
+trusted BMS/shunt reserve integration. Runtime startup supplies no Utility
+executor, so no live DESS request can be issued by this change.
+
+WARNINGS
+
+- Current ordinary runtime charger/output fields remain unverified unless a
+  separately verified observation is supplied.
+- A Utility-hold decision is not proof of physical Line/Invert behavior.
+- Live commissioning still requires separate operator authorization and
+  verification of model, firmware, catalogue mapping, backup behavior,
+  rollback and request quiescence.
+
+FILES CHANGED
+
+- app/control/coordinated_charger_output_priority.py
+  New transport-free coordination state machine and one-call injected adapter
+  for the existing Task 0083 UtilityHoldCoordinator.
+- app/control/winter_runtime_diagnostics.py
+  Publishes control state, Utility-hold request status, blocking reasons and
+  immutable shadow markers from the existing post-charge observation callback.
+- tests/test_coordinated_charger_output_priority.py
+  Covers recovery, Utility no-op, stale/unverified evidence, manual/emergency
+  precedence, no SBU restoration, injected executor behavior and static
+  no-transport/no-polling boundaries.
+- tests/test_winter_runtime_diagnostics.py
+  Verifies runtime diagnostics expose the conservative disabled control state.
+- .project-memory/pr/0084-coordinated-charger-output-priority-control/CODER_REPORT.txt
+
+The approved PLAN.txt and PLAN_REVIEW.txt were not modified. run.py,
+InverterMonitor, BatteryChargeController and all Task 0076–0083 implementation
+files remain unchanged; the existing observer path was sufficient for the
+read-only diagnostic integration.
+
+VALIDATION RUN
+
+Precondition before coding:
+
+- git rev-parse --verify HEAD: 86344665c236a6270a10176092b57ed588d6436b
+- git branch --show-current: master
+- git status --short --untracked-files=all: only Task 0084 planning artifacts
+- git diff --cached --name-only: empty
+
+Focused implementation and affected regressions:
+
+PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest \
+  tests.test_coordinated_charger_output_priority \
+  tests.test_winter_runtime_diagnostics \
+  tests.test_grid_charge_output_coordination -v
+
+Result: 67 tests passed.
+
+Existing safety and integration regressions:
+
+PYTHONPATH=tests:. /private/tmp/dessmonitor-task0077-venv/bin/python -m unittest \
+  tests.test_easun_output_actuator tests.test_easun_utility_hold \
+  tests.test_grid_output_interlock tests.test_winter_energy_intelligence \
+  tests.test_adaptive_telemetry tests.test_winter_runtime_diagnostics \
+  tests.test_grid_charge_output_coordination \
+  tests.test_coordinated_charger_output_priority -v
+
+Result: 203 tests passed.
+
+Additional gates:
+
+- compileall for all changed Python implementation and test files: passed.
+- git diff --check: passed.
+- Static boundary scan for LiveDessTransport, ctrlDevice, fetch_device_data,
+  charger writes and direct transport calls in the new/runtime integration:
+  no matches.
+- scripts/check-repo-safety.sh: passed, 0 errors and 0 warnings.
+- scripts/check-project-memory.sh: passed, 60 directories and 0 rejected.
+- No DESS endpoint, credentials, database production service, hardware or
+  production runtime was accessed.
+
+The first focused invocation exposed a syntax error in a newly added test
+call (keyword/positional argument ordering). That test-only mistake was
+corrected; the final focused and regression runs above passed.
+
+DEVIATIONS FROM PLAN
+
+- run.py was not modified. Its existing successful-response and post-charge
+  observer wiring already reaches WinterRuntimeDiagnostics, so adding a
+  second startup object would have increased control surface without adding
+  capability. Runtime remains executor-free and disabled by construction.
+- No tests/test_run.py was created because no existing startup test file was
+  present.
+
+BOUNDARY CONFIRMATIONS
+
+- BatteryChargeController remains authoritative and unchanged.
+- Emergency recovery takes precedence in the new control decision and cannot
+  be delayed by output coordination.
+- The existing Task 0083 executor is called only through an explicitly
+  injected hold() dependency in offline tests; runtime supplies none.
+- UNKNOWN, MISMATCH, unresolved INTENT and missing evidence do not retry and
+  never restore SBU.
+- Voltage, SOC, charger completion and caller-provided reserve claims cannot
+  create a return decision.
+- All output markers remain shadow-only: no command issued, no hardware write
+  attempted and no physical transition proven.
+
+NEXT REQUIRED ACTION
+
+Obtain a fresh independent PRECOMMIT_REVIEW of the final diff and actual
+validation results. Do not stage, commit, push, deploy, commission or issue a
+hardware command from this task.

@@ -1,0 +1,131 @@
+TASK 0084 — INDEPENDENT PRECOMMIT REVIEW
+
+VERDICT
+
+APPROVED — DISABLED-BY-DEFAULT, SHADOW-ONLY IMPLEMENTATION.
+
+This approval is limited to the final Task 0084 files present in the
+worktree. It does not approve staging, commit, deployment, production
+runtime activation, DESS access, hardware access, or live commissioning.
+
+REVIEW BASIS
+
+I read the approved PLAN.txt and PLAN_REVIEW.txt, CODER_REPORT.txt, the full
+final Task 0084 implementation and test files, and the relevant Task
+0076–0083 contracts and tests, including:
+
+- Task 0076 interlock snapshot binding, emergency precedence, reserve gates,
+  churn lockout and shadow-only markers.
+- Task 0078 fail-closed reserve provenance and rejection of synthetic or
+  caller-controlled reserve claims.
+- Task 0079 runtime diagnostics receipt-time freshness and failure isolation.
+- Task 0080 shadow coordination and exact raw-input authority recomputation.
+- Task 0083 UtilityHoldCoordinator authorization, read-before-write,
+  journaling, idempotency, unresolved-outcome and Utility-only behavior.
+- BatteryChargeController, InverterMonitor, run.py and the focused regression
+  tests.
+
+No staging, commit, push, deployment, DESS, production, database or hardware
+operation was performed.
+
+REPOSITORY STATE
+
+- HEAD: 86344665c236a6270a10176092b57ed588d6436b
+- Branch: master
+- Index: empty
+- Expected Task 0084 implementation files are the only application/test
+  changes; the Task 0084 PLAN, PLAN_REVIEW and CODER_REPORT artifacts are
+  present as project-memory files.
+- No unrelated application, test, prior-artifact or configuration changes
+  were found.
+
+SCOPE AND SAFETY FINDINGS
+
+1. EXACT ALLOWLIST — SATISFIED
+
+The final implementation consists of the new pure coordination adapter,
+the existing winter diagnostics integration, their tests and CODER_REPORT.
+run.py was not modified because its existing post-charge observer already
+reaches the diagnostics adapter. No tests/test_run.py was created. The
+approved PLAN.txt and PLAN_REVIEW.txt and all Task 0076–0083 files remain
+unchanged.
+
+2. DISABLED-BY-DEFAULT RUNTIME — SATISFIED
+
+Runtime diagnostics constructs the coordination decision from the existing
+successful observation/post-charge path and supplies no executor. Ordinary
+runtime charger and output-priority fields retain their unverified
+provenance, so the live path cannot request a Utility write. No new polling
+loop, network import, DESS transport, ctrlDevice path, database pool or
+environment-controlled authorization was added. The callback remains
+failure-isolated, and its exception cannot block telemetry, charger ticks or
+emergency handling.
+
+3. TASK 0083 EXECUTION BOUNDARY — SATISFIED
+
+The only execution helper accepts an explicitly injected object exposing
+Task 0083's hold() contract. It calls that dependency only for a verified
+Solar + Mains plus SBU Utility-hold decision, never calls a transport or
+ctrlDevice directly, never retries an uncertain result, and has no SBU
+restore operation. Already-Utility is a zero-write result. Existing Task
+0083 tests cover its authorization, durable intent, readback, idempotency,
+UNKNOWN/MISMATCH/INTENT and unresolved-outcome rules; Task 0084 tests cover
+the adapter's single injected call and no-call solar-return path.
+
+4. CHARGER, EMERGENCY AND MANUAL PRECEDENCE — SATISFIED
+
+BatteryChargeController and InverterMonitor are unchanged. Emergency
+recovery precedes optional coordination; manual Utility or SBU requests
+produce a blocking manual-override state; coordinator failure is converted
+to a diagnostic FAULT_HOLD. No charger thresholds, current limits,
+schedules, pumps, life-support behavior or nighttime charging behavior was
+changed.
+
+5. NO AUTOMATIC SBU OR NEW RESERVE AUTHORITY — SATISFIED
+
+Solar-only input returns SOLAR_RETURN_BLOCKED and AUTOMATIC_SBU_DISABLED.
+SOLAR_RETURN_ELIGIBLE and SOLAR_OPERATION cannot be constructed by the new
+decision dataclass. Voltage, charger completion, caller reserve claims,
+synthetic flags, SOC and other unverified fields are not used as authority.
+Task 0078 remains the fail-closed reserve boundary, and the current runtime
+cannot produce battery-use eligibility.
+
+6. TRUTHFUL OBSERVABILITY — SATISFIED
+
+The runtime payload exposes control state, reasons, Utility-hold request
+status and immutable shadow/command/physical-transition markers separately
+from the existing Task 0080 decision. Setting readback, observed mode and
+physical transition are not conflated. Runtime charge-policy status remains
+labelled runtime status rather than device readback.
+
+VALIDATION
+
+Re-ran successfully in the repository's reported test environment:
+
+- Focused tests: 67 passed.
+- Existing safety/integration regressions: 203 passed.
+- Python compilation of all changed implementation and test files: passed.
+- scripts/check-repo-safety.sh: passed, 0 errors and 0 warnings.
+- scripts/check-project-memory.sh: passed, 60 directories and 0 rejected.
+- git diff --check: passed.
+- Additional trailing-whitespace scan: clean.
+- Static boundary checks: no production transport, ctrlDevice, polling,
+  charger-write or SBU-executor path in the new/runtime integration.
+
+No DESS endpoint, credentials, production database service, hardware or live
+runtime was accessed.
+
+LIMITATIONS AND COMMISSIONING PREREQUISITES
+
+The implementation intentionally cannot prove physical Line/Invert behavior,
+cannot automatically restore SBU and cannot establish trusted reserve. The
+ordinary runtime observation fields remain unverified. Any future live
+activation requires a separately approved change and independent verification
+of the actual inverter model/firmware, DESS catalogue mapping, Utility-loss
+backup behavior, authorization, rollback and supervised request quiescence.
+
+FINAL GATE
+
+APPROVED for the exact disabled-by-default, shadow-only Task 0084 scope.
+Operator-controlled staging or commit may proceed only after reviewing this
+artifact; no production activation is implied.

@@ -1,0 +1,137 @@
+TASK 0084 — INDEPENDENT PLAN REVIEW
+
+VERDICT
+
+APPROVED — SHADOW-ONLY, DISABLED-BY-DEFAULT IMPLEMENTATION SCOPE.
+
+Approval is limited to the exact Task 0084 allowlist and the read-only runtime
+diagnostic integration described in PLAN.txt. It does not approve a live
+executor in startup, a DESS request, an inverter write, automatic SBU
+restoration, a new reserve authority, deployment, staging, commit or push.
+
+REVIEW BASIS
+
+I read PLAN.txt in full, AGENT_STANDARD.txt, ORCHESTRATOR_STANDARD.txt,
+ADR-0001, ADR-0003 and ADR-0004, and the named approved Task 0076–0083 plans,
+reviews and coder reports. I inspected the current charger controller, Task
+0076 interlock, Task 0080 coordinator, Task 0081 runtime diagnostics and
+monitor callback, and Task 0083 UtilityHoldCoordinator/live-transport
+contracts and focused tests.
+
+No tests, hardware, DESS, database, production, staging, Git index or commit
+operation was performed by this review. The plan itself was not modified.
+
+REPOSITORY PRECONDITION
+
+HEAD: 86344665c236a6270a10176092b57ed588d6436b
+Branch: master
+Index: empty
+
+The only worktree entry is the untracked Task 0084 Project Memory directory
+containing PLAN.txt and this review artifact. No application or test file is
+modified.
+
+FINDINGS
+
+1. EXACT ALLOWLIST — SATISFIED
+
+The plan names one new coordination module, two runtime/test integration
+targets, an optional existing startup-test path, and the two Task 0084
+implementation/review artifacts. It explicitly forbids the charger
+controller, inverter monitor, Task 0076–0083 implementation/artifact files,
+the Task 0083 transport/actuator/mapping, DESS API, database, deployment and
+web-control files.
+
+tests/test_run.py is absent in the reviewed repository. The plan correctly
+limits that path to an existing startup test; the coder must omit it rather
+than create a new file or broaden the allowlist.
+
+2. RUNTIME IS DISABLED-BY-DEFAULT AND FAILURE-ISOLATED — SATISFIED
+
+The existing runtime uses the already-fetched DESS response and the existing
+post-charge observer. InverterMonitor keeps the current 60-second poll and
+invokes the callback after the solar and BatteryChargeController ticks; its
+exception boundary preserves the charger tick, monitoring loop and shadow
+monitor. The plan does not authorize a new poller, a blocking control wait or
+a change to that ordering.
+
+The runtime construction must pass no executor and must not import or
+construct LiveDessTransport, UtilityHoldCoordinator, a journal/database pool,
+or any environment-controlled authorization. The injected-executor path is
+therefore test-only/future-authorized. Because Task 0083's hold() is async,
+the implementation must not synchronously run or await it from the monitor
+callback; any fake/authorized invocation belongs outside the runtime observer
+path. Startup construction failure must degrade to an unavailable diagnostic,
+as required by the plan, while the existing monitor and charger continue.
+
+3. TASK 0083 BOUNDARY REUSE — SATISFIED
+
+The plan permits exactly one execution call: the existing
+UtilityHoldCoordinator.hold(). It requires the caller to supply the executor
+explicitly and requires Task 0083's own authorization, fresh evidence,
+catalogue, idempotency, lock, readback and unresolved-outcome gates to pass.
+It forbids direct LiveDessTransport/ctrlDevice access, retries after
+UNKNOWN/MISMATCH/INTENT, and any restore-SBU operation. Already-Utility is a
+zero-write result. This reuses the approved boundary without creating a
+second authorization or command protocol.
+
+4. CHARGER AND EMERGENCY AUTHORITY — SATISFIED
+
+BatteryChargeController remains the sole authority for charger-source policy,
+thresholds, schedules, current handling and emergency behavior. The proposed
+adapter only observes or reports coordination and cannot mutate charger
+inputs. Emergency recovery has explicit precedence, and the test matrix
+requires that an unavailable coordinator leaves the emergency charger tick
+and its input snapshot unchanged. No inverter monitor change is permitted.
+
+5. NO AUTOMATIC SBU, POLLING OR RESERVE AUTHORITY — SATISFIED
+
+The plan explicitly keeps all return states advisory and unreachable under the
+current Task 0078 reserve boundary. Manual SBU cannot bypass interlock,
+freshness, dwell or authorization gates; restart, charger completion, voltage
+rise, timeout and missing evidence cannot produce SBU. Ordinary runtime DESS
+fields remain unverified. Caller-controlled reserve, source, verified,
+synthetic, scalar and record fields are diagnostic-only, and no new trusted
+source, certificate, token or reserve verifier is introduced.
+
+The new module is prohibited from polling or networking, and the runtime
+reuses only existing successful-response and post-charge callbacks. Readback,
+observed Line/Invert mode and command outcome remain separate evidence.
+
+6. TEST MATRIX, VALIDATION AND ROLLBACK — IMPLEMENTABLE
+
+The matrix covers requested versus verified Solar + Mains, SBU/Utility
+readback, voltage false positives, weak PV, stale/future/contradictory data,
+Task 0076 lockout, manual overrides, executor uncertainty and idempotency,
+emergency precedence, callback isolation, duplicate bounding, disabled
+startup, static no-command checks and the synthetic=False reserve regression.
+The required repository safety, Project Memory, compilation, diff and focused
+regression checks are concrete and proportionate. The code-only rollback has
+no schema, persistent-state or deployment dependency and leaves charger,
+telemetry, Task 0080 and Task 0083 behavior intact.
+
+IMPLEMENTATION CONDITIONS
+
+These are confirmations of the approved boundary, not scope expansion:
+
+- Keep the runtime executor absent and prove that absence with an import/AST
+  or equivalent startup test; do not rely on a false environment flag.
+- Keep injected UtilityHoldCoordinator calls separate from the synchronous
+  monitor callback and assert at most one call with no retry after any
+  uncertain Task 0083 result.
+- Preserve the exact Task 0076/0078 raw-input recomputation and current
+  snapshot identity; a caller-reported positive decision must never become
+  authority.
+- Do not add tests/test_run.py unless an existing file appears and the plan's
+  stated condition is met.
+
+GATE DECISION
+
+APPROVED for the Task 0084 planning scope and the explicitly bounded future
+implementation. A later coder must produce only the allowlisted files and a
+fresh independent PRECOMMIT_REVIEW must validate the resulting diff and
+actual command results before any operator-controlled commit.
+
+Skipped: live commissioning, endpoint/network verification, production
+access, hardware testing and full test execution. These remain intentionally
+outside this review.

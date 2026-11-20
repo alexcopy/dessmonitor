@@ -87,6 +87,9 @@ class WinterRuntimeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(coordinated.coordination["charge_policy_provenance"], "RUNTIME_STATUS")
         self.assertFalse(coordinated.coordination["charge_policy_verified"])
         self.assertEqual(coordinated.coordination["charger_provenance"], "UNKNOWN")
+        self.assertEqual(coordinated.coordination["control_state"], "FAULT_HOLD")
+        self.assertFalse(coordinated.coordination["utility_hold_requested"])
+        self.assertTrue(coordinated.coordination["return_blocked"])
         self.assertFalse(coordinated.coordination["command_issued"])
         self.assertFalse(coordinated.coordination["hardware_write_attempted"])
 

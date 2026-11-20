@@ -39,6 +39,7 @@ from app.control.grid_charge_output_coordination import (
     SettingObservation,
     evaluate_coordination,
 )
+from app.control.coordinated_charger_output_priority import evaluate_coordinated_control
 from app.control.winter_energy_intelligence import (
     InterlockEvaluationInputs,
     WinterContext,
@@ -511,7 +512,24 @@ class WinterRuntimeDiagnostics:
                 priority=priority,
                 persistence_available=False,
             )
+            control = evaluate_coordinated_control(
+                decision,
+                charger=charger,
+                priority=priority,
+                evaluated_at=now,
+                emergency_recovery=bool(policy is not None and policy.emergency_active is True),
+            )
             payload = self._coordination_payload(decision, received)
+            payload.update({
+                "control_state": control.state.value,
+                "utility_hold_requested": control.utility_hold_requested,
+                "return_blocked": control.return_blocked,
+                "control_reasons": list(control.reason_codes),
+                "control_shadow_only": control.shadow_only,
+                "control_command_issued": control.command_issued,
+                "control_hardware_write_attempted": control.hardware_write_attempted,
+                "control_physical_transition_proven": control.physical_transition_proven,
+            })
             if policy is not None:
                 payload["charge_policy_state"] = policy.state
                 payload["charge_policy_provenance"] = policy.provenance.value
